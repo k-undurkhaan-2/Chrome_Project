@@ -1,18 +1,12 @@
-# armedforces.io project
+# armedforces.io-v2
 
-## ***Urgent Statement***
+**Due to old method and design has been proved no longer available, we start the new design for armedforces.io project.**
 
-**In the March 18 test, the previous version experienced a critical failure, which means the earlier design logic has completely broken down and the old version can no longer serve its intended purpose. A new version is currently under development. We have already adopted a completely new design approach and implemented stricter, more rigorous testing.**
+***Project has NOT complete yet...***
 
-~~***If you're not familiar with how to use Cheat Engine or using our script, I'm honestly recommend you read our [User Guide](https://github.com/k-undurkhaan/Chrome_Project/blob/armedforces.io/User%20Guide_for%20v0.1.2-alpha.md) first!***~~
+*There are some pre-release and current workflow here.*
 
-## Overview
-
-~~We are currently working on dynamic memory address tracing not base on pointer chains.~~
-
-~~So we can rapidly change wanted values to obtain a ideal game experience！~~
-
-This script is developed by Cheat Engine and written with the assistance of tools such as ChatGPT Codex and GPT-5.4 Thinking.
+>*This script is developed by Cheat Engine and written with the assistance of ChatGPT Codex and GPT-5.4 Thinking.*
 
 ## Disclaimer
 
