@@ -1,0 +1,8 @@
+[MVP0] REPORT_BUILD_TAG = probe-20260321-v1
+[MVP0] REPORT_SOURCE = @D:\Lua Developer\mvp0_candidate_report.lua
+[MVP0][nil-guard] candidate=0x1B4401604010 field=f08 raw=nil helper=read_u32 note=unreadable_or_nil
+[MVP0][nil-guard] candidate=0x1B4401604010 field=f08 raw=nil helper=build_field_info note=non_numeric_value
+run_ok	true
+true_in_selected	true
+known_true_rank_position	1
+pcall_ok	true
