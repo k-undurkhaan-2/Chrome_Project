@@ -16,4 +16,4 @@
 
 **Any consequences arising from the use of this script shall be borne solely by the user.**
 
-**If you decide to use our commits at here, that's represent you're already understand and accept all above instructions.***
+***If you decide to use our commits at here, that's represent you're already understand and accept all above instructions.***
