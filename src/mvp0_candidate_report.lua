@@ -2260,19 +2260,26 @@ local function compute_anchored_fragmented_split_penalty(scored_candidate)
   return 0
 end
 
-function MVP0.compute_one_sided_anchorless_split_penalty(candidate)
+function MVP0.compute_one_sided_anchorless_split_penalty(candidate, pointer_reward, strong_structure_bonus)
   local advanced = candidate.local_features.advanced_layout
   local pointer_field_count = #(advanced.pointer_fields or {})
+  local one_sided_non_singleton_support =
+    (advanced.front_non_singleton_cluster_count > 0 and advanced.tail_non_singleton_cluster_count == 0)
+    or (advanced.front_non_singleton_cluster_count == 0 and advanced.tail_non_singleton_cluster_count > 0)
 
+  -- Suppress very weak anchorless front-tail splits that only retain one-sided
+  -- non-singleton support and minimal pointer evidence; these should not sit
+  -- close to anchored two-sided structures.
   if advanced.cluster_layout == "front_tail_split"
       and not advanced.has_valid_anchor
-      and advanced.front_non_singleton_cluster_count == 1
-      and advanced.tail_non_singleton_cluster_count == 0
-      and advanced.dominant_cluster_size == 2
-      and advanced.pointer_alignment_count == 3
-      and advanced.pointer_region_count == 2
-      and pointer_field_count == 3 then
-    return 2
+      and one_sided_non_singleton_support
+      and advanced.dominant_cluster_size <= 2
+      and advanced.pointer_alignment_count <= 3
+      and advanced.pointer_region_count <= 2
+      and pointer_field_count <= 3
+      and pointer_reward <= 1
+      and strong_structure_bonus == 0 then
+    return 3
   end
 
   return 0
@@ -2338,7 +2345,8 @@ function MVP0.apply_rank_adjustments(scored_candidate, context)
   local strong_structure_bonus = compute_strong_structure_bonus(scored_candidate)
   local sparse_anchor_tail_penalty = compute_sparse_anchor_tail_penalty(scored_candidate)
   local anchored_fragmented_split_penalty = compute_anchored_fragmented_split_penalty(scored_candidate)
-  local one_sided_anchorless_split_penalty = MVP0.compute_one_sided_anchorless_split_penalty(scored_candidate)
+  local one_sided_anchorless_split_penalty =
+    MVP0.compute_one_sided_anchorless_split_penalty(scored_candidate, pointer_reward, strong_structure_bonus)
   local anchored_one_sided_weak_split_penalty =
     compute_anchored_one_sided_weak_split_penalty(scored_candidate, pointer_reward, strong_structure_bonus)
   local scattered_singleton_penalty = compute_scattered_singleton_penalty(scored_candidate, pointer_reward)
