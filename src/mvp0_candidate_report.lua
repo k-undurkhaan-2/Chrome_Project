@@ -2306,15 +2306,16 @@ local function compute_anchored_one_sided_weak_split_penalty(scored_candidate, p
     or (advanced.front_non_singleton_cluster_count == 0 and advanced.tail_non_singleton_cluster_count > 0)
 
   -- Suppress anchored front-tail splits that only have one-sided non-singleton support
-  -- and otherwise weak pointer support; these should not sit near robust two-sided objects.
+  -- and otherwise only moderate pointer support; these should not sit near robust
+  -- two-sided objects even if they retain a small pointer reward.
   if advanced.cluster_layout == "front_tail_split"
       and advanced.has_valid_anchor
       and one_sided_non_singleton_support
       and advanced.dominant_cluster_size <= 2
-      and advanced.pointer_alignment_count <= 3
-      and advanced.pointer_region_count <= 2
-      and pointer_field_count <= 3
-      and pointer_reward <= 1
+      and advanced.pointer_alignment_count <= 4
+      and advanced.pointer_region_count <= 3
+      and pointer_field_count <= 4
+      and pointer_reward <= 2
       and strong_structure_bonus == 0 then
     return 2
   end
