@@ -2317,6 +2317,12 @@ local function compute_anchored_one_sided_weak_split_penalty(scored_candidate, p
       and pointer_field_count <= 4
       and pointer_reward <= 2
       and strong_structure_bonus == 0 then
+    if advanced.pointer_alignment_count <= 3
+        and advanced.pointer_region_count <= 2
+        and pointer_field_count <= 3
+        and pointer_reward <= 1 then
+      return 3
+    end
     return 2
   end
 
