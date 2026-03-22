@@ -1,5 +1,10 @@
 # armedforces.io-v2
 
+**My old account has get into trouble!**
+
+**I've no choice so i restart at here.(old_account:@k-undurkhaan)**
+
+## About the branch
 **Due to old method and design has been proved no longer available, we start the new design for armedforces.io project.**
 
 ***Project has NOT complete yet...***
