@@ -1,0 +1,418 @@
+﻿-- execute_module-v5.2.0
+-- Batch no-probe / with-probe runner with automatic log persistence.
+
+local REPORT_MODULE_PATH = [[D:\Lua Developer\mvp0_candidate_report.lua]]
+local COLLECTOR_MODULE_PATH = [[D:\Lua Developer\mvp0_foundlist_collector.lua]]
+local OUTPUT_DIR = [[D:\armedforces.io-v2\log\auto_output]]
+
+local MODE_PRESETS = {
+  no_probe = {
+    mode = "no_probe",
+    probe_full_foundlist = false,
+  },
+  with_probe = {
+    mode = "with_probe",
+    probe_full_foundlist = true,
+  },
+}
+
+local RUN_CASES = {
+  {
+    case_id = "case_01",
+    session_id = "collector-retest-wide-2",
+    known_true_addr = 0x23C061C8D48,
+    target_value_pattern = 0x42C80000,
+    target_value_float = 100.0,
+    max_candidates = 100,
+    scan_budget = 8000,
+    filter_target_match = true,
+    use_prescore_selection = true,
+    modes = {
+      {name = "no_probe", probe_full_foundlist = false},
+      {name = "with_probe", probe_full_foundlist = true},
+    },
+  },
+}
+
+local original_print = print
+local active_log_lines = nil
+
+local function stringify(...)
+  local parts = {}
+  for i = 1, select("#", ...) do
+    parts[#parts + 1] = tostring(select(i, ...))
+  end
+  return table.concat(parts, "\t")
+end
+
+print = function(...)
+  if active_log_lines ~= nil then
+    active_log_lines[#active_log_lines + 1] = stringify(...)
+  end
+  original_print(...)
+end
+
+local function ensure_directory(path)
+  os.execute(string.format('cmd /c if not exist "%s" mkdir "%s"', path, path))
+end
+
+local function sanitize_token(value)
+  local text = tostring(value or "nil")
+  text = text:gsub("[^%w%-_]+", "_")
+  text = text:gsub("_+", "_")
+  text = text:gsub("^_", "")
+  text = text:gsub("_$", "")
+  if text == "" then
+    return "nil"
+  end
+  return text
+end
+
+local function hex_u64(value)
+  if value == nil then
+    return "nil"
+  end
+  return string.format("0x%X", value)
+end
+
+local function write_text_file(path, text)
+  local fh, err = io.open(path, "wb")
+  if not fh then
+    error("failed to open output file: " .. tostring(path) .. " (" .. tostring(err) .. ")")
+  end
+  fh:write(text)
+  fh:close()
+end
+
+local function print_func_source(name, fn)
+  if type(fn) ~= "function" then
+    print(string.format("[FUNC] %s = %s", name, tostring(fn)))
+    return
+  end
+
+  local info = debug.getinfo(fn, "S")
+  print(string.format(
+    "[FUNC] %s -> source=%s line=%s",
+    name,
+    tostring(info and info.short_src),
+    tostring(info and info.linedefined)
+  ))
+end
+
+local function print_kv(label, value)
+  print(string.format("%-30s = %s", label, tostring(value)))
+end
+
+local function print_hex_kv(label, value)
+  if value == nil then
+    print_kv(label, nil)
+  else
+    print(string.format("%-30s = 0x%X", label, value))
+  end
+end
+
+local function print_log_table(title, t)
+  print("=== " .. title .. " ===")
+
+  if t == nil then
+    print("nil")
+    return
+  end
+
+  if type(t) ~= "table" then
+    print(tostring(t))
+    return
+  end
+
+  local has_array_items = false
+  for i, v in ipairs(t) do
+    has_array_items = true
+    print(string.format("%02d: %s", i, tostring(v)))
+  end
+
+  if not has_array_items then
+    local keys = {}
+    for k, _ in pairs(t) do
+      keys[#keys + 1] = k
+    end
+
+    table.sort(keys, function(a, b)
+      return tostring(a) < tostring(b)
+    end)
+
+    for _, k in ipairs(keys) do
+      print(tostring(k) .. " = " .. tostring(t[k]))
+    end
+  end
+end
+
+local function pick_known_true_field(bundle, result, name)
+  if bundle and bundle[name] ~= nil then
+    return bundle[name]
+  end
+  if result and result[name] ~= nil then
+    return result[name]
+  end
+  return nil
+end
+
+local function load_modules()
+  MVP0 = nil
+  MVP0FoundList = nil
+  collectgarbage()
+
+  dofile(REPORT_MODULE_PATH)
+  dofile(COLLECTOR_MODULE_PATH)
+
+  print_func_source("MVP0.score_base_candidate", MVP0 and MVP0.score_base_candidate)
+  print_func_source("MVP0.apply_rank_adjustments", MVP0 and MVP0.apply_rank_adjustments)
+  print_func_source("MVP0.render_report", MVP0 and MVP0.render_report)
+  print_func_source("MVP0.compute_one_sided_anchorless_split_penalty", MVP0 and MVP0.compute_one_sided_anchorless_split_penalty)
+end
+
+local function emit_bundle_report(case_cfg, mode_cfg, bundle)
+  local result = (bundle and bundle.result) or {}
+
+  print("=== run_config ===")
+  print_kv("case_id", case_cfg.case_id)
+  print_kv("session_id", case_cfg.session_id)
+  print_kv("mode", mode_cfg.mode)
+  print_hex_kv("known_true_addr", case_cfg.known_true_addr)
+  print_kv("probe_full_foundlist", mode_cfg.probe_full_foundlist)
+
+  print("=== collector_stats ===")
+  print_kv("raw_count", bundle and bundle.raw_count)
+  print_kv("scanned_count", bundle and bundle.scanned_count)
+  print_kv("unique_count", bundle and bundle.unique_count)
+  print_kv("filtered_count", bundle and bundle.filtered_count)
+  print_kv("prescored_count", bundle and bundle.prescored_count)
+  print_kv("selected_count", bundle and bundle.selected_count)
+  print_kv("selection_strategy", bundle and bundle.selection_strategy)
+
+  print("=== truth_probe_flags ===")
+  print_kv("true_in_full_foundlist_checked", bundle and bundle.true_in_full_foundlist_checked)
+  print_kv("true_in_full_foundlist", bundle and bundle.true_in_full_foundlist)
+  print_kv("true_in_full_foundlist_observed", bundle and bundle.true_in_full_foundlist_observed)
+  print_kv("true_in_raw", bundle and bundle.true_in_raw)
+  print_kv("true_in_unique", bundle and bundle.true_in_unique)
+  print_kv("true_in_filtered", bundle and bundle.true_in_filtered)
+  print_kv("true_in_prescored", bundle and bundle.true_in_prescored)
+  print_kv("true_in_selected", bundle and bundle.true_in_selected)
+
+  print("=== extra_probe_debug ===")
+  print_hex_kv("known_true_addr", case_cfg.known_true_addr)
+  print_kv("true_foundlist_index", bundle and bundle.true_foundlist_index)
+  print_kv("probe_window_radius", bundle and bundle.probe_window_radius)
+  print_kv("raw_probe_full_foundlist_enabled", bundle and bundle.raw_probe_full_foundlist_enabled)
+  print_kv("raw_probe_used", bundle and bundle.raw_probe_used)
+  print_kv("known_true_raw_admission_path", bundle and bundle.known_true_raw_admission_path)
+
+  print_log_table("truth_probe_logs", bundle and bundle.truth_probe_logs)
+
+  print("=== known_true_debug ===")
+  print_kv("known_true_rank_position", pick_known_true_field(bundle, result, "known_true_rank_position"))
+  print_kv("known_true_base_score", pick_known_true_field(bundle, result, "known_true_base_score"))
+  print_kv("known_true_final_score", pick_known_true_field(bundle, result, "known_true_final_score"))
+  print_kv("known_true_tie_break_vector", pick_known_true_field(bundle, result, "known_true_tie_break_vector"))
+
+  print("=== report_text ===")
+  if result and result.report_text then
+    print(result.report_text)
+  else
+    print("bundle.result.report_text = nil")
+  end
+end
+
+local function build_run_summary(case_cfg, mode_cfg, bundle, log_path)
+  local result = (bundle and bundle.result) or {}
+  local best = result and result.best or nil
+
+  return {
+    case_id = case_cfg.case_id,
+    session_id = case_cfg.session_id,
+    mode = mode_cfg.mode,
+    probe_full_foundlist = mode_cfg.probe_full_foundlist,
+    known_true_addr = case_cfg.known_true_addr,
+    known_true_rank_position = pick_known_true_field(bundle, result, "known_true_rank_position"),
+    known_true_final_score = pick_known_true_field(bundle, result, "known_true_final_score"),
+    true_in_selected = bundle and bundle.true_in_selected,
+    known_true_raw_admission_path = bundle and bundle.known_true_raw_admission_path,
+    selected_count = bundle and bundle.selected_count,
+    filtered_count = bundle and bundle.filtered_count,
+    best_candidate_addr = best and best.candidate and best.candidate.value_addr or nil,
+    best_score = result and result.best and result.best.score or nil,
+    second_score = result and result.second and result.second.score or nil,
+    score_gap = result and result.score_gap or nil,
+    confidence = result and result.confidence or nil,
+    log_path = log_path,
+  }
+end
+
+local function print_run_summary(summary)
+  print("=== compact_summary ===")
+  print_kv("case_id", summary.case_id)
+  print_kv("session_id", summary.session_id)
+  print_kv("mode", summary.mode)
+  print_hex_kv("best_candidate_addr", summary.best_candidate_addr)
+  print_kv("best_score", summary.best_score)
+  print_kv("second_score", summary.second_score)
+  print_kv("score_gap", summary.score_gap)
+  print_kv("known_true_rank_position", summary.known_true_rank_position)
+  print_kv("known_true_final_score", summary.known_true_final_score)
+  print_kv("true_in_selected", summary.true_in_selected)
+  print_kv("known_true_raw_admission_path", summary.known_true_raw_admission_path)
+  print_kv("selected_count", summary.selected_count)
+  print_kv("filtered_count", summary.filtered_count)
+  print_kv("confidence", summary.confidence)
+  print_kv("log_path", summary.log_path)
+end
+
+local function render_summary_file(batch_id, summaries)
+  local lines = {}
+  lines[#lines + 1] = "=== Batch Summary ==="
+  lines[#lines + 1] = "batch_id = " .. tostring(batch_id)
+  lines[#lines + 1] = "output_dir = " .. tostring(OUTPUT_DIR)
+  lines[#lines + 1] = ""
+
+  for _, summary in ipairs(summaries) do
+    lines[#lines + 1] = string.format("--- %s / %s ---", tostring(summary.session_id), tostring(summary.mode))
+    lines[#lines + 1] = "case_id = " .. tostring(summary.case_id)
+    lines[#lines + 1] = "known_true_addr = " .. tostring(hex_u64(summary.known_true_addr))
+    lines[#lines + 1] = "probe_full_foundlist = " .. tostring(summary.probe_full_foundlist)
+    lines[#lines + 1] = "best_candidate = " .. tostring(hex_u64(summary.best_candidate_addr))
+    lines[#lines + 1] = "best_score = " .. tostring(summary.best_score)
+    lines[#lines + 1] = "second_score = " .. tostring(summary.second_score)
+    lines[#lines + 1] = "score_gap = " .. tostring(summary.score_gap)
+    lines[#lines + 1] = "known_true_rank_position = " .. tostring(summary.known_true_rank_position)
+    lines[#lines + 1] = "known_true_final_score = " .. tostring(summary.known_true_final_score)
+    lines[#lines + 1] = "true_in_selected = " .. tostring(summary.true_in_selected)
+    lines[#lines + 1] = "known_true_raw_admission_path = " .. tostring(summary.known_true_raw_admission_path)
+    lines[#lines + 1] = "selected_count = " .. tostring(summary.selected_count)
+    lines[#lines + 1] = "filtered_count = " .. tostring(summary.filtered_count)
+    lines[#lines + 1] = "confidence = " .. tostring(summary.confidence)
+    lines[#lines + 1] = "log_path = " .. tostring(summary.log_path)
+    lines[#lines + 1] = ""
+  end
+
+  return table.concat(lines, "\r\n")
+end
+
+local function resolve_mode_config(mode_entry)
+  if type(mode_entry) == "string" then
+    local preset = MODE_PRESETS[mode_entry]
+    if preset == nil then
+      error("unknown mode preset: " .. tostring(mode_entry))
+    end
+    return {
+      mode = preset.mode,
+      probe_full_foundlist = preset.probe_full_foundlist,
+    }
+  end
+
+  if type(mode_entry) ~= "table" then
+    error("unsupported mode entry: " .. tostring(mode_entry))
+  end
+
+  local preset = MODE_PRESETS[mode_entry.name or mode_entry.mode]
+  if preset == nil then
+    error("unknown mode preset: " .. tostring(mode_entry.name or mode_entry.mode))
+  end
+
+  return {
+    mode = mode_entry.mode or mode_entry.name or preset.mode,
+    probe_full_foundlist = mode_entry.probe_full_foundlist,
+  }
+end
+
+local function run_case_mode(case_cfg, mode_entry, batch_id)
+  local mode_cfg = resolve_mode_config(mode_entry)
+  if mode_cfg.probe_full_foundlist == nil then
+    local preset = MODE_PRESETS[mode_cfg.mode]
+    mode_cfg.probe_full_foundlist = preset and preset.probe_full_foundlist or false
+  end
+
+  active_log_lines = {}
+  local safe_session = sanitize_token(case_cfg.session_id)
+  local safe_case = sanitize_token(case_cfg.case_id)
+  local log_path = string.format(
+    "%s\\%s__%s__%s__%s.log",
+    OUTPUT_DIR,
+    batch_id,
+    safe_session,
+    safe_case,
+    sanitize_token(mode_cfg.mode)
+  )
+
+  local ok, bundle_or_err = xpcall(function()
+    load_modules()
+
+    local bundle = MVP0FoundList.run({
+      max_candidates = case_cfg.max_candidates,
+      scan_budget = case_cfg.scan_budget,
+      target_value_pattern = case_cfg.target_value_pattern,
+      target_value_float = case_cfg.target_value_float,
+      session_id = case_cfg.session_id,
+      filter_target_match = case_cfg.filter_target_match,
+      use_prescore_selection = case_cfg.use_prescore_selection,
+      probe_full_foundlist = mode_cfg.probe_full_foundlist,
+      known_true_addr = case_cfg.known_true_addr,
+    })
+
+    emit_bundle_report(case_cfg, mode_cfg, bundle)
+    return bundle
+  end, debug.traceback)
+
+  if not ok then
+    print("=== run_error ===")
+    print(bundle_or_err)
+  end
+
+  local log_text = table.concat(active_log_lines, "\r\n") .. "\r\n"
+  write_text_file(log_path, log_text)
+  active_log_lines = nil
+
+  if not ok then
+    return {
+      case_id = case_cfg.case_id,
+      session_id = case_cfg.session_id,
+      mode = mode_cfg.mode,
+      probe_full_foundlist = mode_cfg.probe_full_foundlist,
+      known_true_addr = case_cfg.known_true_addr,
+      log_path = log_path,
+      error = bundle_or_err,
+    }
+  end
+
+  local summary = build_run_summary(case_cfg, mode_cfg, bundle_or_err, log_path)
+  print_run_summary(summary)
+  return summary
+end
+
+local function main()
+  if type(getLuaEngine) == "function" then
+    local engine = getLuaEngine()
+    if engine ~= nil and type(engine.show) == "function" then
+      engine.show()
+    end
+  end
+
+  ensure_directory(OUTPUT_DIR)
+
+  local batch_id = os.date("%Y%m%d-%H%M%S")
+  local summaries = {}
+
+  for _, case_cfg in ipairs(RUN_CASES) do
+    for _, mode_entry in ipairs(case_cfg.modes or {}) do
+      summaries[#summaries + 1] = run_case_mode(case_cfg, mode_entry, batch_id)
+    end
+  end
+
+  local summary_path = string.format("%s\\%s__summary.txt", OUTPUT_DIR, batch_id)
+  write_text_file(summary_path, render_summary_file(batch_id, summaries))
+
+  print("=== batch_output ===")
+  print_kv("summary_path", summary_path)
+  print_kv("batch_runs", #summaries)
+end
+
+main()
