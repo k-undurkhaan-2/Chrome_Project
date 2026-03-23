@@ -2219,7 +2219,7 @@ local function compute_strong_structure_bonus(scored_candidate)
   return 0
 end
 
-local function compute_sparse_anchor_tail_penalty(scored_candidate)
+local function compute_sparse_anchor_tail_penalty(scored_candidate, pointer_reward, strong_structure_bonus)
   local advanced = scored_candidate.local_features.advanced_layout
   local pointer_field_count = #(advanced.pointer_fields or {})
 
@@ -2229,6 +2229,15 @@ local function compute_sparse_anchor_tail_penalty(scored_candidate)
       and advanced.pointer_region_count <= 2
       and pointer_field_count <= 3
       and advanced.dominant_cluster_size <= 2 then
+    if advanced.front_non_singleton_cluster_count >= 1
+        and advanced.tail_non_singleton_cluster_count >= 1
+        and advanced.pointer_alignment_count <= 3
+        and advanced.pointer_region_count <= 2
+        and pointer_field_count <= 3
+        and pointer_reward <= 2
+        and strong_structure_bonus == 0 then
+      return 4
+    end
     if advanced.pointer_alignment_count == 3
         and advanced.pointer_region_count == 2
         and pointer_field_count == 3 then
@@ -2240,7 +2249,7 @@ local function compute_sparse_anchor_tail_penalty(scored_candidate)
   return 0
 end
 
-local function compute_anchored_fragmented_split_penalty(scored_candidate)
+local function compute_anchored_fragmented_split_penalty(scored_candidate, pointer_reward, strong_structure_bonus)
   local advanced = scored_candidate.local_features.advanced_layout
   local pointer_field_count = #(advanced.pointer_fields or {})
 
@@ -2251,6 +2260,13 @@ local function compute_anchored_fragmented_split_penalty(scored_candidate)
       and advanced.dominant_cluster_size <= 1
       and advanced.pointer_alignment_count <= 3
       and pointer_field_count <= 3 then
+    if advanced.pointer_region_count <= 2
+        and advanced.pointer_alignment_count <= 2
+        and pointer_field_count <= 2
+        and pointer_reward == 0
+        and strong_structure_bonus == 0 then
+      return 5
+    end
     if advanced.pointer_region_count <= 3 then
       return 3
     end
@@ -2343,8 +2359,16 @@ function MVP0.apply_rank_adjustments(scored_candidate, context)
   local family_size = context.clone_family_counts[scored_candidate.clone_family_id] or 1
   local pointer_reward = compute_pointer_reward(scored_candidate)
   local strong_structure_bonus = compute_strong_structure_bonus(scored_candidate)
-  local sparse_anchor_tail_penalty = compute_sparse_anchor_tail_penalty(scored_candidate)
-  local anchored_fragmented_split_penalty = compute_anchored_fragmented_split_penalty(scored_candidate)
+  local sparse_anchor_tail_penalty = compute_sparse_anchor_tail_penalty(
+    scored_candidate,
+    pointer_reward,
+    strong_structure_bonus
+  )
+  local anchored_fragmented_split_penalty = compute_anchored_fragmented_split_penalty(
+    scored_candidate,
+    pointer_reward,
+    strong_structure_bonus
+  )
   local one_sided_anchorless_split_penalty =
     MVP0.compute_one_sided_anchorless_split_penalty(scored_candidate, pointer_reward, strong_structure_bonus)
   local anchored_one_sided_weak_split_penalty =
