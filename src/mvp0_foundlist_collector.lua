@@ -917,18 +917,28 @@ end
 local function filter_target_match(addresses, target_value_pattern, known_true_addr)
   local filtered = {}
   local true_in_filtered = false
+  local stats = {
+    matched_count = 0,
+    value_mismatch_count = 0,
+    read_failed_count = 0,
+  }
 
   for _, addr in ipairs(addresses) do
     local ok, value = pcall(read_u32, addr)
-    if ok and value == target_value_pattern then
+    if not ok or type(value) ~= 'number' then
+      stats.read_failed_count = stats.read_failed_count + 1
+    elseif value == target_value_pattern then
+      stats.matched_count = stats.matched_count + 1
       if known_true_addr ~= nil and addr == known_true_addr then
         true_in_filtered = true
       end
       table.insert(filtered, addr)
+    else
+      stats.value_mismatch_count = stats.value_mismatch_count + 1
     end
   end
 
-  return filtered, true_in_filtered
+  return filtered, true_in_filtered, stats
 end
 
 local function sort_numeric(addresses)
@@ -1125,9 +1135,24 @@ function MVP0FoundList.collect(opts)
   local unique_addresses, true_in_unique = dedupe_addresses(raw_addresses, known_true_addr)
   local filtered_addresses = unique_addresses
   local true_in_filtered = true_in_unique
+  local filter_debug = nil
 
   if should_filter then
-    filtered_addresses, true_in_filtered = filter_target_match(unique_addresses, target_value_pattern, known_true_addr)
+    filtered_addresses, true_in_filtered, filter_debug = filter_target_match(unique_addresses, target_value_pattern, known_true_addr)
+    append_probe_log(truth_probe_logs, 'filter', string.format(
+      'filter_target_match enabled unique=%d matched=%d value_mismatch=%d read_failed=%d probe_enabled=%s',
+      #unique_addresses,
+      filter_debug and filter_debug.matched_count or #filtered_addresses,
+      filter_debug and filter_debug.value_mismatch_count or 0,
+      filter_debug and filter_debug.read_failed_count or 0,
+      tostring(probe_full_foundlist)
+    ))
+  else
+    append_probe_log(truth_probe_logs, 'filter', string.format(
+      'filter_target_match disabled unique=%d probe_enabled=%s',
+      #unique_addresses,
+      tostring(probe_full_foundlist)
+    ))
   end
 
   local sorted_addresses = sort_numeric(filtered_addresses)
@@ -1220,6 +1245,7 @@ function MVP0FoundList.build_input(opts)
   collected.input = MVP0.make_input(collected.candidate_value_addrs, collected.target_value_pattern, {
     target_value_float = opts and opts.target_value_float,
     session_id = opts and opts.session_id,
+    session_mode = (collected.raw_probe_full_foundlist_enabled == true) and 'with_probe' or 'no_probe',
   })
   return collected
 end

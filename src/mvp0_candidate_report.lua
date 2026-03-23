@@ -2750,6 +2750,7 @@ function MVP0.make_input(candidate_value_addrs, target_value_pattern, opts)
     target_value_pattern = u32(target_value_pattern),
     target_value_float = opts.target_value_float,
     session_id = opts.session_id,
+    session_mode = opts.session_mode,
   }
 end
 
@@ -2873,6 +2874,9 @@ function MVP0.render_report(rank, input_payload, recommendation)
   table.insert(lines, "=== Session Summary ===")
   if input_payload.session_id then
     table.insert(lines, "Session: " .. tostring(input_payload.session_id))
+  end
+  if input_payload.session_mode then
+    table.insert(lines, "Mode: " .. tostring(input_payload.session_mode))
   end
   table.insert(lines, "Candidates: " .. tostring(#rank.ranked))
   table.insert(lines, "Target value pattern: " .. hex_u32(input_payload.target_value_pattern))
