@@ -921,6 +921,9 @@ local function filter_target_match(addresses, target_value_pattern, known_true_a
     matched_count = 0,
     value_mismatch_count = 0,
     read_failed_count = 0,
+    retry_recovered_count = 0,
+    retry_still_mismatch_count = 0,
+    retry_read_failed_count = 0,
   }
 
   for _, addr in ipairs(addresses) do
@@ -934,7 +937,22 @@ local function filter_target_match(addresses, target_value_pattern, known_true_a
       end
       table.insert(filtered, addr)
     else
-      stats.value_mismatch_count = stats.value_mismatch_count + 1
+      local retry_ok, retry_value = pcall(read_u32, addr)
+      if retry_ok and type(retry_value) == 'number' and retry_value == target_value_pattern then
+        stats.retry_recovered_count = stats.retry_recovered_count + 1
+        stats.matched_count = stats.matched_count + 1
+        if known_true_addr ~= nil and addr == known_true_addr then
+          true_in_filtered = true
+        end
+        table.insert(filtered, addr)
+      else
+        stats.value_mismatch_count = stats.value_mismatch_count + 1
+        if not retry_ok or type(retry_value) ~= 'number' then
+          stats.retry_read_failed_count = stats.retry_read_failed_count + 1
+        else
+          stats.retry_still_mismatch_count = stats.retry_still_mismatch_count + 1
+        end
+      end
     end
   end
 
@@ -1140,11 +1158,14 @@ function MVP0FoundList.collect(opts)
   if should_filter then
     filtered_addresses, true_in_filtered, filter_debug = filter_target_match(unique_addresses, target_value_pattern, known_true_addr)
     append_probe_log(truth_probe_logs, 'filter', string.format(
-      'filter_target_match enabled unique=%d matched=%d value_mismatch=%d read_failed=%d probe_enabled=%s',
+      'filter_target_match enabled unique=%d matched=%d value_mismatch=%d read_failed=%d retry_recovered=%d retry_still_mismatch=%d retry_read_failed=%d probe_enabled=%s',
       #unique_addresses,
       filter_debug and filter_debug.matched_count or #filtered_addresses,
       filter_debug and filter_debug.value_mismatch_count or 0,
       filter_debug and filter_debug.read_failed_count or 0,
+      filter_debug and filter_debug.retry_recovered_count or 0,
+      filter_debug and filter_debug.retry_still_mismatch_count or 0,
+      filter_debug and filter_debug.retry_read_failed_count or 0,
       tostring(probe_full_foundlist)
     ))
   else
