@@ -918,6 +918,7 @@ end
 local function filter_target_match(addresses, target_value_pattern, known_true_addr)
   local filtered = {}
   local true_in_filtered = false
+  local delayed_candidates = {}
   local stats = {
     matched_count = 0,
     value_mismatch_count = 0,
@@ -925,6 +926,11 @@ local function filter_target_match(addresses, target_value_pattern, known_true_a
     retry_recovered_count = 0,
     retry_still_mismatch_count = 0,
     retry_read_failed_count = 0,
+    delayed_recheck_enabled = true,
+    delayed_recheck_candidate_count = 0,
+    delayed_recovered_count = 0,
+    delayed_still_mismatch_count = 0,
+    delayed_read_failed_count = 0,
   }
 
   for _, addr in ipairs(addresses) do
@@ -953,7 +959,25 @@ local function filter_target_match(addresses, target_value_pattern, known_true_a
         else
           stats.retry_still_mismatch_count = stats.retry_still_mismatch_count + 1
         end
+        delayed_candidates[#delayed_candidates + 1] = addr
       end
+    end
+  end
+
+  stats.delayed_recheck_candidate_count = #delayed_candidates
+
+  for _, addr in ipairs(delayed_candidates) do
+    local delayed_ok, delayed_value = pcall(read_u32, addr)
+    if delayed_ok and type(delayed_value) == 'number' and delayed_value == target_value_pattern then
+      stats.delayed_recovered_count = stats.delayed_recovered_count + 1
+      if known_true_addr ~= nil and addr == known_true_addr then
+        true_in_filtered = true
+      end
+      table.insert(filtered, addr)
+    elseif not delayed_ok or type(delayed_value) ~= 'number' then
+      stats.delayed_read_failed_count = stats.delayed_read_failed_count + 1
+    else
+      stats.delayed_still_mismatch_count = stats.delayed_still_mismatch_count + 1
     end
   end
 
@@ -1167,7 +1191,7 @@ function MVP0FoundList.collect(opts)
   if should_filter then
     filtered_addresses, true_in_filtered, filter_debug = filter_target_match(unique_addresses, target_value_pattern, known_true_addr)
     append_probe_log(truth_probe_logs, 'filter', string.format(
-      'filter_target_match enabled unique=%d matched=%d value_mismatch=%d read_failed=%d retry_recovered=%d retry_still_mismatch=%d retry_read_failed=%d probe_enabled=%s',
+      'filter_target_match enabled unique=%d matched=%d value_mismatch=%d read_failed=%d retry_recovered=%d retry_still_mismatch=%d retry_read_failed=%d delayed_recheck_enabled=%s delayed_candidates=%d delayed_recovered=%d delayed_still_mismatch=%d delayed_read_failed=%d final_filtered=%d probe_enabled=%s',
       #unique_addresses,
       filter_debug and filter_debug.matched_count or #filtered_addresses,
       filter_debug and filter_debug.value_mismatch_count or 0,
@@ -1175,6 +1199,12 @@ function MVP0FoundList.collect(opts)
       filter_debug and filter_debug.retry_recovered_count or 0,
       filter_debug and filter_debug.retry_still_mismatch_count or 0,
       filter_debug and filter_debug.retry_read_failed_count or 0,
+      tostring(filter_debug and filter_debug.delayed_recheck_enabled or false),
+      filter_debug and filter_debug.delayed_recheck_candidate_count or 0,
+      filter_debug and filter_debug.delayed_recovered_count or 0,
+      filter_debug and filter_debug.delayed_still_mismatch_count or 0,
+      filter_debug and filter_debug.delayed_read_failed_count or 0,
+      #filtered_addresses,
       tostring(probe_full_foundlist)
     ))
   else
@@ -1194,6 +1224,11 @@ function MVP0FoundList.collect(opts)
     retry_recovered_count = filter_debug and filter_debug.retry_recovered_count or 0,
     retry_still_mismatch_count = filter_debug and filter_debug.retry_still_mismatch_count or 0,
     retry_read_failed_count = filter_debug and filter_debug.retry_read_failed_count or 0,
+    delayed_recheck_enabled = filter_debug and filter_debug.delayed_recheck_enabled or false,
+    delayed_recheck_candidate_count = filter_debug and filter_debug.delayed_recheck_candidate_count or 0,
+    delayed_recovered_count = filter_debug and filter_debug.delayed_recovered_count or 0,
+    delayed_still_mismatch_count = filter_debug and filter_debug.delayed_still_mismatch_count or 0,
+    delayed_read_failed_count = filter_debug and filter_debug.delayed_read_failed_count or 0,
     matched_addresses = copy_numeric_array(sorted_addresses),
   }
 

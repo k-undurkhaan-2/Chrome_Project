@@ -28,7 +28,7 @@ local RUN_CASES = {
   {
     case_id = "case_01",
     session_id = "collector-retest-wide-2",
-    known_true_addr = 0x29D061C8D48,
+    known_true_addr = 0x1D0061C8D48,
     target_value_pattern = 0x42C80000,
     target_value_float = 100.0,
     max_candidates = 100,
@@ -402,6 +402,11 @@ local function get_filter_debug_snapshot()
     retry_recovered_count = debug_info.retry_recovered_count,
     retry_still_mismatch_count = debug_info.retry_still_mismatch_count,
     retry_read_failed_count = debug_info.retry_read_failed_count,
+    delayed_recheck_enabled = debug_info.delayed_recheck_enabled,
+    delayed_recheck_candidate_count = debug_info.delayed_recheck_candidate_count,
+    delayed_recovered_count = debug_info.delayed_recovered_count,
+    delayed_still_mismatch_count = debug_info.delayed_still_mismatch_count,
+    delayed_read_failed_count = debug_info.delayed_read_failed_count,
     matched_addresses = copy_array(debug_info.matched_addresses),
   }
 end
@@ -483,6 +488,11 @@ local function build_run_summary(case_cfg, mode_cfg, bundle, log_path, filter_de
     retry_recovered_count = filter_debug and filter_debug.retry_recovered_count or nil,
     retry_still_mismatch_count = filter_debug and filter_debug.retry_still_mismatch_count or nil,
     retry_read_failed_count = filter_debug and filter_debug.retry_read_failed_count or nil,
+    delayed_recheck_enabled = filter_debug and filter_debug.delayed_recheck_enabled or nil,
+    delayed_recheck_candidate_count = filter_debug and filter_debug.delayed_recheck_candidate_count or nil,
+    delayed_recovered_count = filter_debug and filter_debug.delayed_recovered_count or nil,
+    delayed_still_mismatch_count = filter_debug and filter_debug.delayed_still_mismatch_count or nil,
+    delayed_read_failed_count = filter_debug and filter_debug.delayed_read_failed_count or nil,
     matched_addresses = filter_debug and copy_array(filter_debug.matched_addresses) or {},
     best_candidate_addr = best and best.candidate and best.candidate.value_addr or nil,
     best_score = result and result.best and result.best.score or nil,
@@ -514,6 +524,11 @@ local function print_run_summary(summary)
   print_kv("retry_recovered_count", summary.retry_recovered_count)
   print_kv("retry_still_mismatch_count", summary.retry_still_mismatch_count)
   print_kv("retry_read_failed_count", summary.retry_read_failed_count)
+  print_kv("delayed_recheck_enabled", summary.delayed_recheck_enabled)
+  print_kv("delayed_recheck_candidate_count", summary.delayed_recheck_candidate_count)
+  print_kv("delayed_recovered_count", summary.delayed_recovered_count)
+  print_kv("delayed_still_mismatch_count", summary.delayed_still_mismatch_count)
+  print_kv("delayed_read_failed_count", summary.delayed_read_failed_count)
   print_kv("confidence", summary.confidence)
   print_kv("log_path", summary.log_path)
 end
@@ -546,6 +561,11 @@ local function render_summary_file(batch_id, summaries)
     lines[#lines + 1] = "retry_recovered_count = " .. tostring(summary.retry_recovered_count)
     lines[#lines + 1] = "retry_still_mismatch_count = " .. tostring(summary.retry_still_mismatch_count)
     lines[#lines + 1] = "retry_read_failed_count = " .. tostring(summary.retry_read_failed_count)
+    lines[#lines + 1] = "delayed_recheck_enabled = " .. tostring(summary.delayed_recheck_enabled)
+    lines[#lines + 1] = "delayed_recheck_candidate_count = " .. tostring(summary.delayed_recheck_candidate_count)
+    lines[#lines + 1] = "delayed_recovered_count = " .. tostring(summary.delayed_recovered_count)
+    lines[#lines + 1] = "delayed_still_mismatch_count = " .. tostring(summary.delayed_still_mismatch_count)
+    lines[#lines + 1] = "delayed_read_failed_count = " .. tostring(summary.delayed_read_failed_count)
     lines[#lines + 1] = "confidence = " .. tostring(summary.confidence)
     lines[#lines + 1] = "log_path = " .. tostring(summary.log_path)
     lines[#lines + 1] = ""
@@ -611,6 +631,11 @@ local function render_diagnostic_diff_file(batch_id, summaries)
         lines[#lines + 1] = "retry_recovered_count = " .. tostring(summary.retry_recovered_count)
         lines[#lines + 1] = "retry_still_mismatch_count = " .. tostring(summary.retry_still_mismatch_count)
         lines[#lines + 1] = "retry_read_failed_count = " .. tostring(summary.retry_read_failed_count)
+        lines[#lines + 1] = "delayed_recheck_enabled = " .. tostring(summary.delayed_recheck_enabled)
+        lines[#lines + 1] = "delayed_recheck_candidate_count = " .. tostring(summary.delayed_recheck_candidate_count)
+        lines[#lines + 1] = "delayed_recovered_count = " .. tostring(summary.delayed_recovered_count)
+        lines[#lines + 1] = "delayed_still_mismatch_count = " .. tostring(summary.delayed_still_mismatch_count)
+        lines[#lines + 1] = "delayed_read_failed_count = " .. tostring(summary.delayed_read_failed_count)
         lines[#lines + 1] = "known_true_raw_admission_path = " .. tostring(summary.known_true_raw_admission_path)
         lines[#lines + 1] = "known_true_rank_position = " .. tostring(summary.known_true_rank_position)
         lines[#lines + 1] = "best_candidate = " .. tostring(hex_u64(summary.best_candidate_addr))
@@ -732,6 +757,11 @@ local function run_case_mode(case_cfg, mode_entry, batch_id)
       retry_recovered_count = nil,
       retry_still_mismatch_count = nil,
       retry_read_failed_count = nil,
+      delayed_recheck_enabled = nil,
+      delayed_recheck_candidate_count = nil,
+      delayed_recovered_count = nil,
+      delayed_still_mismatch_count = nil,
+      delayed_read_failed_count = nil,
       matched_addresses = {},
       probe_full_foundlist = mode_cfg.probe_full_foundlist,
       known_true_addr = case_cfg.known_true_addr,
@@ -777,4 +807,5 @@ local function main()
 end
 
 main()
+
 
