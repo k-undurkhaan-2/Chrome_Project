@@ -28,13 +28,14 @@ local RUN_CASES = {
   {
     case_id = "case_01",
     session_id = "collector-retest-wide-2",
-    known_true_addr = 0x1D0061C8D48,
+    known_true_addr = 0x26A061C8D48,
     target_value_pattern = 0x42C80000,
     target_value_float = 100.0,
     max_candidates = 100,
     scan_budget = 8000,
     filter_target_match = true,
     use_prescore_selection = true,
+    stable_filter_intersection_enabled = true,
     modes = {
       {name = "no_probe_A", probe_full_foundlist = false},
       {name = "with_probe", probe_full_foundlist = true},
@@ -293,6 +294,23 @@ local function build_interpretation_hints(only_with_probe, only_no_probe_b, page
   return table.concat(hints, "; ")
 end
 
+local function build_pass_interpretation_hint(pass1_only, pass2_only, page_top_pass1, page_top_pass2)
+  local hints = {}
+  local pass1_count = #(pass1_only or {})
+  local pass2_count = #(pass2_only or {})
+
+  if pass1_count > 0 and page_top_pass1[1] ~= nil and page_top_pass1[1].count >= math.max(4, math.floor(pass1_count * 0.25)) then
+    hints[#hints + 1] = "pass1-only matches cluster in a small set of pages"
+  end
+  if pass2_count > 0 and page_top_pass2[1] ~= nil and page_top_pass2[1].count >= math.max(4, math.floor(pass2_count * 0.25)) then
+    hints[#hints + 1] = "pass2-only matches cluster in a small set of pages"
+  end
+  if #hints == 0 then
+    hints[1] = "pass1/pass2-only samples do not show a single dominant explanation from this lightweight pass"
+  end
+  return table.concat(hints, "; ")
+end
+
 local function write_text_file(path, text)
   local fh, err = io.open(path, "wb")
   if not fh then
@@ -407,6 +425,18 @@ local function get_filter_debug_snapshot()
     delayed_recovered_count = debug_info.delayed_recovered_count,
     delayed_still_mismatch_count = debug_info.delayed_still_mismatch_count,
     delayed_read_failed_count = debug_info.delayed_read_failed_count,
+    stable_intersection_enabled = debug_info.stable_intersection_enabled,
+    pass1_matched_count = debug_info.pass1_matched_count,
+    pass2_matched_count = debug_info.pass2_matched_count,
+    intersection_filtered_count = debug_info.intersection_filtered_count,
+    pass1_only_count = debug_info.pass1_only_count,
+    pass2_only_count = debug_info.pass2_only_count,
+    pass1_read_failed_count = debug_info.pass1_read_failed_count,
+    pass2_read_failed_count = debug_info.pass2_read_failed_count,
+    pass1_matched_addresses = copy_array(debug_info.pass1_matched_addresses),
+    pass2_matched_addresses = copy_array(debug_info.pass2_matched_addresses),
+    pass1_only_addresses = copy_array(debug_info.pass1_only_addresses),
+    pass2_only_addresses = copy_array(debug_info.pass2_only_addresses),
     matched_addresses = copy_array(debug_info.matched_addresses),
   }
 end
@@ -493,6 +523,18 @@ local function build_run_summary(case_cfg, mode_cfg, bundle, log_path, filter_de
     delayed_recovered_count = filter_debug and filter_debug.delayed_recovered_count or nil,
     delayed_still_mismatch_count = filter_debug and filter_debug.delayed_still_mismatch_count or nil,
     delayed_read_failed_count = filter_debug and filter_debug.delayed_read_failed_count or nil,
+    stable_intersection_enabled = filter_debug and filter_debug.stable_intersection_enabled or nil,
+    pass1_matched_count = filter_debug and filter_debug.pass1_matched_count or nil,
+    pass2_matched_count = filter_debug and filter_debug.pass2_matched_count or nil,
+    intersection_filtered_count = filter_debug and filter_debug.intersection_filtered_count or nil,
+    pass1_only_count = filter_debug and filter_debug.pass1_only_count or nil,
+    pass2_only_count = filter_debug and filter_debug.pass2_only_count or nil,
+    pass1_read_failed_count = filter_debug and filter_debug.pass1_read_failed_count or nil,
+    pass2_read_failed_count = filter_debug and filter_debug.pass2_read_failed_count or nil,
+    pass1_matched_addresses = filter_debug and copy_array(filter_debug.pass1_matched_addresses) or {},
+    pass2_matched_addresses = filter_debug and copy_array(filter_debug.pass2_matched_addresses) or {},
+    pass1_only_addresses = filter_debug and copy_array(filter_debug.pass1_only_addresses) or {},
+    pass2_only_addresses = filter_debug and copy_array(filter_debug.pass2_only_addresses) or {},
     matched_addresses = filter_debug and copy_array(filter_debug.matched_addresses) or {},
     best_candidate_addr = best and best.candidate and best.candidate.value_addr or nil,
     best_score = result and result.best and result.best.score or nil,
@@ -529,6 +571,12 @@ local function print_run_summary(summary)
   print_kv("delayed_recovered_count", summary.delayed_recovered_count)
   print_kv("delayed_still_mismatch_count", summary.delayed_still_mismatch_count)
   print_kv("delayed_read_failed_count", summary.delayed_read_failed_count)
+  print_kv("stable_intersection_enabled", summary.stable_intersection_enabled)
+  print_kv("pass1_matched_count", summary.pass1_matched_count)
+  print_kv("pass2_matched_count", summary.pass2_matched_count)
+  print_kv("intersection_filtered_count", summary.intersection_filtered_count)
+  print_kv("pass1_only_count", summary.pass1_only_count)
+  print_kv("pass2_only_count", summary.pass2_only_count)
   print_kv("confidence", summary.confidence)
   print_kv("log_path", summary.log_path)
 end
@@ -566,6 +614,12 @@ local function render_summary_file(batch_id, summaries)
     lines[#lines + 1] = "delayed_recovered_count = " .. tostring(summary.delayed_recovered_count)
     lines[#lines + 1] = "delayed_still_mismatch_count = " .. tostring(summary.delayed_still_mismatch_count)
     lines[#lines + 1] = "delayed_read_failed_count = " .. tostring(summary.delayed_read_failed_count)
+    lines[#lines + 1] = "stable_intersection_enabled = " .. tostring(summary.stable_intersection_enabled)
+    lines[#lines + 1] = "pass1_matched_count = " .. tostring(summary.pass1_matched_count)
+    lines[#lines + 1] = "pass2_matched_count = " .. tostring(summary.pass2_matched_count)
+    lines[#lines + 1] = "intersection_filtered_count = " .. tostring(summary.intersection_filtered_count)
+    lines[#lines + 1] = "pass1_only_count = " .. tostring(summary.pass1_only_count)
+    lines[#lines + 1] = "pass2_only_count = " .. tostring(summary.pass2_only_count)
     lines[#lines + 1] = "confidence = " .. tostring(summary.confidence)
     lines[#lines + 1] = "log_path = " .. tostring(summary.log_path)
     lines[#lines + 1] = ""
@@ -636,6 +690,36 @@ local function render_diagnostic_diff_file(batch_id, summaries)
         lines[#lines + 1] = "delayed_recovered_count = " .. tostring(summary.delayed_recovered_count)
         lines[#lines + 1] = "delayed_still_mismatch_count = " .. tostring(summary.delayed_still_mismatch_count)
         lines[#lines + 1] = "delayed_read_failed_count = " .. tostring(summary.delayed_read_failed_count)
+        lines[#lines + 1] = "stable_intersection_enabled = " .. tostring(summary.stable_intersection_enabled)
+        lines[#lines + 1] = "pass1_matched_count = " .. tostring(summary.pass1_matched_count)
+        lines[#lines + 1] = "pass2_matched_count = " .. tostring(summary.pass2_matched_count)
+        lines[#lines + 1] = "intersection_filtered_count = " .. tostring(summary.intersection_filtered_count)
+        lines[#lines + 1] = "pass1_only_count = " .. tostring(summary.pass1_only_count)
+        lines[#lines + 1] = "pass2_only_count = " .. tostring(summary.pass2_only_count)
+        lines[#lines + 1] = "matched_only_in_pass1 = " .. format_address_sample((function()
+          local sample = copy_array(summary.pass1_only_addresses)
+          table.sort(sample)
+          while #sample > 20 do table.remove(sample) end
+          return sample
+        end)())
+        lines[#lines + 1] = "matched_only_in_pass2 = " .. format_address_sample((function()
+          local sample = copy_array(summary.pass2_only_addresses)
+          table.sort(sample)
+          while #sample > 20 do table.remove(sample) end
+          return sample
+        end)())
+        lines[#lines + 1] = "page_cluster_summary.pass1_only = " .. format_bucket_entries(collect_top_buckets(summary.pass1_only_addresses, 0x1000, 5))
+        lines[#lines + 1] = "page_cluster_summary.pass2_only = " .. format_bucket_entries(collect_top_buckets(summary.pass2_only_addresses, 0x1000, 5))
+        lines[#lines + 1] = "region_cluster_summary.pass1_only = " .. format_bucket_entries(collect_top_buckets(summary.pass1_only_addresses, 0x10000, 5))
+        lines[#lines + 1] = "region_cluster_summary.pass2_only = " .. format_bucket_entries(collect_top_buckets(summary.pass2_only_addresses, 0x10000, 5))
+        lines[#lines + 1] = "segment_cluster_summary.pass1_only = " .. format_bucket_entries(collect_top_buckets(summary.pass1_only_addresses, 0x100000, 5))
+        lines[#lines + 1] = "segment_cluster_summary.pass2_only = " .. format_bucket_entries(collect_top_buckets(summary.pass2_only_addresses, 0x100000, 5))
+        lines[#lines + 1] = "interpretation_hint.pass1_vs_pass2 = " .. build_pass_interpretation_hint(
+          summary.pass1_only_addresses,
+          summary.pass2_only_addresses,
+          collect_top_buckets(summary.pass1_only_addresses, 0x1000, 5),
+          collect_top_buckets(summary.pass2_only_addresses, 0x1000, 5)
+        )
         lines[#lines + 1] = "known_true_raw_admission_path = " .. tostring(summary.known_true_raw_admission_path)
         lines[#lines + 1] = "known_true_rank_position = " .. tostring(summary.known_true_rank_position)
         lines[#lines + 1] = "best_candidate = " .. tostring(hex_u64(summary.best_candidate_addr))
@@ -726,6 +810,7 @@ local function run_case_mode(case_cfg, mode_entry, batch_id)
       session_id = case_cfg.session_id,
       filter_target_match = case_cfg.filter_target_match,
       use_prescore_selection = case_cfg.use_prescore_selection,
+      stable_filter_intersection_enabled = case_cfg.stable_filter_intersection_enabled,
       probe_full_foundlist = mode_cfg.probe_full_foundlist,
       known_true_addr = case_cfg.known_true_addr,
     })
@@ -762,6 +847,18 @@ local function run_case_mode(case_cfg, mode_entry, batch_id)
       delayed_recovered_count = nil,
       delayed_still_mismatch_count = nil,
       delayed_read_failed_count = nil,
+      stable_intersection_enabled = nil,
+      pass1_matched_count = nil,
+      pass2_matched_count = nil,
+      intersection_filtered_count = nil,
+      pass1_only_count = nil,
+      pass2_only_count = nil,
+      pass1_read_failed_count = nil,
+      pass2_read_failed_count = nil,
+      pass1_matched_addresses = {},
+      pass2_matched_addresses = {},
+      pass1_only_addresses = {},
+      pass2_only_addresses = {},
       matched_addresses = {},
       probe_full_foundlist = mode_cfg.probe_full_foundlist,
       known_true_addr = case_cfg.known_true_addr,
@@ -807,5 +904,3 @@ local function main()
 end
 
 main()
-
-
