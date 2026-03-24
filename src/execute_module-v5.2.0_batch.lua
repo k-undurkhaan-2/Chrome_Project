@@ -28,7 +28,7 @@ local RUN_CASES = {
   {
     case_id = "case_01",
     session_id = "collector-retest-wide-2",
-    known_true_addr = 0x1E4061C8D48,
+    known_true_addr = 0x29D061C8D48,
     target_value_pattern = 0x42C80000,
     target_value_float = 100.0,
     max_candidates = 100,
@@ -159,6 +159,138 @@ local function compute_match_overlap_counts(a_addresses, w_addresses, b_addresse
   end
 
   return result
+end
+
+local function collect_top_buckets(addresses, bucket_size, top_n)
+  local counts = {}
+  local ordered = {}
+
+  for _, addr in ipairs(addresses or {}) do
+    local bucket = math.floor(addr / bucket_size) * bucket_size
+    if counts[bucket] == nil then
+      counts[bucket] = 0
+      ordered[#ordered + 1] = bucket
+    end
+    counts[bucket] = counts[bucket] + 1
+  end
+
+  table.sort(ordered, function(a, b)
+    if counts[a] ~= counts[b] then
+      return counts[a] > counts[b]
+    end
+    return a < b
+  end)
+
+  local top = {}
+  for i = 1, math.min(top_n or 5, #ordered) do
+    local bucket = ordered[i]
+    top[#top + 1] = {
+      bucket = bucket,
+      count = counts[bucket],
+    }
+  end
+
+  return top
+end
+
+local function format_bucket_entries(entries)
+  if entries == nil or #entries == 0 then
+    return "empty"
+  end
+
+  local parts = {}
+  for _, entry in ipairs(entries) do
+    parts[#parts + 1] = string.format("%s(%d)", hex_u64(entry.bucket), entry.count)
+  end
+  return table.concat(parts, ", ")
+end
+
+local function collect_dominant_delta_candidates(left_addresses, right_addresses, pair_limit)
+  local delta_counts = {}
+  local delta_pairs = {}
+  local left_limit = math.min(#(left_addresses or {}), pair_limit or 32)
+  local right_limit = math.min(#(right_addresses or {}), pair_limit or 32)
+
+  for i = 1, left_limit do
+    local left = left_addresses[i]
+    for j = 1, right_limit do
+      local right = right_addresses[j]
+      local delta = right - left
+      delta_counts[delta] = (delta_counts[delta] or 0) + 1
+      if delta_pairs[delta] == nil then
+        delta_pairs[delta] = {}
+      end
+      local pairs = delta_pairs[delta]
+      if #pairs < 5 then
+        pairs[#pairs + 1] = { left = left, right = right }
+      end
+    end
+  end
+
+  local deltas = {}
+  for delta, count in pairs(delta_counts) do
+    if delta ~= 0 then
+      deltas[#deltas + 1] = {
+        delta = delta,
+        count = count,
+        pairs = delta_pairs[delta],
+      }
+    end
+  end
+
+  table.sort(deltas, function(a, b)
+    if a.count ~= b.count then
+      return a.count > b.count
+    end
+    return a.delta < b.delta
+  end)
+
+  local top = {}
+  for i = 1, math.min(3, #deltas) do
+    top[#top + 1] = deltas[i]
+  end
+  return top
+end
+
+local function format_delta_candidates(candidates)
+  if candidates == nil or #candidates == 0 then
+    return "none"
+  end
+
+  local lines = {}
+  for _, candidate in ipairs(candidates) do
+    local pair_parts = {}
+    for _, pair in ipairs(candidate.pairs or {}) do
+      pair_parts[#pair_parts + 1] = string.format("%s->%s", hex_u64(pair.left), hex_u64(pair.right))
+    end
+    lines[#lines + 1] = string.format(
+      "delta=%s hits=%d samples=%s",
+      hex_u64(candidate.delta),
+      candidate.count,
+      (#pair_parts > 0) and table.concat(pair_parts, ", ") or "none"
+    )
+  end
+  return table.concat(lines, " | ")
+end
+
+local function build_interpretation_hints(only_with_probe, only_no_probe_b, page_top_with_probe, page_top_no_probe_b, delta_candidates)
+  local hints = {}
+  local with_probe_count = #(only_with_probe or {})
+  local no_probe_b_count = #(only_no_probe_b or {})
+
+  if with_probe_count > 0 and page_top_with_probe[1] ~= nil and page_top_with_probe[1].count >= math.max(4, math.floor(with_probe_count * 0.25)) then
+    hints[#hints + 1] = "matched_only_in_with_probe clusters in a small set of pages"
+  end
+  if no_probe_b_count > 0 and page_top_no_probe_b[1] ~= nil and page_top_no_probe_b[1].count >= math.max(4, math.floor(no_probe_b_count * 0.25)) then
+    hints[#hints + 1] = "matched_only_in_no_probe_B clusters in a small set of pages"
+  end
+  if delta_candidates ~= nil and delta_candidates[1] ~= nil and delta_candidates[1].count >= 4 then
+    hints[#hints + 1] = "pattern is consistent with a repeated address delta between with_probe and no_probe_B samples"
+  end
+  if #hints == 0 then
+    hints[1] = "pattern does not show a single dominant explanation from this lightweight pass"
+  end
+  return table.concat(hints, "; ")
 end
 
 local function write_text_file(path, text)
@@ -448,9 +580,23 @@ local function render_diagnostic_diff_file(batch_id, summaries)
         with_probe.matched_addresses,
         no_probe_b.matched_addresses
       )
+      local full_only_a = collect_unique_only(no_probe_a.matched_addresses, with_probe.matched_addresses, no_probe_b.matched_addresses, nil)
+      local full_only_w = collect_unique_only(with_probe.matched_addresses, no_probe_a.matched_addresses, no_probe_b.matched_addresses, nil)
+      local full_only_b = collect_unique_only(no_probe_b.matched_addresses, no_probe_a.matched_addresses, with_probe.matched_addresses, nil)
       local only_a = collect_unique_only(no_probe_a.matched_addresses, with_probe.matched_addresses, no_probe_b.matched_addresses, 20)
       local only_w = collect_unique_only(with_probe.matched_addresses, no_probe_a.matched_addresses, no_probe_b.matched_addresses, 20)
       local only_b = collect_unique_only(no_probe_b.matched_addresses, no_probe_a.matched_addresses, with_probe.matched_addresses, 20)
+      local page_top_no_probe_a = collect_top_buckets(full_only_a, 0x1000, 5)
+      local page_top_with_probe = collect_top_buckets(full_only_w, 0x1000, 5)
+      local page_top_no_probe_b = collect_top_buckets(full_only_b, 0x1000, 5)
+      local region_top_no_probe_a = collect_top_buckets(full_only_a, 0x10000, 5)
+      local region_top_with_probe = collect_top_buckets(full_only_w, 0x10000, 5)
+      local region_top_no_probe_b = collect_top_buckets(full_only_b, 0x10000, 5)
+      local segment_top_no_probe_a = collect_top_buckets(full_only_a, 0x100000, 5)
+      local segment_top_with_probe = collect_top_buckets(full_only_w, 0x100000, 5)
+      local segment_top_no_probe_b = collect_top_buckets(full_only_b, 0x100000, 5)
+      local delta_candidates = collect_dominant_delta_candidates(full_only_w, full_only_b, 32)
+      local interpretation_hint = build_interpretation_hints(full_only_w, full_only_b, page_top_with_probe, page_top_no_probe_b, delta_candidates)
 
       lines[#lines + 1] = "--- " .. tostring(key) .. " ---"
 
@@ -480,6 +626,17 @@ local function render_diagnostic_diff_file(batch_id, summaries)
       lines[#lines + 1] = "matched_only_in_no_probe_A = " .. format_address_sample(only_a)
       lines[#lines + 1] = "matched_only_in_with_probe = " .. format_address_sample(only_w)
       lines[#lines + 1] = "matched_only_in_no_probe_B = " .. format_address_sample(only_b)
+      lines[#lines + 1] = "page_cluster_summary.no_probe_A = " .. format_bucket_entries(page_top_no_probe_a)
+      lines[#lines + 1] = "page_cluster_summary.with_probe = " .. format_bucket_entries(page_top_with_probe)
+      lines[#lines + 1] = "page_cluster_summary.no_probe_B = " .. format_bucket_entries(page_top_no_probe_b)
+      lines[#lines + 1] = "region_cluster_summary.no_probe_A = " .. format_bucket_entries(region_top_no_probe_a)
+      lines[#lines + 1] = "region_cluster_summary.with_probe = " .. format_bucket_entries(region_top_with_probe)
+      lines[#lines + 1] = "region_cluster_summary.no_probe_B = " .. format_bucket_entries(region_top_no_probe_b)
+      lines[#lines + 1] = "segment_cluster_summary.no_probe_A = " .. format_bucket_entries(segment_top_no_probe_a)
+      lines[#lines + 1] = "segment_cluster_summary.with_probe = " .. format_bucket_entries(segment_top_with_probe)
+      lines[#lines + 1] = "segment_cluster_summary.no_probe_B = " .. format_bucket_entries(segment_top_no_probe_b)
+      lines[#lines + 1] = "dominant_delta_candidates = " .. format_delta_candidates(delta_candidates)
+      lines[#lines + 1] = "interpretation_hint = " .. tostring(interpretation_hint)
       lines[#lines + 1] = ""
     end
   end
