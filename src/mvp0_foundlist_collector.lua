@@ -25,6 +25,7 @@
 -- print('true_in_selected       = ' .. tostring(bundle.true_in_selected))
 
 local MVP0FoundList = {}
+MVP0FoundList.LAST_FILTER_DEBUG = nil
 
 MVP0FoundList.CONFIG = {
   default_max_candidates = 20,
@@ -966,6 +967,14 @@ local function sort_numeric(addresses)
   return addresses
 end
 
+local function copy_numeric_array(addresses)
+  local copied = {}
+  for i, addr in ipairs(addresses or {}) do
+    copied[i] = addr
+  end
+  return copied
+end
+
 local function select_evenly(addresses, wanted_count, known_true_addr)
   if wanted_count == nil or wanted_count <= 0 or #addresses <= wanted_count then
     local true_in_selected = false
@@ -1177,6 +1186,16 @@ function MVP0FoundList.collect(opts)
   end
 
   local sorted_addresses = sort_numeric(filtered_addresses)
+  MVP0FoundList.LAST_FILTER_DEBUG = {
+    unique_count = #unique_addresses,
+    matched_count = filter_debug and filter_debug.matched_count or #sorted_addresses,
+    value_mismatch_count = filter_debug and filter_debug.value_mismatch_count or 0,
+    read_failed_count = filter_debug and filter_debug.read_failed_count or 0,
+    retry_recovered_count = filter_debug and filter_debug.retry_recovered_count or 0,
+    retry_still_mismatch_count = filter_debug and filter_debug.retry_still_mismatch_count or 0,
+    retry_read_failed_count = filter_debug and filter_debug.retry_read_failed_count or 0,
+    matched_addresses = copy_numeric_array(sorted_addresses),
+  }
 
   local selected_addresses
   local prescored_count = nil

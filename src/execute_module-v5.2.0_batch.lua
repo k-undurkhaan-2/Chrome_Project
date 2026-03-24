@@ -1,4 +1,4 @@
-﻿-- execute_module-v5.2.0
+-- execute_module-v5.2.0
 -- Batch no-probe / with-probe runner with automatic log persistence.
 
 local REPORT_MODULE_PATH = [[D:\Lua Developer\mvp0_candidate_report.lua]]
@@ -10,9 +10,17 @@ local MODE_PRESETS = {
     mode = "no_probe",
     probe_full_foundlist = false,
   },
+  no_probe_A = {
+    mode = "no_probe_A",
+    probe_full_foundlist = false,
+  },
   with_probe = {
     mode = "with_probe",
     probe_full_foundlist = true,
+  },
+  no_probe_B = {
+    mode = "no_probe_B",
+    probe_full_foundlist = false,
   },
 }
 
@@ -20,7 +28,7 @@ local RUN_CASES = {
   {
     case_id = "case_01",
     session_id = "collector-retest-wide-2",
-    known_true_addr = 0x23C061C8D48,
+    known_true_addr = 0x1E4061C8D48,
     target_value_pattern = 0x42C80000,
     target_value_float = 100.0,
     max_candidates = 100,
@@ -28,8 +36,9 @@ local RUN_CASES = {
     filter_target_match = true,
     use_prescore_selection = true,
     modes = {
-      {name = "no_probe", probe_full_foundlist = false},
+      {name = "no_probe_A", probe_full_foundlist = false},
       {name = "with_probe", probe_full_foundlist = true},
+      {name = "no_probe_B", probe_full_foundlist = false},
     },
   },
 }
@@ -73,6 +82,83 @@ local function hex_u64(value)
     return "nil"
   end
   return string.format("0x%X", value)
+end
+
+local function copy_array(values)
+  local copied = {}
+  for i, value in ipairs(values or {}) do
+    copied[i] = value
+  end
+  return copied
+end
+
+local function build_address_set(addresses)
+  local set = {}
+  for _, addr in ipairs(addresses or {}) do
+    set[addr] = true
+  end
+  return set
+end
+
+local function collect_unique_only(source_addresses, other_a_addresses, other_b_addresses, limit)
+  local source_set = build_address_set(source_addresses)
+  local other_a_set = build_address_set(other_a_addresses)
+  local other_b_set = build_address_set(other_b_addresses)
+  local sample = {}
+
+  for _, addr in ipairs(source_addresses or {}) do
+    if source_set[addr] and not other_a_set[addr] and not other_b_set[addr] then
+      sample[#sample + 1] = addr
+      if limit ~= nil and #sample >= limit then
+        break
+      end
+    end
+  end
+
+  return sample
+end
+
+local function format_address_sample(addresses)
+  if addresses == nil or #addresses == 0 then
+    return "empty"
+  end
+
+  local parts = {}
+  for _, addr in ipairs(addresses) do
+    parts[#parts + 1] = hex_u64(addr)
+  end
+  return table.concat(parts, ", ")
+end
+
+local function compute_match_overlap_counts(a_addresses, w_addresses, b_addresses)
+  local counts = {}
+  for _, addresses in ipairs({a_addresses or {}, w_addresses or {}, b_addresses or {}}) do
+    local seen_in_run = {}
+    for _, addr in ipairs(addresses) do
+      if not seen_in_run[addr] then
+        counts[addr] = (counts[addr] or 0) + 1
+        seen_in_run[addr] = true
+      end
+    end
+  end
+
+  local result = {
+    matched_in_all_three_count = 0,
+    matched_in_any_two_count = 0,
+    matched_unique_to_each_count = 0,
+  }
+
+  for _, count in pairs(counts) do
+    if count == 3 then
+      result.matched_in_all_three_count = result.matched_in_all_three_count + 1
+    elseif count == 2 then
+      result.matched_in_any_two_count = result.matched_in_any_two_count + 1
+    elseif count == 1 then
+      result.matched_unique_to_each_count = result.matched_unique_to_each_count + 1
+    end
+  end
+
+  return result
 end
 
 local function write_text_file(path, text)
@@ -170,6 +256,24 @@ local function load_modules()
   print_func_source("MVP0.compute_one_sided_anchorless_split_penalty", MVP0 and MVP0.compute_one_sided_anchorless_split_penalty)
 end
 
+local function get_filter_debug_snapshot()
+  local debug_info = MVP0FoundList and MVP0FoundList.LAST_FILTER_DEBUG or nil
+  if type(debug_info) ~= "table" then
+    return nil
+  end
+
+  return {
+    unique_count = debug_info.unique_count,
+    matched_count = debug_info.matched_count,
+    value_mismatch_count = debug_info.value_mismatch_count,
+    read_failed_count = debug_info.read_failed_count,
+    retry_recovered_count = debug_info.retry_recovered_count,
+    retry_still_mismatch_count = debug_info.retry_still_mismatch_count,
+    retry_read_failed_count = debug_info.retry_read_failed_count,
+    matched_addresses = copy_array(debug_info.matched_addresses),
+  }
+end
+
 local function emit_bundle_report(case_cfg, mode_cfg, bundle)
   local result = (bundle and bundle.result) or {}
 
@@ -223,7 +327,7 @@ local function emit_bundle_report(case_cfg, mode_cfg, bundle)
   end
 end
 
-local function build_run_summary(case_cfg, mode_cfg, bundle, log_path)
+local function build_run_summary(case_cfg, mode_cfg, bundle, log_path, filter_debug)
   local result = (bundle and bundle.result) or {}
   local best = result and result.best or nil
 
@@ -233,12 +337,21 @@ local function build_run_summary(case_cfg, mode_cfg, bundle, log_path)
     mode = mode_cfg.mode,
     probe_full_foundlist = mode_cfg.probe_full_foundlist,
     known_true_addr = case_cfg.known_true_addr,
+    raw_count = bundle and bundle.raw_count,
+    unique_count = bundle and bundle.unique_count,
     known_true_rank_position = pick_known_true_field(bundle, result, "known_true_rank_position"),
     known_true_final_score = pick_known_true_field(bundle, result, "known_true_final_score"),
     true_in_selected = bundle and bundle.true_in_selected,
     known_true_raw_admission_path = bundle and bundle.known_true_raw_admission_path,
     selected_count = bundle and bundle.selected_count,
     filtered_count = bundle and bundle.filtered_count,
+    matched_count = filter_debug and filter_debug.matched_count or nil,
+    value_mismatch_count = filter_debug and filter_debug.value_mismatch_count or nil,
+    read_failed_count = filter_debug and filter_debug.read_failed_count or nil,
+    retry_recovered_count = filter_debug and filter_debug.retry_recovered_count or nil,
+    retry_still_mismatch_count = filter_debug and filter_debug.retry_still_mismatch_count or nil,
+    retry_read_failed_count = filter_debug and filter_debug.retry_read_failed_count or nil,
+    matched_addresses = filter_debug and copy_array(filter_debug.matched_addresses) or {},
     best_candidate_addr = best and best.candidate and best.candidate.value_addr or nil,
     best_score = result and result.best and result.best.score or nil,
     second_score = result and result.second and result.second.score or nil,
@@ -263,6 +376,12 @@ local function print_run_summary(summary)
   print_kv("known_true_raw_admission_path", summary.known_true_raw_admission_path)
   print_kv("selected_count", summary.selected_count)
   print_kv("filtered_count", summary.filtered_count)
+  print_kv("matched_count", summary.matched_count)
+  print_kv("value_mismatch_count", summary.value_mismatch_count)
+  print_kv("read_failed_count", summary.read_failed_count)
+  print_kv("retry_recovered_count", summary.retry_recovered_count)
+  print_kv("retry_still_mismatch_count", summary.retry_still_mismatch_count)
+  print_kv("retry_read_failed_count", summary.retry_read_failed_count)
   print_kv("confidence", summary.confidence)
   print_kv("log_path", summary.log_path)
 end
@@ -289,9 +408,80 @@ local function render_summary_file(batch_id, summaries)
     lines[#lines + 1] = "known_true_raw_admission_path = " .. tostring(summary.known_true_raw_admission_path)
     lines[#lines + 1] = "selected_count = " .. tostring(summary.selected_count)
     lines[#lines + 1] = "filtered_count = " .. tostring(summary.filtered_count)
+    lines[#lines + 1] = "matched_count = " .. tostring(summary.matched_count)
+    lines[#lines + 1] = "value_mismatch_count = " .. tostring(summary.value_mismatch_count)
+    lines[#lines + 1] = "read_failed_count = " .. tostring(summary.read_failed_count)
+    lines[#lines + 1] = "retry_recovered_count = " .. tostring(summary.retry_recovered_count)
+    lines[#lines + 1] = "retry_still_mismatch_count = " .. tostring(summary.retry_still_mismatch_count)
+    lines[#lines + 1] = "retry_read_failed_count = " .. tostring(summary.retry_read_failed_count)
     lines[#lines + 1] = "confidence = " .. tostring(summary.confidence)
     lines[#lines + 1] = "log_path = " .. tostring(summary.log_path)
     lines[#lines + 1] = ""
+  end
+
+  return table.concat(lines, "\r\n")
+end
+
+local function render_diagnostic_diff_file(batch_id, summaries)
+  local groups = {}
+  local lines = {}
+
+  for _, summary in ipairs(summaries) do
+    local key = tostring(summary.session_id) .. "::" .. tostring(summary.case_id)
+    groups[key] = groups[key] or {}
+    groups[key][summary.mode] = summary
+  end
+
+  lines[#lines + 1] = "=== Diagnostic Sandwich Diff ==="
+  lines[#lines + 1] = "batch_id = " .. tostring(batch_id)
+  lines[#lines + 1] = "output_dir = " .. tostring(OUTPUT_DIR)
+  lines[#lines + 1] = ""
+
+  for key, group in pairs(groups) do
+    local no_probe_a = group.no_probe_A
+    local with_probe = group.with_probe
+    local no_probe_b = group.no_probe_B
+
+    if no_probe_a ~= nil and with_probe ~= nil and no_probe_b ~= nil then
+      local overlap = compute_match_overlap_counts(
+        no_probe_a.matched_addresses,
+        with_probe.matched_addresses,
+        no_probe_b.matched_addresses
+      )
+      local only_a = collect_unique_only(no_probe_a.matched_addresses, with_probe.matched_addresses, no_probe_b.matched_addresses, 20)
+      local only_w = collect_unique_only(with_probe.matched_addresses, no_probe_a.matched_addresses, no_probe_b.matched_addresses, 20)
+      local only_b = collect_unique_only(no_probe_b.matched_addresses, no_probe_a.matched_addresses, with_probe.matched_addresses, 20)
+
+      lines[#lines + 1] = "--- " .. tostring(key) .. " ---"
+
+      for _, summary in ipairs({no_probe_a, with_probe, no_probe_b}) do
+        lines[#lines + 1] = "[" .. tostring(summary.mode) .. "]"
+        lines[#lines + 1] = "raw_count = " .. tostring(summary.raw_count)
+        lines[#lines + 1] = "unique_count = " .. tostring(summary.unique_count)
+        lines[#lines + 1] = "filtered_count = " .. tostring(summary.filtered_count)
+        lines[#lines + 1] = "matched_count = " .. tostring(summary.matched_count)
+        lines[#lines + 1] = "value_mismatch_count = " .. tostring(summary.value_mismatch_count)
+        lines[#lines + 1] = "read_failed_count = " .. tostring(summary.read_failed_count)
+        lines[#lines + 1] = "retry_recovered_count = " .. tostring(summary.retry_recovered_count)
+        lines[#lines + 1] = "retry_still_mismatch_count = " .. tostring(summary.retry_still_mismatch_count)
+        lines[#lines + 1] = "retry_read_failed_count = " .. tostring(summary.retry_read_failed_count)
+        lines[#lines + 1] = "known_true_raw_admission_path = " .. tostring(summary.known_true_raw_admission_path)
+        lines[#lines + 1] = "known_true_rank_position = " .. tostring(summary.known_true_rank_position)
+        lines[#lines + 1] = "best_candidate = " .. tostring(hex_u64(summary.best_candidate_addr))
+        lines[#lines + 1] = "best_score = " .. tostring(summary.best_score)
+        lines[#lines + 1] = "second_score = " .. tostring(summary.second_score)
+        lines[#lines + 1] = "score_gap = " .. tostring(summary.score_gap)
+        lines[#lines + 1] = ""
+      end
+
+      lines[#lines + 1] = "matched_in_all_three_count = " .. tostring(overlap.matched_in_all_three_count)
+      lines[#lines + 1] = "matched_in_any_two_count = " .. tostring(overlap.matched_in_any_two_count)
+      lines[#lines + 1] = "matched_unique_to_each_count = " .. tostring(overlap.matched_unique_to_each_count)
+      lines[#lines + 1] = "matched_only_in_no_probe_A = " .. format_address_sample(only_a)
+      lines[#lines + 1] = "matched_only_in_with_probe = " .. format_address_sample(only_w)
+      lines[#lines + 1] = "matched_only_in_no_probe_B = " .. format_address_sample(only_b)
+      lines[#lines + 1] = ""
+    end
   end
 
   return table.concat(lines, "\r\n")
@@ -376,6 +566,16 @@ local function run_case_mode(case_cfg, mode_entry, batch_id)
       case_id = case_cfg.case_id,
       session_id = case_cfg.session_id,
       mode = mode_cfg.mode,
+      raw_count = nil,
+      unique_count = nil,
+      filtered_count = nil,
+      matched_count = nil,
+      value_mismatch_count = nil,
+      read_failed_count = nil,
+      retry_recovered_count = nil,
+      retry_still_mismatch_count = nil,
+      retry_read_failed_count = nil,
+      matched_addresses = {},
       probe_full_foundlist = mode_cfg.probe_full_foundlist,
       known_true_addr = case_cfg.known_true_addr,
       log_path = log_path,
@@ -383,7 +583,8 @@ local function run_case_mode(case_cfg, mode_entry, batch_id)
     }
   end
 
-  local summary = build_run_summary(case_cfg, mode_cfg, bundle_or_err, log_path)
+  local filter_debug = get_filter_debug_snapshot()
+  local summary = build_run_summary(case_cfg, mode_cfg, bundle_or_err, log_path, filter_debug)
   print_run_summary(summary)
   return summary
 end
@@ -409,10 +610,14 @@ local function main()
 
   local summary_path = string.format("%s\\%s__summary.txt", OUTPUT_DIR, batch_id)
   write_text_file(summary_path, render_summary_file(batch_id, summaries))
+  local diagnostic_diff_path = string.format("%s\\%s__diagnostic_diff.txt", OUTPUT_DIR, batch_id)
+  write_text_file(diagnostic_diff_path, render_diagnostic_diff_file(batch_id, summaries))
 
   print("=== batch_output ===")
   print_kv("summary_path", summary_path)
+  print_kv("diagnostic_diff_path", diagnostic_diff_path)
   print_kv("batch_runs", #summaries)
 end
 
 main()
+
