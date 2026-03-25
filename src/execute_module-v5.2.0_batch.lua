@@ -28,14 +28,14 @@ local RUN_CASES = {
   {
     case_id = "case_01",
     session_id = "collector-retest-wide-2",
-    known_true_addr = 0x26A061C8D48,
+    known_true_addr = 0x2AD061C8D48,
     target_value_pattern = 0x42C80000,
     target_value_float = 100.0,
     max_candidates = 100,
     scan_budget = 8000,
     filter_target_match = true,
     use_prescore_selection = true,
-    stable_filter_intersection_enabled = true,
+    stable_filter_intersection_enabled = false,
     modes = {
       {name = "no_probe_A", probe_full_foundlist = false},
       {name = "with_probe", probe_full_foundlist = true},
@@ -309,6 +309,126 @@ local function build_pass_interpretation_hint(pass1_only, pass2_only, page_top_p
     hints[1] = "pass1/pass2-only samples do not show a single dominant explanation from this lightweight pass"
   end
   return table.concat(hints, "; ")
+end
+
+local function count_set_members(set)
+  local count = 0
+  for _, enabled in pairs(set or {}) do
+    if enabled then
+      count = count + 1
+    end
+  end
+  return count
+end
+
+local function collect_intersection_addresses(left_addresses, right_addresses, limit)
+  local right_set = build_address_set(right_addresses)
+  local seen = {}
+  local intersection = {}
+
+  for _, addr in ipairs(left_addresses or {}) do
+    if right_set[addr] and not seen[addr] then
+      seen[addr] = true
+      intersection[#intersection + 1] = addr
+      if limit ~= nil and #intersection >= limit then
+        break
+      end
+    end
+  end
+
+  return intersection
+end
+
+local function build_no_probe_intersection_hint(a_only, b_only, intersection, page_top_a_only, page_top_b_only, page_top_intersection)
+  local hints = {}
+  local a_only_count = #(a_only or {})
+  local b_only_count = #(b_only or {})
+  local intersection_count = #(intersection or {})
+
+  if intersection_count > 0 and intersection_count >= math.max(a_only_count, b_only_count) then
+    hints[#hints + 1] = "stable intersection preserves a larger core set than either drifting edge set"
+  end
+  if a_only_count > 0 and b_only_count > 0
+    and page_top_a_only[1] ~= nil and page_top_b_only[1] ~= nil
+    and page_top_a_only[1].count >= math.max(4, math.floor(a_only_count * 0.25))
+    and page_top_b_only[1].count >= math.max(4, math.floor(b_only_count * 0.25)) then
+    hints[#hints + 1] = "A_only and B_only are heavily clustered in disjoint page groups"
+  elseif a_only_count > 0 and page_top_a_only[1] ~= nil and page_top_a_only[1].count >= math.max(4, math.floor(a_only_count * 0.25)) then
+    hints[#hints + 1] = "A_only clusters in a small set of pages"
+  elseif b_only_count > 0 and page_top_b_only[1] ~= nil and page_top_b_only[1].count >= math.max(4, math.floor(b_only_count * 0.25)) then
+    hints[#hints + 1] = "B_only clusters in a small set of pages"
+  end
+  if intersection_count > 0 and page_top_intersection[1] ~= nil and page_top_intersection[1].count >= math.max(4, math.floor(intersection_count * 0.25)) then
+    hints[#hints + 1] = "stable intersection retains a concentrated page core"
+  end
+  if #hints == 0 then
+    hints[1] = "no_probe_A/no_probe_B stable intersection does not yet suggest a single dominant pattern"
+  end
+  return table.concat(hints, "; ")
+end
+
+local function build_no_probe_snapshot_intersection_analysis(no_probe_a, no_probe_b)
+  if no_probe_a == nil or no_probe_b == nil then
+    return nil
+  end
+
+  local a_addresses = copy_array(no_probe_a.matched_addresses or {})
+  local b_addresses = copy_array(no_probe_b.matched_addresses or {})
+  table.sort(a_addresses)
+  table.sort(b_addresses)
+
+  local full_intersection = collect_intersection_addresses(a_addresses, b_addresses, nil)
+  local full_a_only = collect_unique_only(a_addresses, b_addresses, {}, nil)
+  local full_b_only = collect_unique_only(b_addresses, a_addresses, {}, nil)
+  local intersection_sample = collect_intersection_addresses(a_addresses, b_addresses, 20)
+  local a_only_sample = collect_unique_only(a_addresses, b_addresses, {}, 20)
+  local b_only_sample = collect_unique_only(b_addresses, a_addresses, {}, 20)
+  local union_set = build_address_set(a_addresses)
+  local intersection_set = build_address_set(full_intersection)
+  local known_true_addr = no_probe_a.known_true_addr or no_probe_b.known_true_addr
+
+  for _, addr in ipairs(b_addresses) do
+    union_set[addr] = true
+  end
+
+  local page_top_a_only = collect_top_buckets(full_a_only, 0x1000, 5)
+  local page_top_b_only = collect_top_buckets(full_b_only, 0x1000, 5)
+  local page_top_intersection = collect_top_buckets(full_intersection, 0x1000, 5)
+  local region_top_a_only = collect_top_buckets(full_a_only, 0x10000, 5)
+  local region_top_b_only = collect_top_buckets(full_b_only, 0x10000, 5)
+  local region_top_intersection = collect_top_buckets(full_intersection, 0x10000, 5)
+  local segment_top_a_only = collect_top_buckets(full_a_only, 0x100000, 5)
+  local segment_top_b_only = collect_top_buckets(full_b_only, 0x100000, 5)
+  local segment_top_intersection = collect_top_buckets(full_intersection, 0x100000, 5)
+
+  return {
+    delayed_snapshot_intersection_enabled = true,
+    no_probe_stable_intersection_count = #full_intersection,
+    no_probe_union_count = count_set_members(union_set),
+    no_probe_A_only_count = #full_a_only,
+    no_probe_B_only_count = #full_b_only,
+    known_true_in_no_probe_stable_intersection = (known_true_addr ~= nil) and (intersection_set[known_true_addr] == true) or nil,
+    matched_only_in_no_probe_A_vs_B = a_only_sample,
+    matched_only_in_no_probe_B_vs_A = b_only_sample,
+    matched_in_no_probe_intersection = intersection_sample,
+    page_cluster_summary_no_probe_A_only = page_top_a_only,
+    page_cluster_summary_no_probe_B_only = page_top_b_only,
+    page_cluster_summary_no_probe_intersection = page_top_intersection,
+    region_cluster_summary_no_probe_A_only = region_top_a_only,
+    region_cluster_summary_no_probe_B_only = region_top_b_only,
+    region_cluster_summary_no_probe_intersection = region_top_intersection,
+    segment_cluster_summary_no_probe_A_only = segment_top_a_only,
+    segment_cluster_summary_no_probe_B_only = segment_top_b_only,
+    segment_cluster_summary_no_probe_intersection = segment_top_intersection,
+    interpretation_hint = build_no_probe_intersection_hint(
+      full_a_only,
+      full_b_only,
+      full_intersection,
+      page_top_a_only,
+      page_top_b_only,
+      page_top_intersection
+    ),
+  }
 end
 
 local function write_text_file(path, text)
@@ -625,6 +745,32 @@ local function render_summary_file(batch_id, summaries)
     lines[#lines + 1] = ""
   end
 
+  local groups = {}
+  for _, summary in ipairs(summaries) do
+    local key = tostring(summary.session_id) .. "::" .. tostring(summary.case_id)
+    groups[key] = groups[key] or {}
+    groups[key][summary.mode] = summary
+  end
+
+  lines[#lines + 1] = "=== Delayed Snapshot Intersection Summary ==="
+  lines[#lines + 1] = ""
+  for key, group in pairs(groups) do
+    local analysis = build_no_probe_snapshot_intersection_analysis(group.no_probe_A, group.no_probe_B)
+    if analysis ~= nil then
+      lines[#lines + 1] = "--- " .. tostring(key) .. " ---"
+      lines[#lines + 1] = "delayed_snapshot_intersection_enabled = " .. tostring(analysis.delayed_snapshot_intersection_enabled)
+      lines[#lines + 1] = "no_probe_stable_intersection_count = " .. tostring(analysis.no_probe_stable_intersection_count)
+      lines[#lines + 1] = "no_probe_union_count = " .. tostring(analysis.no_probe_union_count)
+      lines[#lines + 1] = "no_probe_A_only_count = " .. tostring(analysis.no_probe_A_only_count)
+      lines[#lines + 1] = "no_probe_B_only_count = " .. tostring(analysis.no_probe_B_only_count)
+      lines[#lines + 1] = "known_true_in_no_probe_stable_intersection = " .. tostring(analysis.known_true_in_no_probe_stable_intersection)
+      lines[#lines + 1] = "matched_only_in_no_probe_A_vs_B = " .. format_address_sample(analysis.matched_only_in_no_probe_A_vs_B)
+      lines[#lines + 1] = "matched_only_in_no_probe_B_vs_A = " .. format_address_sample(analysis.matched_only_in_no_probe_B_vs_A)
+      lines[#lines + 1] = "matched_in_no_probe_intersection = " .. format_address_sample(analysis.matched_in_no_probe_intersection)
+      lines[#lines + 1] = ""
+    end
+  end
+
   return table.concat(lines, "\r\n")
 end
 
@@ -671,6 +817,7 @@ local function render_diagnostic_diff_file(batch_id, summaries)
       local segment_top_no_probe_b = collect_top_buckets(full_only_b, 0x100000, 5)
       local delta_candidates = collect_dominant_delta_candidates(full_only_w, full_only_b, 32)
       local interpretation_hint = build_interpretation_hints(full_only_w, full_only_b, page_top_with_probe, page_top_no_probe_b, delta_candidates)
+      local no_probe_snapshot_analysis = build_no_probe_snapshot_intersection_analysis(no_probe_a, no_probe_b)
 
       lines[#lines + 1] = "--- " .. tostring(key) .. " ---"
 
@@ -746,6 +893,27 @@ local function render_diagnostic_diff_file(batch_id, summaries)
       lines[#lines + 1] = "segment_cluster_summary.no_probe_B = " .. format_bucket_entries(segment_top_no_probe_b)
       lines[#lines + 1] = "dominant_delta_candidates = " .. format_delta_candidates(delta_candidates)
       lines[#lines + 1] = "interpretation_hint = " .. tostring(interpretation_hint)
+      if no_probe_snapshot_analysis ~= nil then
+        lines[#lines + 1] = "delayed_snapshot_intersection_enabled = " .. tostring(no_probe_snapshot_analysis.delayed_snapshot_intersection_enabled)
+        lines[#lines + 1] = "no_probe_stable_intersection_count = " .. tostring(no_probe_snapshot_analysis.no_probe_stable_intersection_count)
+        lines[#lines + 1] = "no_probe_union_count = " .. tostring(no_probe_snapshot_analysis.no_probe_union_count)
+        lines[#lines + 1] = "no_probe_A_only_count = " .. tostring(no_probe_snapshot_analysis.no_probe_A_only_count)
+        lines[#lines + 1] = "no_probe_B_only_count = " .. tostring(no_probe_snapshot_analysis.no_probe_B_only_count)
+        lines[#lines + 1] = "known_true_in_no_probe_stable_intersection = " .. tostring(no_probe_snapshot_analysis.known_true_in_no_probe_stable_intersection)
+        lines[#lines + 1] = "matched_only_in_no_probe_A_vs_B = " .. format_address_sample(no_probe_snapshot_analysis.matched_only_in_no_probe_A_vs_B)
+        lines[#lines + 1] = "matched_only_in_no_probe_B_vs_A = " .. format_address_sample(no_probe_snapshot_analysis.matched_only_in_no_probe_B_vs_A)
+        lines[#lines + 1] = "matched_in_no_probe_intersection = " .. format_address_sample(no_probe_snapshot_analysis.matched_in_no_probe_intersection)
+        lines[#lines + 1] = "page_cluster_summary.no_probe_A_only = " .. format_bucket_entries(no_probe_snapshot_analysis.page_cluster_summary_no_probe_A_only)
+        lines[#lines + 1] = "page_cluster_summary.no_probe_B_only = " .. format_bucket_entries(no_probe_snapshot_analysis.page_cluster_summary_no_probe_B_only)
+        lines[#lines + 1] = "page_cluster_summary.no_probe_intersection = " .. format_bucket_entries(no_probe_snapshot_analysis.page_cluster_summary_no_probe_intersection)
+        lines[#lines + 1] = "region_cluster_summary.no_probe_A_only = " .. format_bucket_entries(no_probe_snapshot_analysis.region_cluster_summary_no_probe_A_only)
+        lines[#lines + 1] = "region_cluster_summary.no_probe_B_only = " .. format_bucket_entries(no_probe_snapshot_analysis.region_cluster_summary_no_probe_B_only)
+        lines[#lines + 1] = "region_cluster_summary.no_probe_intersection = " .. format_bucket_entries(no_probe_snapshot_analysis.region_cluster_summary_no_probe_intersection)
+        lines[#lines + 1] = "segment_cluster_summary.no_probe_A_only = " .. format_bucket_entries(no_probe_snapshot_analysis.segment_cluster_summary_no_probe_A_only)
+        lines[#lines + 1] = "segment_cluster_summary.no_probe_B_only = " .. format_bucket_entries(no_probe_snapshot_analysis.segment_cluster_summary_no_probe_B_only)
+        lines[#lines + 1] = "segment_cluster_summary.no_probe_intersection = " .. format_bucket_entries(no_probe_snapshot_analysis.segment_cluster_summary_no_probe_intersection)
+        lines[#lines + 1] = "interpretation_hint.no_probe_A_vs_B = " .. tostring(no_probe_snapshot_analysis.interpretation_hint)
+      end
       lines[#lines + 1] = ""
     end
   end
