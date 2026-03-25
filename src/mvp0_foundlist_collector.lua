@@ -970,7 +970,11 @@ local function filter_target_match_single_pass(addresses, target_value_pattern, 
   return matched, true_in_filtered, mismatch_addresses, stats
 end
 
-local function filter_target_match(addresses, target_value_pattern, known_true_addr, stable_filter_intersection_enabled)
+local function filter_target_match(addresses, target_value_pattern, known_true_addr, stable_filter_intersection_enabled, delayed_recheck_enabled)
+  if delayed_recheck_enabled == nil then
+    delayed_recheck_enabled = true
+  end
+
   if stable_filter_intersection_enabled then
     local pass1_matched, _, _, pass1_stats =
       filter_target_match_single_pass(addresses, target_value_pattern, known_true_addr)
@@ -1032,8 +1036,8 @@ local function filter_target_match(addresses, target_value_pattern, known_true_a
   local filtered, true_in_filtered, delayed_candidates, stats =
     filter_target_match_single_pass(addresses, target_value_pattern, known_true_addr)
 
-  stats.delayed_recheck_enabled = true
-  stats.delayed_recheck_candidate_count = #delayed_candidates
+  stats.delayed_recheck_enabled = delayed_recheck_enabled
+  stats.delayed_recheck_candidate_count = delayed_recheck_enabled and #delayed_candidates or 0
   stats.delayed_recovered_count = 0
   stats.delayed_still_mismatch_count = 0
   stats.delayed_read_failed_count = 0
@@ -1049,6 +1053,10 @@ local function filter_target_match(addresses, target_value_pattern, known_true_a
   stats.pass2_matched_addresses = {}
   stats.pass1_only_addresses = {}
   stats.pass2_only_addresses = {}
+
+  if not delayed_recheck_enabled then
+    return filtered, true_in_filtered, stats
+  end
 
   for _, addr in ipairs(delayed_candidates) do
     local delayed_ok, delayed_value = pcall(read_u32, addr)
@@ -1245,6 +1253,7 @@ function MVP0FoundList.collect(opts)
   local probe_full_foundlist = opts.probe_full_foundlist
   local probe_window_radius = opts.probe_window_radius
   local stable_filter_intersection_enabled = opts.stable_filter_intersection_enabled == true
+  local delayed_recheck_enabled = opts.delayed_recheck_enabled
 
   if scan_budget == nil then
     scan_budget = MVP0FoundList.CONFIG.default_scan_budget
@@ -1261,6 +1270,9 @@ function MVP0FoundList.collect(opts)
   if probe_window_radius == nil then
     probe_window_radius = MVP0FoundList.CONFIG.default_probe_window_radius
   end
+  if delayed_recheck_enabled == nil then
+    delayed_recheck_enabled = true
+  end
 
   if target_value_pattern == nil then
     error('target_value_pattern is required.')
@@ -1275,7 +1287,7 @@ function MVP0FoundList.collect(opts)
 
   if should_filter then
     filtered_addresses, true_in_filtered, filter_debug =
-      filter_target_match(unique_addresses, target_value_pattern, known_true_addr, stable_filter_intersection_enabled)
+      filter_target_match(unique_addresses, target_value_pattern, known_true_addr, stable_filter_intersection_enabled, delayed_recheck_enabled)
     append_probe_log(truth_probe_logs, 'filter', string.format(
       'filter_target_match enabled unique=%d matched=%d value_mismatch=%d read_failed=%d retry_recovered=%d retry_still_mismatch=%d retry_read_failed=%d delayed_recheck_enabled=%s delayed_candidates=%d delayed_recovered=%d delayed_still_mismatch=%d delayed_read_failed=%d stable_intersection_enabled=%s pass1_matched=%d pass2_matched=%d intersection_filtered=%d pass1_only=%d pass2_only=%d final_filtered=%d probe_enabled=%s',
       #unique_addresses,
@@ -1429,8 +1441,12 @@ local function collect_from_filtered_addresses(opts)
   local bucket_shift = opts.bucket_shift or MVP0FoundList.CONFIG.default_bucket_shift
   local max_per_bucket = opts.max_per_bucket or MVP0FoundList.CONFIG.default_max_per_bucket
   local known_true_addr = opts.known_true_addr and to_address_number(opts.known_true_addr) or nil
-  local filtered_addresses = sort_numeric(copy_numeric_array(opts.filtered_addresses or {}))
+  local filtered_addresses = copy_numeric_array(opts.filtered_addresses or {})
   local true_in_filtered = false
+
+  if opts.preserve_filtered_order ~= true then
+    filtered_addresses = sort_numeric(filtered_addresses)
+  end
 
   if use_prescore_selection == nil then
     use_prescore_selection = MVP0FoundList.CONFIG.default_use_prescore_selection
@@ -1501,6 +1517,151 @@ local function collect_from_filtered_addresses(opts)
   }
 end
 
+local function copy_string_array(items)
+  local copied = {}
+  for i, item in ipairs(items or {}) do
+    copied[i] = item
+  end
+  return copied
+end
+
+local function copy_option_table(opts)
+  local copied = {}
+  for key, value in pairs(opts or {}) do
+    copied[key] = value
+  end
+  return copied
+end
+
+local function run_stable_no_probe_intersection(opts)
+  local snapshot_a_opts = copy_option_table(opts)
+  snapshot_a_opts.stable_no_probe_intersection_enabled = false
+  snapshot_a_opts.stable_filter_intersection_enabled = false
+  snapshot_a_opts.delayed_recheck_enabled = false
+  snapshot_a_opts.probe_full_foundlist = false
+  snapshot_a_opts.session_mode = 'no_probe'
+
+  local snapshot_a = MVP0FoundList.collect(snapshot_a_opts)
+  local snapshot_a_filtered = copy_numeric_array(MVP0FoundList.LAST_FILTER_DEBUG and MVP0FoundList.LAST_FILTER_DEBUG.matched_addresses or {})
+
+  local snapshot_b_opts = copy_option_table(opts)
+  snapshot_b_opts.stable_no_probe_intersection_enabled = false
+  snapshot_b_opts.stable_filter_intersection_enabled = false
+  snapshot_b_opts.delayed_recheck_enabled = false
+  snapshot_b_opts.probe_full_foundlist = false
+  snapshot_b_opts.session_mode = 'no_probe'
+
+  local snapshot_b = MVP0FoundList.collect(snapshot_b_opts)
+  local snapshot_b_filtered = copy_numeric_array(MVP0FoundList.LAST_FILTER_DEBUG and MVP0FoundList.LAST_FILTER_DEBUG.matched_addresses or {})
+  local stable_filtered = {}
+  local snapshot_a_set = build_address_set(snapshot_a_filtered)
+
+  for _, addr in ipairs(snapshot_b_filtered) do
+    if snapshot_a_set[addr] then
+      stable_filtered[#stable_filtered + 1] = addr
+    end
+  end
+
+  local truth_probe_logs = copy_string_array(snapshot_b.truth_probe_logs)
+  append_probe_log(truth_probe_logs, 'filter', string.format(
+    'stable_no_probe_intersection enabled snapshot_A_filtered=%d snapshot_B_filtered=%d final_filtered=%d canonical_source=no_probe_B',
+    #snapshot_a_filtered,
+    #snapshot_b_filtered,
+    #stable_filtered
+  ))
+
+  local bundle = collect_from_filtered_addresses({
+    filtered_addresses = stable_filtered,
+    preserve_filtered_order = true,
+    max_candidates = opts.max_candidates,
+    target_value_pattern = opts.target_value_pattern,
+    target_value_float = opts.target_value_float,
+    use_prescore_selection = opts.use_prescore_selection,
+    bucket_shift = opts.bucket_shift,
+    max_per_bucket = opts.max_per_bucket,
+    known_true_addr = opts.known_true_addr,
+    known_true_raw_admission_path = snapshot_b.known_true_raw_admission_path,
+    raw_probe_full_foundlist_enabled = false,
+    truth_probe_logs = truth_probe_logs,
+    session_mode = opts.session_mode or 'stable_no_probe_intersection',
+    source_mode = 'stable_no_probe_intersection',
+  })
+
+  bundle.raw_count = snapshot_b.raw_count
+  bundle.scanned_count = snapshot_b.scanned_count
+  bundle.unique_count = snapshot_b.unique_count
+  bundle.scan_budget = snapshot_b.scan_budget
+  bundle.probe_window_radius = snapshot_b.probe_window_radius
+  bundle.true_foundlist_index = snapshot_b.true_foundlist_index
+  bundle.raw_admission_strategy = snapshot_b.raw_admission_strategy
+  bundle.raw_even_spread_quota = snapshot_b.raw_even_spread_quota
+  bundle.raw_structure_quota = snapshot_b.raw_structure_quota
+  bundle.raw_neighborhood_quota = snapshot_b.raw_neighborhood_quota
+  bundle.raw_fill_quota = snapshot_b.raw_fill_quota
+  bundle.raw_probe_quota = snapshot_b.raw_probe_quota
+  bundle.raw_even_spread_used = snapshot_b.raw_even_spread_used
+  bundle.raw_structure_used = snapshot_b.raw_structure_used
+  bundle.raw_neighborhood_used = snapshot_b.raw_neighborhood_used
+  bundle.raw_fill_used = snapshot_b.raw_fill_used
+  bundle.raw_probe_used = snapshot_b.raw_probe_used
+  bundle.raw_admission_source_counts = snapshot_b.raw_admission_source_counts
+  bundle.raw_structure_scout_count = snapshot_b.raw_structure_scout_count
+  bundle.raw_structure_eligible_count = snapshot_b.raw_structure_eligible_count
+  bundle.raw_read_fail_count = snapshot_b.raw_read_fail_count
+  bundle.raw_read_fail_field_counts = snapshot_b.raw_read_fail_field_counts
+  bundle.raw_quota_reject_reason_counts = snapshot_b.raw_quota_reject_reason_counts
+  bundle.raw_neighbor_dedup_drops = snapshot_b.raw_neighbor_dedup_drops
+  bundle.true_in_full_foundlist_checked = snapshot_b.true_in_full_foundlist_checked
+  bundle.true_in_full_foundlist = snapshot_b.true_in_full_foundlist
+  bundle.true_in_full_foundlist_observed = snapshot_b.true_in_full_foundlist_observed
+  bundle.true_in_raw = snapshot_b.true_in_raw
+  bundle.true_in_unique = snapshot_b.true_in_unique
+  bundle.stable_no_probe_intersection_enabled = true
+  bundle.stable_intersection_snapshot_A_filtered_count = #snapshot_a_filtered
+  bundle.stable_intersection_snapshot_B_filtered_count = #snapshot_b_filtered
+  bundle.stable_intersection_filtered_count = #stable_filtered
+  bundle.stable_intersection_canonical_source_count = #snapshot_b_filtered
+  bundle.stable_intersection_downstream_input_count = #stable_filtered
+  bundle.stable_intersection_true_in_filtered = bundle.true_in_filtered
+  bundle.session_mode = opts.session_mode or 'stable_no_probe_intersection'
+
+  MVP0FoundList.LAST_FILTER_DEBUG = {
+    unique_count = snapshot_b.unique_count,
+    matched_count = #stable_filtered,
+    value_mismatch_count = 0,
+    read_failed_count = 0,
+    retry_recovered_count = 0,
+    retry_still_mismatch_count = 0,
+    retry_read_failed_count = 0,
+    delayed_recheck_enabled = false,
+    delayed_recheck_candidate_count = 0,
+    delayed_recovered_count = 0,
+    delayed_still_mismatch_count = 0,
+    delayed_read_failed_count = 0,
+    stable_intersection_enabled = false,
+    pass1_matched_count = 0,
+    pass2_matched_count = 0,
+    intersection_filtered_count = 0,
+    pass1_only_count = 0,
+    pass2_only_count = 0,
+    pass1_read_failed_count = 0,
+    pass2_read_failed_count = 0,
+    pass1_matched_addresses = {},
+    pass2_matched_addresses = {},
+    pass1_only_addresses = {},
+    pass2_only_addresses = {},
+    matched_addresses = copy_numeric_array(stable_filtered),
+    stable_no_probe_intersection_enabled = true,
+    stable_intersection_snapshot_A_filtered_count = #snapshot_a_filtered,
+    stable_intersection_snapshot_B_filtered_count = #snapshot_b_filtered,
+    stable_intersection_filtered_count = #stable_filtered,
+    stable_intersection_canonical_source_count = #snapshot_b_filtered,
+    stable_intersection_downstream_input_count = #stable_filtered,
+  }
+
+  return bundle
+end
+
 function MVP0FoundList.build_input(opts)
   local collected = MVP0FoundList.collect(opts)
   collected.input = MVP0.make_input(collected.candidate_value_addrs, collected.target_value_pattern, {
@@ -1542,6 +1703,36 @@ function MVP0FoundList.run_from_filtered_addresses(opts)
 end
 
 function MVP0FoundList.run(opts)
+  if opts and opts.stable_no_probe_intersection_enabled == true then
+    local bundle = run_stable_no_probe_intersection(opts)
+    bundle.input = MVP0.make_input(bundle.candidate_value_addrs, bundle.target_value_pattern, {
+      target_value_float = opts and opts.target_value_float,
+      session_id = opts and opts.session_id,
+      session_mode = bundle.session_mode or 'stable_no_probe_intersection',
+    })
+    bundle.result = MVP0.run(bundle.input)
+
+    bundle.known_true_rank_position = nil
+    bundle.known_true_base_score = nil
+    bundle.known_true_final_score = nil
+    bundle.known_true_tie_break_vector = nil
+
+    if bundle.known_true_addr ~= nil and bundle.result ~= nil and bundle.result.ranked ~= nil then
+      for _, scored_candidate in ipairs(bundle.result.ranked) do
+        local candidate = scored_candidate.candidate
+        if candidate ~= nil and candidate.value_addr == bundle.known_true_addr then
+          bundle.known_true_rank_position = scored_candidate.rank_position
+          bundle.known_true_base_score = scored_candidate.base_score
+          bundle.known_true_final_score = scored_candidate.final_score
+          bundle.known_true_tie_break_vector = scored_candidate.tie_break_vector
+          break
+        end
+      end
+    end
+
+    return bundle
+  end
+
   local bundle = MVP0FoundList.build_input(opts)
   bundle.result = MVP0.run(bundle.input)
 
