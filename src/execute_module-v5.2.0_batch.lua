@@ -28,7 +28,7 @@ local RUN_CASES = {
   {
     case_id = "case_01",
     session_id = "collector-retest-wide-2",
-    known_true_addr = 0x34D061C8D48,
+    known_true_addr = 0x3B5061C8D48,
     target_value_pattern = 0x42C80000,
     target_value_float = 100.0,
     max_candidates = 100,
@@ -404,12 +404,12 @@ local function build_no_probe_snapshot_intersection_analysis(no_probe_a, no_prob
   -- [stable-intersection-analysis]
   return {
     delayed_snapshot_intersection_enabled = true,
-    no_probe_stable_intersection_count = #full_intersection,
-    no_probe_union_count = count_set_members(union_set),
-    no_probe_A_only_count = #full_a_only,
-    no_probe_B_only_count = #full_b_only,
+    delayed_snapshot_no_probe_stable_intersection_count = #full_intersection,
+    delayed_snapshot_no_probe_union_count = count_set_members(union_set),
+    delayed_snapshot_no_probe_A_only_count = #full_a_only,
+    delayed_snapshot_no_probe_B_only_count = #full_b_only,
     full_intersection_addresses = full_intersection,
-    known_true_in_no_probe_stable_intersection = (known_true_addr ~= nil) and (intersection_set[known_true_addr] == true) or nil,
+    delayed_snapshot_known_true_in_intersection = (known_true_addr ~= nil) and (intersection_set[known_true_addr] == true) or nil,
     matched_only_in_no_probe_A_vs_B = a_only_sample,
     matched_only_in_no_probe_B_vs_A = b_only_sample,
     matched_in_no_probe_intersection = intersection_sample,
@@ -707,6 +707,8 @@ local function print_run_summary(summary)
     print_kv("stable_intersection_enabled", summary.stable_intersection_enabled)
     print_kv("stable_intersection_base_snapshot", summary.stable_intersection_base_snapshot)
     print_kv("stable_intersection_filtered_count", summary.stable_intersection_filtered_count)
+    print_kv("stable_intersection_snapshot_A_only_count", summary.stable_intersection_snapshot_A_only_count)
+    print_kv("stable_intersection_snapshot_B_only_count", summary.stable_intersection_snapshot_B_only_count)
     print_kv("stable_intersection_canonical_source_count", summary.stable_intersection_canonical_source_count)
     print_kv("stable_intersection_downstream_input_count", summary.stable_intersection_downstream_input_count)
     print_kv("stable_intersection_true_in_filtered", summary.stable_intersection_true_in_filtered)
@@ -769,6 +771,8 @@ local function render_summary_file(batch_id, summaries)
       lines[#lines + 1] = "stable_intersection_enabled = " .. tostring(summary.stable_intersection_enabled)
       lines[#lines + 1] = "stable_intersection_base_snapshot = " .. tostring(summary.stable_intersection_base_snapshot)
       lines[#lines + 1] = "stable_intersection_filtered_count = " .. tostring(summary.stable_intersection_filtered_count)
+      lines[#lines + 1] = "stable_intersection_snapshot_A_only_count = " .. tostring(summary.stable_intersection_snapshot_A_only_count)
+      lines[#lines + 1] = "stable_intersection_snapshot_B_only_count = " .. tostring(summary.stable_intersection_snapshot_B_only_count)
       lines[#lines + 1] = "stable_intersection_canonical_source_count = " .. tostring(summary.stable_intersection_canonical_source_count)
       lines[#lines + 1] = "stable_intersection_downstream_input_count = " .. tostring(summary.stable_intersection_downstream_input_count)
       lines[#lines + 1] = "stable_intersection_true_in_filtered = " .. tostring(summary.stable_intersection_true_in_filtered)
@@ -799,11 +803,11 @@ local function render_summary_file(batch_id, summaries)
     if analysis ~= nil then
       lines[#lines + 1] = "--- " .. tostring(key) .. " ---"
       lines[#lines + 1] = "delayed_snapshot_intersection_enabled = " .. tostring(analysis.delayed_snapshot_intersection_enabled)
-      lines[#lines + 1] = "no_probe_stable_intersection_count = " .. tostring(analysis.no_probe_stable_intersection_count)
-      lines[#lines + 1] = "no_probe_union_count = " .. tostring(analysis.no_probe_union_count)
-      lines[#lines + 1] = "no_probe_A_only_count = " .. tostring(analysis.no_probe_A_only_count)
-      lines[#lines + 1] = "no_probe_B_only_count = " .. tostring(analysis.no_probe_B_only_count)
-      lines[#lines + 1] = "known_true_in_no_probe_stable_intersection = " .. tostring(analysis.known_true_in_no_probe_stable_intersection)
+      lines[#lines + 1] = "delayed_snapshot_no_probe_stable_intersection_count = " .. tostring(analysis.delayed_snapshot_no_probe_stable_intersection_count)
+      lines[#lines + 1] = "delayed_snapshot_no_probe_union_count = " .. tostring(analysis.delayed_snapshot_no_probe_union_count)
+      lines[#lines + 1] = "delayed_snapshot_no_probe_A_only_count = " .. tostring(analysis.delayed_snapshot_no_probe_A_only_count)
+      lines[#lines + 1] = "delayed_snapshot_no_probe_B_only_count = " .. tostring(analysis.delayed_snapshot_no_probe_B_only_count)
+      lines[#lines + 1] = "delayed_snapshot_known_true_in_intersection = " .. tostring(analysis.delayed_snapshot_known_true_in_intersection)
       lines[#lines + 1] = "matched_only_in_no_probe_A_vs_B = " .. format_address_sample(analysis.matched_only_in_no_probe_A_vs_B)
       lines[#lines + 1] = "matched_only_in_no_probe_B_vs_A = " .. format_address_sample(analysis.matched_only_in_no_probe_B_vs_A)
       lines[#lines + 1] = "matched_in_no_probe_intersection = " .. format_address_sample(analysis.matched_in_no_probe_intersection)
@@ -826,6 +830,8 @@ local function emit_stable_intersection_report(case_cfg, bundle, summary)
   print_kv("stable_intersection_enabled", summary.stable_intersection_enabled)
   print_kv("stable_intersection_base_snapshot", summary.stable_intersection_base_snapshot)
   print_kv("stable_intersection_filtered_count", summary.stable_intersection_filtered_count)
+  print_kv("stable_intersection_snapshot_A_only_count", summary.stable_intersection_snapshot_A_only_count)
+  print_kv("stable_intersection_snapshot_B_only_count", summary.stable_intersection_snapshot_B_only_count)
   print_kv("stable_intersection_canonical_source_count", summary.stable_intersection_canonical_source_count)
   print_kv("stable_intersection_downstream_input_count", summary.stable_intersection_downstream_input_count)
   print_kv("stable_intersection_true_in_filtered", summary.stable_intersection_true_in_filtered)
@@ -836,11 +842,11 @@ local function emit_stable_intersection_report(case_cfg, bundle, summary)
   print_kv("stable_intersection_best_score", summary.stable_intersection_best_score)
   print_kv("stable_intersection_second_score", summary.stable_intersection_second_score)
   print_kv("stable_intersection_score_gap", summary.stable_intersection_score_gap)
-  print_kv("no_probe_stable_intersection_count", summary.no_probe_stable_intersection_count)
-  print_kv("no_probe_union_count", summary.no_probe_union_count)
-  print_kv("no_probe_A_only_count", summary.no_probe_A_only_count)
-  print_kv("no_probe_B_only_count", summary.no_probe_B_only_count)
-  print_kv("known_true_in_no_probe_stable_intersection", summary.known_true_in_no_probe_stable_intersection)
+  print_kv("delayed_snapshot_no_probe_stable_intersection_count", summary.delayed_snapshot_no_probe_stable_intersection_count)
+  print_kv("delayed_snapshot_no_probe_union_count", summary.delayed_snapshot_no_probe_union_count)
+  print_kv("delayed_snapshot_no_probe_A_only_count", summary.delayed_snapshot_no_probe_A_only_count)
+  print_kv("delayed_snapshot_no_probe_B_only_count", summary.delayed_snapshot_no_probe_B_only_count)
+  print_kv("delayed_snapshot_known_true_in_intersection", summary.delayed_snapshot_known_true_in_intersection)
 
   print("=== report_text ===")
   if bundle and bundle.result and bundle.result.report_text then
@@ -888,6 +894,8 @@ local function build_stable_intersection_summary(case_cfg, bundle, log_path, ana
     stable_intersection_snapshot_A_filtered_count = bundle and bundle.stable_intersection_snapshot_A_filtered_count or nil,
     stable_intersection_snapshot_B_filtered_count = bundle and bundle.stable_intersection_snapshot_B_filtered_count or nil,
     stable_intersection_filtered_count = bundle and bundle.stable_intersection_filtered_count or nil,
+    stable_intersection_snapshot_A_only_count = bundle and bundle.stable_intersection_snapshot_A_only_count or nil,
+    stable_intersection_snapshot_B_only_count = bundle and bundle.stable_intersection_snapshot_B_only_count or nil,
     stable_intersection_canonical_source_count = canonical_source_count,
     stable_intersection_downstream_input_count = downstream_input_count,
     stable_intersection_true_in_filtered = bundle and bundle.stable_intersection_true_in_filtered or bundle and bundle.true_in_filtered or nil,
@@ -898,11 +906,11 @@ local function build_stable_intersection_summary(case_cfg, bundle, log_path, ana
     stable_intersection_best_score = result and result.best and result.best.score or nil,
     stable_intersection_second_score = result and result.second and result.second.score or nil,
     stable_intersection_score_gap = result and result.score_gap or nil,
-    no_probe_stable_intersection_count = analysis and analysis.no_probe_stable_intersection_count or nil,
-    no_probe_union_count = analysis and analysis.no_probe_union_count or nil,
-    no_probe_A_only_count = analysis and analysis.no_probe_A_only_count or nil,
-    no_probe_B_only_count = analysis and analysis.no_probe_B_only_count or nil,
-    known_true_in_no_probe_stable_intersection = analysis and analysis.known_true_in_no_probe_stable_intersection or nil,
+    delayed_snapshot_no_probe_stable_intersection_count = analysis and analysis.delayed_snapshot_no_probe_stable_intersection_count or nil,
+    delayed_snapshot_no_probe_union_count = analysis and analysis.delayed_snapshot_no_probe_union_count or nil,
+    delayed_snapshot_no_probe_A_only_count = analysis and analysis.delayed_snapshot_no_probe_A_only_count or nil,
+    delayed_snapshot_no_probe_B_only_count = analysis and analysis.delayed_snapshot_no_probe_B_only_count or nil,
+    delayed_snapshot_known_true_in_intersection = analysis and analysis.delayed_snapshot_known_true_in_intersection or nil,
     best_candidate_addr = best and best.candidate and best.candidate.value_addr or nil,
     best_score = result and result.best and result.best.score or nil,
     second_score = result and result.second and result.second.score or nil,
@@ -976,9 +984,11 @@ local function run_stable_intersection_mode(case_cfg, no_probe_a, no_probe_b, ba
       stable_intersection_snapshot_A_filtered_count = no_probe_a and no_probe_a.filtered_count or nil,
       stable_intersection_snapshot_B_filtered_count = no_probe_b and no_probe_b.filtered_count or nil,
       stable_intersection_base_snapshot = "no_probe_B",
-      stable_intersection_filtered_count = analysis.no_probe_stable_intersection_count,
+      stable_intersection_filtered_count = analysis.delayed_snapshot_no_probe_stable_intersection_count,
+      stable_intersection_snapshot_A_only_count = analysis.delayed_snapshot_no_probe_A_only_count,
+      stable_intersection_snapshot_B_only_count = analysis.delayed_snapshot_no_probe_B_only_count,
       stable_intersection_canonical_source_count = no_probe_b and no_probe_b.filtered_count or nil,
-      stable_intersection_downstream_input_count = analysis.no_probe_stable_intersection_count,
+      stable_intersection_downstream_input_count = analysis.delayed_snapshot_no_probe_stable_intersection_count,
       stable_intersection_true_in_filtered = nil,
       stable_intersection_prescored_count = nil,
       stable_intersection_selected_count = nil,
@@ -987,11 +997,11 @@ local function run_stable_intersection_mode(case_cfg, no_probe_a, no_probe_b, ba
       stable_intersection_best_score = nil,
       stable_intersection_second_score = nil,
       stable_intersection_score_gap = nil,
-      no_probe_stable_intersection_count = analysis.no_probe_stable_intersection_count,
-      no_probe_union_count = analysis.no_probe_union_count,
-      no_probe_A_only_count = analysis.no_probe_A_only_count,
-      no_probe_B_only_count = analysis.no_probe_B_only_count,
-      known_true_in_no_probe_stable_intersection = analysis.known_true_in_no_probe_stable_intersection,
+      delayed_snapshot_no_probe_stable_intersection_count = analysis.delayed_snapshot_no_probe_stable_intersection_count,
+      delayed_snapshot_no_probe_union_count = analysis.delayed_snapshot_no_probe_union_count,
+      delayed_snapshot_no_probe_A_only_count = analysis.delayed_snapshot_no_probe_A_only_count,
+      delayed_snapshot_no_probe_B_only_count = analysis.delayed_snapshot_no_probe_B_only_count,
+      delayed_snapshot_known_true_in_intersection = analysis.delayed_snapshot_known_true_in_intersection,
     }
   end
 
@@ -1122,11 +1132,11 @@ local function render_diagnostic_diff_file(batch_id, summaries)
       lines[#lines + 1] = "interpretation_hint = " .. tostring(interpretation_hint)
       if no_probe_snapshot_analysis ~= nil then
         lines[#lines + 1] = "delayed_snapshot_intersection_enabled = " .. tostring(no_probe_snapshot_analysis.delayed_snapshot_intersection_enabled)
-        lines[#lines + 1] = "no_probe_stable_intersection_count = " .. tostring(no_probe_snapshot_analysis.no_probe_stable_intersection_count)
-        lines[#lines + 1] = "no_probe_union_count = " .. tostring(no_probe_snapshot_analysis.no_probe_union_count)
-        lines[#lines + 1] = "no_probe_A_only_count = " .. tostring(no_probe_snapshot_analysis.no_probe_A_only_count)
-        lines[#lines + 1] = "no_probe_B_only_count = " .. tostring(no_probe_snapshot_analysis.no_probe_B_only_count)
-        lines[#lines + 1] = "known_true_in_no_probe_stable_intersection = " .. tostring(no_probe_snapshot_analysis.known_true_in_no_probe_stable_intersection)
+        lines[#lines + 1] = "delayed_snapshot_no_probe_stable_intersection_count = " .. tostring(no_probe_snapshot_analysis.delayed_snapshot_no_probe_stable_intersection_count)
+        lines[#lines + 1] = "delayed_snapshot_no_probe_union_count = " .. tostring(no_probe_snapshot_analysis.delayed_snapshot_no_probe_union_count)
+        lines[#lines + 1] = "delayed_snapshot_no_probe_A_only_count = " .. tostring(no_probe_snapshot_analysis.delayed_snapshot_no_probe_A_only_count)
+        lines[#lines + 1] = "delayed_snapshot_no_probe_B_only_count = " .. tostring(no_probe_snapshot_analysis.delayed_snapshot_no_probe_B_only_count)
+        lines[#lines + 1] = "delayed_snapshot_known_true_in_intersection = " .. tostring(no_probe_snapshot_analysis.delayed_snapshot_known_true_in_intersection)
         lines[#lines + 1] = "matched_only_in_no_probe_A_vs_B = " .. format_address_sample(no_probe_snapshot_analysis.matched_only_in_no_probe_A_vs_B)
         lines[#lines + 1] = "matched_only_in_no_probe_B_vs_A = " .. format_address_sample(no_probe_snapshot_analysis.matched_only_in_no_probe_B_vs_A)
         lines[#lines + 1] = "matched_in_no_probe_intersection = " .. format_address_sample(no_probe_snapshot_analysis.matched_in_no_probe_intersection)
@@ -1150,6 +1160,8 @@ local function render_diagnostic_diff_file(batch_id, summaries)
         lines[#lines + 1] = "stable_intersection_enabled = " .. tostring(stable_summary.stable_intersection_enabled)
         lines[#lines + 1] = "stable_intersection_base_snapshot = " .. tostring(stable_summary.stable_intersection_base_snapshot)
         lines[#lines + 1] = "stable_intersection_filtered_count = " .. tostring(stable_summary.stable_intersection_filtered_count)
+        lines[#lines + 1] = "stable_intersection_snapshot_A_only_count = " .. tostring(stable_summary.stable_intersection_snapshot_A_only_count)
+        lines[#lines + 1] = "stable_intersection_snapshot_B_only_count = " .. tostring(stable_summary.stable_intersection_snapshot_B_only_count)
         lines[#lines + 1] = "stable_intersection_canonical_source_count = " .. tostring(stable_summary.stable_intersection_canonical_source_count)
         lines[#lines + 1] = "stable_intersection_downstream_input_count = " .. tostring(stable_summary.stable_intersection_downstream_input_count)
         lines[#lines + 1] = "stable_intersection_true_in_filtered = " .. tostring(stable_summary.stable_intersection_true_in_filtered)

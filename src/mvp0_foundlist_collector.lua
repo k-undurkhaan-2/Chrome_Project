@@ -1555,10 +1555,25 @@ local function run_stable_no_probe_intersection(opts)
   local snapshot_b_filtered = copy_numeric_array(MVP0FoundList.LAST_FILTER_DEBUG and MVP0FoundList.LAST_FILTER_DEBUG.matched_addresses or {})
   local stable_filtered = {}
   local snapshot_a_set = build_address_set(snapshot_a_filtered)
+  local snapshot_b_set = build_address_set(snapshot_b_filtered)
+  local snapshot_a_only = {}
+  local snapshot_b_only = {}
 
   for _, addr in ipairs(snapshot_b_filtered) do
     if snapshot_a_set[addr] then
       stable_filtered[#stable_filtered + 1] = addr
+    end
+  end
+
+  for _, addr in ipairs(snapshot_a_filtered) do
+    if not snapshot_b_set[addr] then
+      snapshot_a_only[#snapshot_a_only + 1] = addr
+    end
+  end
+
+  for _, addr in ipairs(snapshot_b_filtered) do
+    if not snapshot_a_set[addr] then
+      snapshot_b_only[#snapshot_b_only + 1] = addr
     end
   end
 
@@ -1620,6 +1635,8 @@ local function run_stable_no_probe_intersection(opts)
   bundle.stable_intersection_snapshot_A_filtered_count = #snapshot_a_filtered
   bundle.stable_intersection_snapshot_B_filtered_count = #snapshot_b_filtered
   bundle.stable_intersection_filtered_count = #stable_filtered
+  bundle.stable_intersection_snapshot_A_only_count = #snapshot_a_only
+  bundle.stable_intersection_snapshot_B_only_count = #snapshot_b_only
   bundle.stable_intersection_canonical_source_count = #snapshot_b_filtered
   bundle.stable_intersection_downstream_input_count = #stable_filtered
   bundle.stable_intersection_true_in_filtered = bundle.true_in_filtered
@@ -1655,6 +1672,8 @@ local function run_stable_no_probe_intersection(opts)
     stable_intersection_snapshot_A_filtered_count = #snapshot_a_filtered,
     stable_intersection_snapshot_B_filtered_count = #snapshot_b_filtered,
     stable_intersection_filtered_count = #stable_filtered,
+    stable_intersection_snapshot_A_only_count = #snapshot_a_only,
+    stable_intersection_snapshot_B_only_count = #snapshot_b_only,
     stable_intersection_canonical_source_count = #snapshot_b_filtered,
     stable_intersection_downstream_input_count = #stable_filtered,
   }
