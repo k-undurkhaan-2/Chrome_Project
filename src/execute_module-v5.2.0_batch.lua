@@ -28,7 +28,7 @@ local RUN_CASES = {
   {
     case_id = "case_01",
     session_id = "collector-retest-wide-2",
-    known_true_addr = 0x2B2061C8D48,
+    known_true_addr = 0x34D061C8D48,
     target_value_pattern = 0x42C80000,
     target_value_float = 100.0,
     max_candidates = 100,
@@ -401,6 +401,7 @@ local function build_no_probe_snapshot_intersection_analysis(no_probe_a, no_prob
   local segment_top_b_only = collect_top_buckets(full_b_only, 0x100000, 5)
   local segment_top_intersection = collect_top_buckets(full_intersection, 0x100000, 5)
 
+  -- [stable-intersection-analysis]
   return {
     delayed_snapshot_intersection_enabled = true,
     no_probe_stable_intersection_count = #full_intersection,
@@ -698,6 +699,7 @@ local function print_run_summary(summary)
   print_kv("intersection_filtered_count", summary.intersection_filtered_count)
   print_kv("pass1_only_count", summary.pass1_only_count)
   print_kv("pass2_only_count", summary.pass2_only_count)
+  -- [stable-intersection-print]
   if summary.stable_intersection_base_snapshot ~= nil then
     print_kv("stable_intersection_enabled", summary.stable_intersection_enabled)
     print_kv("stable_intersection_base_snapshot", summary.stable_intersection_base_snapshot)
@@ -756,6 +758,7 @@ local function render_summary_file(batch_id, summaries)
     lines[#lines + 1] = "intersection_filtered_count = " .. tostring(summary.intersection_filtered_count)
     lines[#lines + 1] = "pass1_only_count = " .. tostring(summary.pass1_only_count)
     lines[#lines + 1] = "pass2_only_count = " .. tostring(summary.pass2_only_count)
+    -- [stable-intersection-summary-file]
     if summary.stable_intersection_base_snapshot ~= nil then
       lines[#lines + 1] = "stable_intersection_enabled = " .. tostring(summary.stable_intersection_enabled)
       lines[#lines + 1] = "stable_intersection_base_snapshot = " .. tostring(summary.stable_intersection_base_snapshot)
@@ -810,6 +813,7 @@ local function emit_stable_intersection_report(case_cfg, bundle, summary)
   print_kv("case_id", case_cfg.case_id)
   print_kv("session_id", case_cfg.session_id)
   print_kv("mode", "stable_no_probe_intersection")
+  -- [stable-intersection-report]
   print_kv("stable_intersection_enabled", summary.stable_intersection_enabled)
   print_kv("stable_intersection_base_snapshot", summary.stable_intersection_base_snapshot)
   print_kv("stable_intersection_filtered_count", summary.stable_intersection_filtered_count)
@@ -868,6 +872,7 @@ local function build_stable_intersection_summary(case_cfg, bundle, log_path, ana
     delayed_recovered_count = nil,
     delayed_still_mismatch_count = nil,
     delayed_read_failed_count = nil,
+    -- [stable-intersection-summary-table]
     stable_intersection_enabled = true,
     stable_intersection_base_snapshot = "no_probe_B",
     stable_intersection_filtered_count = analysis and analysis.no_probe_stable_intersection_count or nil,
@@ -1120,6 +1125,7 @@ local function render_diagnostic_diff_file(batch_id, summaries)
         lines[#lines + 1] = "segment_cluster_summary.no_probe_intersection = " .. format_bucket_entries(no_probe_snapshot_analysis.segment_cluster_summary_no_probe_intersection)
         lines[#lines + 1] = "interpretation_hint.no_probe_A_vs_B = " .. tostring(no_probe_snapshot_analysis.interpretation_hint)
       end
+      -- [stable-intersection-diagnostic-diff]
       if stable_summary ~= nil then
         lines[#lines + 1] = "[stable_no_probe_intersection]"
         lines[#lines + 1] = "stable_intersection_enabled = " .. tostring(stable_summary.stable_intersection_enabled)
