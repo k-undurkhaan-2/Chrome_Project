@@ -28,7 +28,7 @@ local RUN_CASES = {
   {
     case_id = "case_01",
     session_id = "collector-retest-wide-2",
-    known_true_addr = 0x100061C8D48,
+    known_true_addr = 0x2B2061C8D48,
     target_value_pattern = 0x42C80000,
     target_value_float = 100.0,
     max_candidates = 100,
@@ -407,6 +407,7 @@ local function build_no_probe_snapshot_intersection_analysis(no_probe_a, no_prob
     no_probe_union_count = count_set_members(union_set),
     no_probe_A_only_count = #full_a_only,
     no_probe_B_only_count = #full_b_only,
+    full_intersection_addresses = full_intersection,
     known_true_in_no_probe_stable_intersection = (known_true_addr ~= nil) and (intersection_set[known_true_addr] == true) or nil,
     matched_only_in_no_probe_A_vs_B = a_only_sample,
     matched_only_in_no_probe_B_vs_A = b_only_sample,
@@ -701,6 +702,8 @@ local function print_run_summary(summary)
     print_kv("stable_intersection_enabled", summary.stable_intersection_enabled)
     print_kv("stable_intersection_base_snapshot", summary.stable_intersection_base_snapshot)
     print_kv("stable_intersection_filtered_count", summary.stable_intersection_filtered_count)
+    print_kv("stable_intersection_canonical_source_count", summary.stable_intersection_canonical_source_count)
+    print_kv("stable_intersection_downstream_input_count", summary.stable_intersection_downstream_input_count)
     print_kv("stable_intersection_true_in_filtered", summary.stable_intersection_true_in_filtered)
     print_kv("stable_intersection_prescored_count", summary.stable_intersection_prescored_count)
     print_kv("stable_intersection_selected_count", summary.stable_intersection_selected_count)
@@ -757,6 +760,8 @@ local function render_summary_file(batch_id, summaries)
       lines[#lines + 1] = "stable_intersection_enabled = " .. tostring(summary.stable_intersection_enabled)
       lines[#lines + 1] = "stable_intersection_base_snapshot = " .. tostring(summary.stable_intersection_base_snapshot)
       lines[#lines + 1] = "stable_intersection_filtered_count = " .. tostring(summary.stable_intersection_filtered_count)
+      lines[#lines + 1] = "stable_intersection_canonical_source_count = " .. tostring(summary.stable_intersection_canonical_source_count)
+      lines[#lines + 1] = "stable_intersection_downstream_input_count = " .. tostring(summary.stable_intersection_downstream_input_count)
       lines[#lines + 1] = "stable_intersection_true_in_filtered = " .. tostring(summary.stable_intersection_true_in_filtered)
       lines[#lines + 1] = "stable_intersection_prescored_count = " .. tostring(summary.stable_intersection_prescored_count)
       lines[#lines + 1] = "stable_intersection_selected_count = " .. tostring(summary.stable_intersection_selected_count)
@@ -808,6 +813,8 @@ local function emit_stable_intersection_report(case_cfg, bundle, summary)
   print_kv("stable_intersection_enabled", summary.stable_intersection_enabled)
   print_kv("stable_intersection_base_snapshot", summary.stable_intersection_base_snapshot)
   print_kv("stable_intersection_filtered_count", summary.stable_intersection_filtered_count)
+  print_kv("stable_intersection_canonical_source_count", summary.stable_intersection_canonical_source_count)
+  print_kv("stable_intersection_downstream_input_count", summary.stable_intersection_downstream_input_count)
   print_kv("stable_intersection_true_in_filtered", summary.stable_intersection_true_in_filtered)
   print_kv("stable_intersection_prescored_count", summary.stable_intersection_prescored_count)
   print_kv("stable_intersection_selected_count", summary.stable_intersection_selected_count)
@@ -833,6 +840,8 @@ end
 local function build_stable_intersection_summary(case_cfg, bundle, log_path, analysis, base_snapshot)
   local result = (bundle and bundle.result) or {}
   local best = result and result.best or nil
+  local downstream_input_count = analysis and analysis.full_intersection_addresses and #analysis.full_intersection_addresses or nil
+  local canonical_source_count = base_snapshot and base_snapshot.matched_addresses and #base_snapshot.matched_addresses or nil
 
   return {
     case_id = case_cfg.case_id,
@@ -862,6 +871,8 @@ local function build_stable_intersection_summary(case_cfg, bundle, log_path, ana
     stable_intersection_enabled = true,
     stable_intersection_base_snapshot = "no_probe_B",
     stable_intersection_filtered_count = analysis and analysis.no_probe_stable_intersection_count or nil,
+    stable_intersection_canonical_source_count = canonical_source_count,
+    stable_intersection_downstream_input_count = downstream_input_count,
     stable_intersection_true_in_filtered = bundle and bundle.true_in_filtered or nil,
     stable_intersection_prescored_count = bundle and bundle.prescored_count or nil,
     stable_intersection_selected_count = bundle and bundle.selected_count or nil,
@@ -945,6 +956,8 @@ local function run_stable_intersection_mode(case_cfg, no_probe_a, no_probe_b, ba
       stable_intersection_enabled = true,
       stable_intersection_base_snapshot = "no_probe_B",
       stable_intersection_filtered_count = analysis.no_probe_stable_intersection_count,
+      stable_intersection_canonical_source_count = no_probe_b and no_probe_b.matched_addresses and #no_probe_b.matched_addresses or nil,
+      stable_intersection_downstream_input_count = analysis.full_intersection_addresses and #analysis.full_intersection_addresses or nil,
       stable_intersection_true_in_filtered = nil,
       stable_intersection_prescored_count = nil,
       stable_intersection_selected_count = nil,
@@ -1112,6 +1125,8 @@ local function render_diagnostic_diff_file(batch_id, summaries)
         lines[#lines + 1] = "stable_intersection_enabled = " .. tostring(stable_summary.stable_intersection_enabled)
         lines[#lines + 1] = "stable_intersection_base_snapshot = " .. tostring(stable_summary.stable_intersection_base_snapshot)
         lines[#lines + 1] = "stable_intersection_filtered_count = " .. tostring(stable_summary.stable_intersection_filtered_count)
+        lines[#lines + 1] = "stable_intersection_canonical_source_count = " .. tostring(stable_summary.stable_intersection_canonical_source_count)
+        lines[#lines + 1] = "stable_intersection_downstream_input_count = " .. tostring(stable_summary.stable_intersection_downstream_input_count)
         lines[#lines + 1] = "stable_intersection_true_in_filtered = " .. tostring(stable_summary.stable_intersection_true_in_filtered)
         lines[#lines + 1] = "stable_intersection_prescored_count = " .. tostring(stable_summary.stable_intersection_prescored_count)
         lines[#lines + 1] = "stable_intersection_selected_count = " .. tostring(stable_summary.stable_intersection_selected_count)
