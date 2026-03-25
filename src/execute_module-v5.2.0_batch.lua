@@ -28,7 +28,7 @@ local RUN_CASES = {
   {
     case_id = "case_01",
     session_id = "collector-retest-wide-2",
-    known_true_addr = 0x2AD061C8D48,
+    known_true_addr = 0x100061C8D48,
     target_value_pattern = 0x42C80000,
     target_value_float = 100.0,
     max_candidates = 100,
@@ -377,10 +377,10 @@ local function build_no_probe_snapshot_intersection_analysis(no_probe_a, no_prob
   table.sort(a_addresses)
   table.sort(b_addresses)
 
-  local full_intersection = collect_intersection_addresses(a_addresses, b_addresses, nil)
+  local full_intersection = collect_intersection_addresses(b_addresses, a_addresses, nil)
   local full_a_only = collect_unique_only(a_addresses, b_addresses, {}, nil)
   local full_b_only = collect_unique_only(b_addresses, a_addresses, {}, nil)
-  local intersection_sample = collect_intersection_addresses(a_addresses, b_addresses, 20)
+  local intersection_sample = collect_intersection_addresses(b_addresses, a_addresses, 20)
   local a_only_sample = collect_unique_only(a_addresses, b_addresses, {}, 20)
   local b_only_sample = collect_unique_only(b_addresses, a_addresses, {}, 20)
   local union_set = build_address_set(a_addresses)
@@ -697,6 +697,19 @@ local function print_run_summary(summary)
   print_kv("intersection_filtered_count", summary.intersection_filtered_count)
   print_kv("pass1_only_count", summary.pass1_only_count)
   print_kv("pass2_only_count", summary.pass2_only_count)
+  if summary.stable_intersection_base_snapshot ~= nil then
+    print_kv("stable_intersection_enabled", summary.stable_intersection_enabled)
+    print_kv("stable_intersection_base_snapshot", summary.stable_intersection_base_snapshot)
+    print_kv("stable_intersection_filtered_count", summary.stable_intersection_filtered_count)
+    print_kv("stable_intersection_true_in_filtered", summary.stable_intersection_true_in_filtered)
+    print_kv("stable_intersection_prescored_count", summary.stable_intersection_prescored_count)
+    print_kv("stable_intersection_selected_count", summary.stable_intersection_selected_count)
+    print_kv("stable_intersection_known_true_rank_position", summary.stable_intersection_known_true_rank_position)
+    print_hex_kv("stable_intersection_best_candidate", summary.stable_intersection_best_candidate)
+    print_kv("stable_intersection_best_score", summary.stable_intersection_best_score)
+    print_kv("stable_intersection_second_score", summary.stable_intersection_second_score)
+    print_kv("stable_intersection_score_gap", summary.stable_intersection_score_gap)
+  end
   print_kv("confidence", summary.confidence)
   print_kv("log_path", summary.log_path)
 end
@@ -740,6 +753,19 @@ local function render_summary_file(batch_id, summaries)
     lines[#lines + 1] = "intersection_filtered_count = " .. tostring(summary.intersection_filtered_count)
     lines[#lines + 1] = "pass1_only_count = " .. tostring(summary.pass1_only_count)
     lines[#lines + 1] = "pass2_only_count = " .. tostring(summary.pass2_only_count)
+    if summary.stable_intersection_base_snapshot ~= nil then
+      lines[#lines + 1] = "stable_intersection_enabled = " .. tostring(summary.stable_intersection_enabled)
+      lines[#lines + 1] = "stable_intersection_base_snapshot = " .. tostring(summary.stable_intersection_base_snapshot)
+      lines[#lines + 1] = "stable_intersection_filtered_count = " .. tostring(summary.stable_intersection_filtered_count)
+      lines[#lines + 1] = "stable_intersection_true_in_filtered = " .. tostring(summary.stable_intersection_true_in_filtered)
+      lines[#lines + 1] = "stable_intersection_prescored_count = " .. tostring(summary.stable_intersection_prescored_count)
+      lines[#lines + 1] = "stable_intersection_selected_count = " .. tostring(summary.stable_intersection_selected_count)
+      lines[#lines + 1] = "stable_intersection_known_true_rank_position = " .. tostring(summary.stable_intersection_known_true_rank_position)
+      lines[#lines + 1] = "stable_intersection_best_candidate = " .. tostring(hex_u64(summary.stable_intersection_best_candidate))
+      lines[#lines + 1] = "stable_intersection_best_score = " .. tostring(summary.stable_intersection_best_score)
+      lines[#lines + 1] = "stable_intersection_second_score = " .. tostring(summary.stable_intersection_second_score)
+      lines[#lines + 1] = "stable_intersection_score_gap = " .. tostring(summary.stable_intersection_score_gap)
+    end
     lines[#lines + 1] = "confidence = " .. tostring(summary.confidence)
     lines[#lines + 1] = "log_path = " .. tostring(summary.log_path)
     lines[#lines + 1] = ""
@@ -774,6 +800,171 @@ local function render_summary_file(batch_id, summaries)
   return table.concat(lines, "\r\n")
 end
 
+local function emit_stable_intersection_report(case_cfg, bundle, summary)
+  print("=== stable_intersection_experiment ===")
+  print_kv("case_id", case_cfg.case_id)
+  print_kv("session_id", case_cfg.session_id)
+  print_kv("mode", "stable_no_probe_intersection")
+  print_kv("stable_intersection_enabled", summary.stable_intersection_enabled)
+  print_kv("stable_intersection_base_snapshot", summary.stable_intersection_base_snapshot)
+  print_kv("stable_intersection_filtered_count", summary.stable_intersection_filtered_count)
+  print_kv("stable_intersection_true_in_filtered", summary.stable_intersection_true_in_filtered)
+  print_kv("stable_intersection_prescored_count", summary.stable_intersection_prescored_count)
+  print_kv("stable_intersection_selected_count", summary.stable_intersection_selected_count)
+  print_kv("stable_intersection_known_true_rank_position", summary.stable_intersection_known_true_rank_position)
+  print_hex_kv("stable_intersection_best_candidate", summary.stable_intersection_best_candidate)
+  print_kv("stable_intersection_best_score", summary.stable_intersection_best_score)
+  print_kv("stable_intersection_second_score", summary.stable_intersection_second_score)
+  print_kv("stable_intersection_score_gap", summary.stable_intersection_score_gap)
+  print_kv("no_probe_stable_intersection_count", summary.no_probe_stable_intersection_count)
+  print_kv("no_probe_union_count", summary.no_probe_union_count)
+  print_kv("no_probe_A_only_count", summary.no_probe_A_only_count)
+  print_kv("no_probe_B_only_count", summary.no_probe_B_only_count)
+  print_kv("known_true_in_no_probe_stable_intersection", summary.known_true_in_no_probe_stable_intersection)
+
+  print("=== report_text ===")
+  if bundle and bundle.result and bundle.result.report_text then
+    print(bundle.result.report_text)
+  else
+    print("bundle.result.report_text = nil")
+  end
+end
+
+local function build_stable_intersection_summary(case_cfg, bundle, log_path, analysis, base_snapshot)
+  local result = (bundle and bundle.result) or {}
+  local best = result and result.best or nil
+
+  return {
+    case_id = case_cfg.case_id,
+    session_id = case_cfg.session_id,
+    mode = "stable_no_probe_intersection",
+    probe_full_foundlist = false,
+    known_true_addr = case_cfg.known_true_addr,
+    raw_count = nil,
+    unique_count = nil,
+    known_true_rank_position = bundle and bundle.known_true_rank_position or nil,
+    known_true_final_score = bundle and bundle.known_true_final_score or nil,
+    true_in_selected = bundle and bundle.true_in_selected or nil,
+    known_true_raw_admission_path = base_snapshot and base_snapshot.known_true_raw_admission_path or nil,
+    selected_count = bundle and bundle.selected_count or nil,
+    filtered_count = analysis and analysis.no_probe_stable_intersection_count or nil,
+    matched_count = analysis and analysis.no_probe_stable_intersection_count or nil,
+    value_mismatch_count = nil,
+    read_failed_count = nil,
+    retry_recovered_count = nil,
+    retry_still_mismatch_count = nil,
+    retry_read_failed_count = nil,
+    delayed_recheck_enabled = nil,
+    delayed_recheck_candidate_count = nil,
+    delayed_recovered_count = nil,
+    delayed_still_mismatch_count = nil,
+    delayed_read_failed_count = nil,
+    stable_intersection_enabled = true,
+    stable_intersection_base_snapshot = "no_probe_B",
+    stable_intersection_filtered_count = analysis and analysis.no_probe_stable_intersection_count or nil,
+    stable_intersection_true_in_filtered = bundle and bundle.true_in_filtered or nil,
+    stable_intersection_prescored_count = bundle and bundle.prescored_count or nil,
+    stable_intersection_selected_count = bundle and bundle.selected_count or nil,
+    stable_intersection_known_true_rank_position = bundle and bundle.known_true_rank_position or nil,
+    stable_intersection_best_candidate = best and best.candidate and best.candidate.value_addr or nil,
+    stable_intersection_best_score = result and result.best and result.best.score or nil,
+    stable_intersection_second_score = result and result.second and result.second.score or nil,
+    stable_intersection_score_gap = result and result.score_gap or nil,
+    no_probe_stable_intersection_count = analysis and analysis.no_probe_stable_intersection_count or nil,
+    no_probe_union_count = analysis and analysis.no_probe_union_count or nil,
+    no_probe_A_only_count = analysis and analysis.no_probe_A_only_count or nil,
+    no_probe_B_only_count = analysis and analysis.no_probe_B_only_count or nil,
+    known_true_in_no_probe_stable_intersection = analysis and analysis.known_true_in_no_probe_stable_intersection or nil,
+    best_candidate_addr = best and best.candidate and best.candidate.value_addr or nil,
+    best_score = result and result.best and result.best.score or nil,
+    second_score = result and result.second and result.second.score or nil,
+    score_gap = result and result.score_gap or nil,
+    confidence = result and result.confidence or nil,
+    log_path = log_path,
+  }
+end
+
+local function run_stable_intersection_mode(case_cfg, no_probe_a, no_probe_b, batch_id)
+  local analysis = build_no_probe_snapshot_intersection_analysis(no_probe_a, no_probe_b)
+  if analysis == nil then
+    return nil
+  end
+
+  active_log_lines = {}
+  local safe_session = sanitize_token(case_cfg.session_id)
+  local safe_case = sanitize_token(case_cfg.case_id)
+  local log_path = string.format(
+    "%s\\%s__%s__%s__stable_no_probe_intersection.log",
+    OUTPUT_DIR,
+    batch_id,
+    safe_session,
+    safe_case
+  )
+
+  local ok, bundle_or_err = xpcall(function()
+    load_modules()
+    local bundle = MVP0FoundList.run_from_filtered_addresses({
+      filtered_addresses = analysis.full_intersection_addresses,
+      max_candidates = case_cfg.max_candidates,
+      target_value_pattern = case_cfg.target_value_pattern,
+      target_value_float = case_cfg.target_value_float,
+      session_id = case_cfg.session_id,
+      use_prescore_selection = case_cfg.use_prescore_selection,
+      known_true_addr = case_cfg.known_true_addr,
+      known_true_raw_admission_path = no_probe_b and no_probe_b.known_true_raw_admission_path or nil,
+      raw_probe_full_foundlist_enabled = false,
+      session_mode = "stable_no_probe_intersection",
+      source_mode = "stable_no_probe_intersection",
+    })
+
+    local summary = build_stable_intersection_summary(case_cfg, bundle, log_path, analysis, no_probe_b)
+    emit_stable_intersection_report(case_cfg, bundle, summary)
+    return {
+      bundle = bundle,
+      summary = summary,
+    }
+  end, debug.traceback)
+
+  if not ok then
+    print("=== run_error ===")
+    print(bundle_or_err)
+  end
+
+  local log_text = table.concat(active_log_lines, "\r\n") .. "\r\n"
+  write_text_file(log_path, log_text)
+  active_log_lines = nil
+
+  if not ok then
+    return {
+      case_id = case_cfg.case_id,
+      session_id = case_cfg.session_id,
+      mode = "stable_no_probe_intersection",
+      known_true_addr = case_cfg.known_true_addr,
+      log_path = log_path,
+      error = bundle_or_err,
+      stable_intersection_enabled = true,
+      stable_intersection_base_snapshot = "no_probe_B",
+      stable_intersection_filtered_count = analysis.no_probe_stable_intersection_count,
+      stable_intersection_true_in_filtered = nil,
+      stable_intersection_prescored_count = nil,
+      stable_intersection_selected_count = nil,
+      stable_intersection_known_true_rank_position = nil,
+      stable_intersection_best_candidate = nil,
+      stable_intersection_best_score = nil,
+      stable_intersection_second_score = nil,
+      stable_intersection_score_gap = nil,
+      no_probe_stable_intersection_count = analysis.no_probe_stable_intersection_count,
+      no_probe_union_count = analysis.no_probe_union_count,
+      no_probe_A_only_count = analysis.no_probe_A_only_count,
+      no_probe_B_only_count = analysis.no_probe_B_only_count,
+      known_true_in_no_probe_stable_intersection = analysis.known_true_in_no_probe_stable_intersection,
+    }
+  end
+
+  print_run_summary(bundle_or_err.summary)
+  return bundle_or_err.summary
+end
+
 local function render_diagnostic_diff_file(batch_id, summaries)
   local groups = {}
   local lines = {}
@@ -793,6 +984,8 @@ local function render_diagnostic_diff_file(batch_id, summaries)
     local no_probe_a = group.no_probe_A
     local with_probe = group.with_probe
     local no_probe_b = group.no_probe_B
+
+    local stable_summary = group.stable_no_probe_intersection
 
     if no_probe_a ~= nil and with_probe ~= nil and no_probe_b ~= nil then
       local overlap = compute_match_overlap_counts(
@@ -913,6 +1106,20 @@ local function render_diagnostic_diff_file(batch_id, summaries)
         lines[#lines + 1] = "segment_cluster_summary.no_probe_B_only = " .. format_bucket_entries(no_probe_snapshot_analysis.segment_cluster_summary_no_probe_B_only)
         lines[#lines + 1] = "segment_cluster_summary.no_probe_intersection = " .. format_bucket_entries(no_probe_snapshot_analysis.segment_cluster_summary_no_probe_intersection)
         lines[#lines + 1] = "interpretation_hint.no_probe_A_vs_B = " .. tostring(no_probe_snapshot_analysis.interpretation_hint)
+      end
+      if stable_summary ~= nil then
+        lines[#lines + 1] = "[stable_no_probe_intersection]"
+        lines[#lines + 1] = "stable_intersection_enabled = " .. tostring(stable_summary.stable_intersection_enabled)
+        lines[#lines + 1] = "stable_intersection_base_snapshot = " .. tostring(stable_summary.stable_intersection_base_snapshot)
+        lines[#lines + 1] = "stable_intersection_filtered_count = " .. tostring(stable_summary.stable_intersection_filtered_count)
+        lines[#lines + 1] = "stable_intersection_true_in_filtered = " .. tostring(stable_summary.stable_intersection_true_in_filtered)
+        lines[#lines + 1] = "stable_intersection_prescored_count = " .. tostring(stable_summary.stable_intersection_prescored_count)
+        lines[#lines + 1] = "stable_intersection_selected_count = " .. tostring(stable_summary.stable_intersection_selected_count)
+        lines[#lines + 1] = "stable_intersection_known_true_rank_position = " .. tostring(stable_summary.stable_intersection_known_true_rank_position)
+        lines[#lines + 1] = "stable_intersection_best_candidate = " .. tostring(hex_u64(stable_summary.stable_intersection_best_candidate))
+        lines[#lines + 1] = "stable_intersection_best_score = " .. tostring(stable_summary.stable_intersection_best_score)
+        lines[#lines + 1] = "stable_intersection_second_score = " .. tostring(stable_summary.stable_intersection_second_score)
+        lines[#lines + 1] = "stable_intersection_score_gap = " .. tostring(stable_summary.stable_intersection_score_gap)
       end
       lines[#lines + 1] = ""
     end
@@ -1055,8 +1262,16 @@ local function main()
   local summaries = {}
 
   for _, case_cfg in ipairs(RUN_CASES) do
+    local case_summaries = {}
     for _, mode_entry in ipairs(case_cfg.modes or {}) do
-      summaries[#summaries + 1] = run_case_mode(case_cfg, mode_entry, batch_id)
+      local summary = run_case_mode(case_cfg, mode_entry, batch_id)
+      summaries[#summaries + 1] = summary
+      case_summaries[summary.mode] = summary
+    end
+
+    local stable_summary = run_stable_intersection_mode(case_cfg, case_summaries.no_probe_A, case_summaries.no_probe_B, batch_id)
+    if stable_summary ~= nil then
+      summaries[#summaries + 1] = stable_summary
     end
   end
 

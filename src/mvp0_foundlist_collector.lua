@@ -1419,14 +1419,126 @@ function MVP0FoundList.collect(opts)
   }
 end
 
+local function collect_from_filtered_addresses(opts)
+  assert_mvp0_loaded()
+
+  opts = opts or {}
+  local max_candidates = opts.max_candidates or MVP0FoundList.CONFIG.default_max_candidates
+  local target_value_pattern = u32(opts.target_value_pattern)
+  local use_prescore_selection = opts.use_prescore_selection
+  local bucket_shift = opts.bucket_shift or MVP0FoundList.CONFIG.default_bucket_shift
+  local max_per_bucket = opts.max_per_bucket or MVP0FoundList.CONFIG.default_max_per_bucket
+  local known_true_addr = opts.known_true_addr and to_address_number(opts.known_true_addr) or nil
+  local filtered_addresses = sort_numeric(copy_numeric_array(opts.filtered_addresses or {}))
+  local true_in_filtered = false
+
+  if use_prescore_selection == nil then
+    use_prescore_selection = MVP0FoundList.CONFIG.default_use_prescore_selection
+  end
+  if target_value_pattern == nil then
+    error('target_value_pattern is required.')
+  end
+
+  for _, addr in ipairs(filtered_addresses) do
+    if known_true_addr ~= nil and addr == known_true_addr then
+      true_in_filtered = true
+      break
+    end
+  end
+
+  local selected_addresses
+  local prescored_count = nil
+  local selection_strategy = nil
+  local prescore_cutoff_score = nil
+  local prescore_tied_count = nil
+  local true_in_prescored = false
+  local true_in_selected = false
+
+  if use_prescore_selection and #filtered_addresses > 0 then
+    selected_addresses, prescored_count, prescore_cutoff_score, prescore_tied_count, true_in_prescored, true_in_selected =
+      select_top_scored_diverse(filtered_addresses, max_candidates, target_value_pattern, bucket_shift, max_per_bucket, known_true_addr)
+    selection_strategy = 'prescore_diverse_top_scored'
+  else
+    selected_addresses, true_in_selected = select_evenly(filtered_addresses, max_candidates, known_true_addr)
+    selection_strategy = 'evenly_spread'
+    true_in_prescored = false
+  end
+
+  return {
+    source_mode = opts.source_mode or 'filtered_override',
+    raw_count = nil,
+    scanned_count = nil,
+    unique_count = nil,
+    filtered_count = #filtered_addresses,
+    selected_count = #selected_addresses,
+    candidate_value_addrs = selected_addresses,
+    filter_target_match = true,
+    target_value_pattern = target_value_pattern,
+    scan_budget = nil,
+    max_candidates = max_candidates,
+    use_prescore_selection = use_prescore_selection,
+    prescored_count = prescored_count,
+    selection_strategy = selection_strategy,
+    prescore_cutoff_score = prescore_cutoff_score,
+    prescore_tied_count = prescore_tied_count,
+    bucket_shift = bucket_shift,
+    max_per_bucket = max_per_bucket,
+    known_true_addr = known_true_addr,
+    true_foundlist_index = nil,
+    probe_window_radius = nil,
+    truth_probe_logs = opts.truth_probe_logs or {},
+    known_true_raw_admission_path = opts.known_true_raw_admission_path,
+    raw_probe_full_foundlist_enabled = opts.raw_probe_full_foundlist_enabled,
+    true_in_full_foundlist_checked = nil,
+    true_in_full_foundlist = nil,
+    true_in_full_foundlist_observed = nil,
+    true_in_raw = nil,
+    true_in_unique = nil,
+    true_in_filtered = true_in_filtered,
+    true_in_prescored = true_in_prescored,
+    true_in_selected = true_in_selected,
+    session_mode = opts.session_mode,
+  }
+end
+
 function MVP0FoundList.build_input(opts)
   local collected = MVP0FoundList.collect(opts)
   collected.input = MVP0.make_input(collected.candidate_value_addrs, collected.target_value_pattern, {
     target_value_float = opts and opts.target_value_float,
     session_id = opts and opts.session_id,
-    session_mode = (collected.raw_probe_full_foundlist_enabled == true) and 'with_probe' or 'no_probe',
+    session_mode = collected.session_mode or ((collected.raw_probe_full_foundlist_enabled == true) and 'with_probe' or 'no_probe'),
   })
   return collected
+end
+
+function MVP0FoundList.run_from_filtered_addresses(opts)
+  local bundle = collect_from_filtered_addresses(opts)
+  bundle.input = MVP0.make_input(bundle.candidate_value_addrs, bundle.target_value_pattern, {
+    target_value_float = opts and opts.target_value_float,
+    session_id = opts and opts.session_id,
+    session_mode = bundle.session_mode or (opts and opts.session_mode) or 'stable_no_probe_intersection',
+  })
+  bundle.result = MVP0.run(bundle.input)
+
+  bundle.known_true_rank_position = nil
+  bundle.known_true_base_score = nil
+  bundle.known_true_final_score = nil
+  bundle.known_true_tie_break_vector = nil
+
+  if bundle.known_true_addr ~= nil and bundle.result ~= nil and bundle.result.ranked ~= nil then
+    for _, scored_candidate in ipairs(bundle.result.ranked) do
+      local candidate = scored_candidate.candidate
+      if candidate ~= nil and candidate.value_addr == bundle.known_true_addr then
+        bundle.known_true_rank_position = scored_candidate.rank_position
+        bundle.known_true_base_score = scored_candidate.base_score
+        bundle.known_true_final_score = scored_candidate.final_score
+        bundle.known_true_tie_break_vector = scored_candidate.tie_break_vector
+        break
+      end
+    end
+  end
+
+  return bundle
 end
 
 function MVP0FoundList.run(opts)
