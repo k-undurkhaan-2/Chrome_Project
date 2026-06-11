@@ -28,7 +28,7 @@ local RUN_CASES = {
   {
     case_id = "case_01",
     session_id = "collector-retest-wide-2",
-    known_true_addr = 0x38A061C7D48,
+    known_true_addr = 0x2B2061C7D48,
     target_value_pattern = 0x42C80000,
     target_value_float = 100.0,
     max_candidates = 100,
