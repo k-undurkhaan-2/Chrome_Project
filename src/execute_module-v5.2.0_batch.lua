@@ -28,7 +28,7 @@ local RUN_CASES = {
   {
     case_id = "case_01",
     session_id = "collector-retest-wide-2",
-    known_true_addr = 0x3B5061C8D48,
+    known_true_addr = 0x38A061C7D48,
     target_value_pattern = 0x42C80000,
     target_value_float = 100.0,
     max_candidates = 100,
@@ -433,6 +433,62 @@ local function build_no_probe_snapshot_intersection_analysis(no_probe_a, no_prob
   }
 end
 
+local function build_runtime_empty_diagnostics(group)
+  local mode_names = {"no_probe_A", "with_probe", "no_probe_B"}
+  local empty_modes = {}
+  local all_present = true
+  local all_empty = true
+  local mode_empty = {}
+
+  for _, mode_name in ipairs(mode_names) do
+    local summary = group and group[mode_name] or nil
+    local is_empty = summary ~= nil and summary.raw_count == 0
+    mode_empty[mode_name] = is_empty
+    if summary == nil then
+      all_present = false
+    end
+    if is_empty then
+      empty_modes[#empty_modes + 1] = mode_name
+    else
+      all_empty = false
+    end
+  end
+
+  local collector_empty = all_present and all_empty
+  return {
+    run_valid = not collector_empty,
+    failure_class = collector_empty and "collector_runtime_empty" or nil,
+    collector_empty = collector_empty,
+    empty_modes = (#empty_modes > 0) and table.concat(empty_modes, ", ") or "none",
+    recommendation = collector_empty and "INVALID_RUNTIME_SAMPLE" or nil,
+    no_probe_A_collector_empty = mode_empty.no_probe_A,
+    with_probe_collector_empty = mode_empty.with_probe,
+    no_probe_B_collector_empty = mode_empty.no_probe_B,
+  }
+end
+
+local function apply_runtime_empty_diagnostics(summary, diagnostics)
+  if summary == nil or diagnostics == nil then
+    return
+  end
+
+  summary.run_valid = diagnostics.run_valid
+  summary.failure_class = diagnostics.failure_class
+  summary.collector_empty = diagnostics.collector_empty
+  summary.empty_modes = diagnostics.empty_modes
+  summary.recommendation = diagnostics.recommendation
+  summary.no_probe_A_collector_empty = diagnostics.no_probe_A_collector_empty
+  summary.with_probe_collector_empty = diagnostics.with_probe_collector_empty
+  summary.no_probe_B_collector_empty = diagnostics.no_probe_B_collector_empty
+end
+
+local function get_runtime_diagnostic(diagnostics, key)
+  if diagnostics == nil then
+    return nil
+  end
+  return diagnostics[key]
+end
+
 local function write_text_file(path, text)
   local fh, err = io.open(path, "wb")
   if not fh then
@@ -571,6 +627,9 @@ local function emit_bundle_report(case_cfg, mode_cfg, bundle)
   print_kv("session_id", case_cfg.session_id)
   print_kv("mode", mode_cfg.mode)
   print_hex_kv("known_true_addr", case_cfg.known_true_addr)
+  print_hex_kv("target_value_addr", case_cfg.target_value_addr)
+  print_hex_kv("target_value_pattern", case_cfg.target_value_pattern)
+  print_kv("target_value_float", case_cfg.target_value_float)
   print_kv("probe_full_foundlist", mode_cfg.probe_full_foundlist)
 
   print("=== collector_stats ===")
@@ -626,6 +685,9 @@ local function build_run_summary(case_cfg, mode_cfg, bundle, log_path, filter_de
     mode = mode_cfg.mode,
     probe_full_foundlist = mode_cfg.probe_full_foundlist,
     known_true_addr = case_cfg.known_true_addr,
+    target_value_addr = case_cfg.target_value_addr,
+    target_value_pattern = case_cfg.target_value_pattern,
+    target_value_float = case_cfg.target_value_float,
     raw_count = bundle and bundle.raw_count,
     unique_count = bundle and bundle.unique_count,
     known_true_rank_position = pick_known_true_field(bundle, result, "known_true_rank_position"),
@@ -672,6 +734,14 @@ local function print_run_summary(summary)
   print_kv("case_id", summary.case_id)
   print_kv("session_id", summary.session_id)
   print_kv("mode", summary.mode)
+  print_kv("run_valid", summary.run_valid)
+  print_kv("failure_class", summary.failure_class)
+  print_kv("collector_empty", summary.collector_empty)
+  print_kv("empty_modes", summary.empty_modes)
+  print_kv("recommendation", summary.recommendation)
+  print_hex_kv("target_value_addr", summary.target_value_addr)
+  print_hex_kv("target_value_pattern", summary.target_value_pattern)
+  print_kv("target_value_float", summary.target_value_float)
   print_hex_kv("best_candidate_addr", summary.best_candidate_addr)
   print_kv("best_score", summary.best_score)
   print_kv("second_score", summary.second_score)
@@ -736,6 +806,17 @@ local function render_summary_file(batch_id, summaries)
     lines[#lines + 1] = "case_id = " .. tostring(summary.case_id)
     lines[#lines + 1] = "known_true_addr = " .. tostring(hex_u64(summary.known_true_addr))
     lines[#lines + 1] = "probe_full_foundlist = " .. tostring(summary.probe_full_foundlist)
+    lines[#lines + 1] = "run_valid = " .. tostring(summary.run_valid)
+    lines[#lines + 1] = "failure_class = " .. tostring(summary.failure_class)
+    lines[#lines + 1] = "collector_empty = " .. tostring(summary.collector_empty)
+    lines[#lines + 1] = "empty_modes = " .. tostring(summary.empty_modes)
+    lines[#lines + 1] = "recommendation = " .. tostring(summary.recommendation)
+    lines[#lines + 1] = "no_probe_A_collector_empty = " .. tostring(summary.no_probe_A_collector_empty)
+    lines[#lines + 1] = "with_probe_collector_empty = " .. tostring(summary.with_probe_collector_empty)
+    lines[#lines + 1] = "no_probe_B_collector_empty = " .. tostring(summary.no_probe_B_collector_empty)
+    lines[#lines + 1] = "target_value_addr = " .. tostring(hex_u64(summary.target_value_addr))
+    lines[#lines + 1] = "target_value_pattern = " .. tostring(hex_u64(summary.target_value_pattern))
+    lines[#lines + 1] = "target_value_float = " .. tostring(summary.target_value_float)
     lines[#lines + 1] = "best_candidate = " .. tostring(hex_u64(summary.best_candidate_addr))
     lines[#lines + 1] = "best_score = " .. tostring(summary.best_score)
     lines[#lines + 1] = "second_score = " .. tostring(summary.second_score)
@@ -801,7 +882,13 @@ local function render_summary_file(batch_id, summaries)
   for key, group in pairs(groups) do
     local analysis = build_no_probe_snapshot_intersection_analysis(group.no_probe_A, group.no_probe_B)
     if analysis ~= nil then
+      local runtime_empty_diagnostics = build_runtime_empty_diagnostics(group)
       lines[#lines + 1] = "--- " .. tostring(key) .. " ---"
+      lines[#lines + 1] = "run_valid = " .. tostring(runtime_empty_diagnostics.run_valid)
+      lines[#lines + 1] = "failure_class = " .. tostring(runtime_empty_diagnostics.failure_class)
+      lines[#lines + 1] = "collector_empty = " .. tostring(runtime_empty_diagnostics.collector_empty)
+      lines[#lines + 1] = "empty_modes = " .. tostring(runtime_empty_diagnostics.empty_modes)
+      lines[#lines + 1] = "recommendation = " .. tostring(runtime_empty_diagnostics.recommendation)
       lines[#lines + 1] = "delayed_snapshot_intersection_enabled = " .. tostring(analysis.delayed_snapshot_intersection_enabled)
       lines[#lines + 1] = "delayed_snapshot_no_probe_stable_intersection_count = " .. tostring(analysis.delayed_snapshot_no_probe_stable_intersection_count)
       lines[#lines + 1] = "delayed_snapshot_no_probe_union_count = " .. tostring(analysis.delayed_snapshot_no_probe_union_count)
@@ -824,6 +911,17 @@ local function emit_stable_intersection_report(case_cfg, bundle, summary)
   print_kv("session_id", case_cfg.session_id)
   print_kv("mode", "stable_no_probe_intersection")
   -- [stable-intersection-report]
+  print_kv("run_valid", summary.run_valid)
+  print_kv("failure_class", summary.failure_class)
+  print_kv("collector_empty", summary.collector_empty)
+  print_kv("empty_modes", summary.empty_modes)
+  print_kv("recommendation", summary.recommendation)
+  print_kv("no_probe_A_collector_empty", summary.no_probe_A_collector_empty)
+  print_kv("with_probe_collector_empty", summary.with_probe_collector_empty)
+  print_kv("no_probe_B_collector_empty", summary.no_probe_B_collector_empty)
+  print_hex_kv("target_value_addr", summary.target_value_addr)
+  print_hex_kv("target_value_pattern", summary.target_value_pattern)
+  print_kv("target_value_float", summary.target_value_float)
   print_kv("stable_no_probe_intersection_enabled", summary.stable_no_probe_intersection_enabled)
   print_kv("stable_intersection_snapshot_A_filtered_count", summary.stable_intersection_snapshot_A_filtered_count)
   print_kv("stable_intersection_snapshot_B_filtered_count", summary.stable_intersection_snapshot_B_filtered_count)
@@ -856,7 +954,7 @@ local function emit_stable_intersection_report(case_cfg, bundle, summary)
   end
 end
 
-local function build_stable_intersection_summary(case_cfg, bundle, log_path, analysis, base_snapshot)
+local function build_stable_intersection_summary(case_cfg, bundle, log_path, analysis, base_snapshot, runtime_diagnostics)
   local result = (bundle and bundle.result) or {}
   local best = result and result.best or nil
   local downstream_input_count = bundle and bundle.stable_intersection_downstream_input_count or nil
@@ -868,6 +966,17 @@ local function build_stable_intersection_summary(case_cfg, bundle, log_path, ana
     mode = "stable_no_probe_intersection",
     probe_full_foundlist = false,
     known_true_addr = case_cfg.known_true_addr,
+    target_value_addr = case_cfg.target_value_addr,
+    target_value_pattern = case_cfg.target_value_pattern,
+    target_value_float = case_cfg.target_value_float,
+    run_valid = get_runtime_diagnostic(runtime_diagnostics, "run_valid"),
+    failure_class = get_runtime_diagnostic(runtime_diagnostics, "failure_class"),
+    collector_empty = get_runtime_diagnostic(runtime_diagnostics, "collector_empty"),
+    empty_modes = get_runtime_diagnostic(runtime_diagnostics, "empty_modes"),
+    recommendation = get_runtime_diagnostic(runtime_diagnostics, "recommendation"),
+    no_probe_A_collector_empty = get_runtime_diagnostic(runtime_diagnostics, "no_probe_A_collector_empty"),
+    with_probe_collector_empty = get_runtime_diagnostic(runtime_diagnostics, "with_probe_collector_empty"),
+    no_probe_B_collector_empty = get_runtime_diagnostic(runtime_diagnostics, "no_probe_B_collector_empty"),
     raw_count = bundle and bundle.raw_count or nil,
     unique_count = bundle and bundle.unique_count or nil,
     known_true_rank_position = bundle and bundle.known_true_rank_position or nil,
@@ -920,7 +1029,7 @@ local function build_stable_intersection_summary(case_cfg, bundle, log_path, ana
   }
 end
 
-local function run_stable_intersection_mode(case_cfg, no_probe_a, no_probe_b, batch_id)
+local function run_stable_intersection_mode(case_cfg, no_probe_a, no_probe_b, batch_id, runtime_diagnostics)
   local analysis = build_no_probe_snapshot_intersection_analysis(no_probe_a, no_probe_b)
   if analysis == nil then
     return nil
@@ -954,7 +1063,7 @@ local function run_stable_intersection_mode(case_cfg, no_probe_a, no_probe_b, ba
       known_true_addr = case_cfg.known_true_addr,
     })
 
-    local summary = build_stable_intersection_summary(case_cfg, bundle, log_path, analysis, no_probe_b)
+    local summary = build_stable_intersection_summary(case_cfg, bundle, log_path, analysis, no_probe_b, runtime_diagnostics)
     emit_stable_intersection_report(case_cfg, bundle, summary)
     return {
       bundle = bundle,
@@ -977,6 +1086,17 @@ local function run_stable_intersection_mode(case_cfg, no_probe_a, no_probe_b, ba
       session_id = case_cfg.session_id,
       mode = "stable_no_probe_intersection",
       known_true_addr = case_cfg.known_true_addr,
+      target_value_addr = case_cfg.target_value_addr,
+      target_value_pattern = case_cfg.target_value_pattern,
+      target_value_float = case_cfg.target_value_float,
+      run_valid = get_runtime_diagnostic(runtime_diagnostics, "run_valid"),
+      failure_class = get_runtime_diagnostic(runtime_diagnostics, "failure_class"),
+      collector_empty = get_runtime_diagnostic(runtime_diagnostics, "collector_empty"),
+      empty_modes = get_runtime_diagnostic(runtime_diagnostics, "empty_modes"),
+      recommendation = get_runtime_diagnostic(runtime_diagnostics, "recommendation"),
+      no_probe_A_collector_empty = get_runtime_diagnostic(runtime_diagnostics, "no_probe_A_collector_empty"),
+      with_probe_collector_empty = get_runtime_diagnostic(runtime_diagnostics, "with_probe_collector_empty"),
+      no_probe_B_collector_empty = get_runtime_diagnostic(runtime_diagnostics, "no_probe_B_collector_empty"),
       log_path = log_path,
       error = bundle_or_err,
       stable_intersection_enabled = true,
@@ -1055,8 +1175,20 @@ local function render_diagnostic_diff_file(batch_id, summaries)
       local delta_candidates = collect_dominant_delta_candidates(full_only_w, full_only_b, 32)
       local interpretation_hint = build_interpretation_hints(full_only_w, full_only_b, page_top_with_probe, page_top_no_probe_b, delta_candidates)
       local no_probe_snapshot_analysis = build_no_probe_snapshot_intersection_analysis(no_probe_a, no_probe_b)
+      local runtime_empty_diagnostics = build_runtime_empty_diagnostics(group)
 
       lines[#lines + 1] = "--- " .. tostring(key) .. " ---"
+      lines[#lines + 1] = "run_valid = " .. tostring(runtime_empty_diagnostics.run_valid)
+      lines[#lines + 1] = "failure_class = " .. tostring(runtime_empty_diagnostics.failure_class)
+      lines[#lines + 1] = "collector_empty = " .. tostring(runtime_empty_diagnostics.collector_empty)
+      lines[#lines + 1] = "empty_modes = " .. tostring(runtime_empty_diagnostics.empty_modes)
+      lines[#lines + 1] = "recommendation = " .. tostring(runtime_empty_diagnostics.recommendation)
+      lines[#lines + 1] = "no_probe_A_collector_empty = " .. tostring(runtime_empty_diagnostics.no_probe_A_collector_empty)
+      lines[#lines + 1] = "with_probe_collector_empty = " .. tostring(runtime_empty_diagnostics.with_probe_collector_empty)
+      lines[#lines + 1] = "no_probe_B_collector_empty = " .. tostring(runtime_empty_diagnostics.no_probe_B_collector_empty)
+      lines[#lines + 1] = "target_value_addr = " .. tostring(hex_u64(no_probe_a.target_value_addr))
+      lines[#lines + 1] = "target_value_pattern = " .. tostring(hex_u64(no_probe_a.target_value_pattern))
+      lines[#lines + 1] = "target_value_float = " .. tostring(no_probe_a.target_value_float)
 
       for _, summary in ipairs({no_probe_a, with_probe, no_probe_b}) do
         lines[#lines + 1] = "[" .. tostring(summary.mode) .. "]"
@@ -1289,6 +1421,9 @@ local function run_case_mode(case_cfg, mode_entry, batch_id)
       matched_addresses = {},
       probe_full_foundlist = mode_cfg.probe_full_foundlist,
       known_true_addr = case_cfg.known_true_addr,
+      target_value_addr = case_cfg.target_value_addr,
+      target_value_pattern = case_cfg.target_value_pattern,
+      target_value_float = case_cfg.target_value_float,
       log_path = log_path,
       error = bundle_or_err,
     }
@@ -1321,7 +1456,12 @@ local function main()
       case_summaries[summary.mode] = summary
     end
 
-    local stable_summary = run_stable_intersection_mode(case_cfg, case_summaries.no_probe_A, case_summaries.no_probe_B, batch_id)
+    local runtime_empty_diagnostics = build_runtime_empty_diagnostics(case_summaries)
+    apply_runtime_empty_diagnostics(case_summaries.no_probe_A, runtime_empty_diagnostics)
+    apply_runtime_empty_diagnostics(case_summaries.with_probe, runtime_empty_diagnostics)
+    apply_runtime_empty_diagnostics(case_summaries.no_probe_B, runtime_empty_diagnostics)
+
+    local stable_summary = run_stable_intersection_mode(case_cfg, case_summaries.no_probe_A, case_summaries.no_probe_B, batch_id, runtime_empty_diagnostics)
     if stable_summary ~= nil then
       summaries[#summaries + 1] = stable_summary
     end
