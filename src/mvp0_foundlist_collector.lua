@@ -199,6 +199,150 @@ local function format_count_map(map)
   return table.concat(parts, ', ')
 end
 
+local function format_hex(value, width)
+  if type(value) ~= 'number' then
+    return 'nil'
+  end
+  if width ~= nil then
+    return string.format('0x%0' .. tostring(width) .. 'X', u32(value))
+  end
+  return string.format('0x%X', value)
+end
+
+local function format_decimal(value)
+  if type(value) ~= 'number' then
+    return 'nil'
+  end
+  return string.format('%.9g', value)
+end
+
+local function format_u32_bytes(value)
+  value = u32(value)
+  if type(value) ~= 'number' then
+    return 'nil'
+  end
+  return string.format(
+    '%02X %02X %02X %02X',
+    value % 0x100,
+    math.floor(value / 0x100) % 0x100,
+    math.floor(value / 0x10000) % 0x100,
+    math.floor(value / 0x1000000) % 0x100
+  )
+end
+
+local function u32_to_float(value)
+  value = u32(value)
+  if type(value) ~= 'number' then
+    return nil
+  end
+  if type(string.pack) ~= 'function' or type(string.unpack) ~= 'function' then
+    return nil
+  end
+  local ok, result = pcall(function()
+    return string.unpack('<f', string.pack('<I4', value))
+  end)
+  if ok and type(result) == 'number' then
+    return result
+  end
+  return nil
+end
+
+local function build_filter_value_observation(addr, target_value_pattern, target_value_float, target_value_addr, read_ok, observed_pattern, retry_ok, retry_pattern, mismatch_reason)
+  observed_pattern = u32(observed_pattern)
+  retry_pattern = u32(retry_pattern)
+  local observed_float = u32_to_float(observed_pattern)
+  local retry_float = u32_to_float(retry_pattern)
+  if observed_float == nil and type(readFloat) == 'function' then
+    local ok, value = pcall(readFloat, addr)
+    if ok and type(value) == 'number' then
+      observed_float = value
+    end
+  end
+  local delta = nil
+  if type(observed_float) == 'number' and type(target_value_float) == 'number' then
+    delta = observed_float - target_value_float
+  end
+
+  return {
+    addr = addr,
+    target_value_addr = target_value_addr,
+    target_value_pattern = target_value_pattern,
+    target_value_float = target_value_float,
+    match_mode = 'filter_target_match',
+    comparison_mode = 'exact_u32_pattern',
+    read_ok = read_ok == true,
+    observed_pattern = observed_pattern,
+    observed_raw_bytes = format_u32_bytes(observed_pattern),
+    observed_float = observed_float,
+    observed_int = observed_pattern,
+    float_delta = delta,
+    tolerance_pass = 'not_applied',
+    exact_pattern_match = observed_pattern ~= nil and observed_pattern == target_value_pattern,
+    retry_read_ok = retry_ok == true,
+    retry_observed_pattern = retry_pattern,
+    retry_observed_float = retry_float,
+    retry_exact_pattern_match = retry_pattern ~= nil and retry_pattern == target_value_pattern,
+    mismatch_reason = mismatch_reason,
+    live_state_hint = mismatch_reason == 'pattern_mismatch' and 'stale/live value changed possible' or nil,
+    final_filter_outcome = mismatch_reason,
+  }
+end
+
+local function format_filter_observation(observation)
+  if observation == nil then
+    return 'nil'
+  end
+  return string.format(
+    'addr=%s target_value_addr=%s target_pattern=%s target_float=%s match_mode=%s comparison_mode=%s read_ok=%s observed_pattern=%s observed_raw_bytes=%s observed_float=%s observed_int=%s float_delta=%s tolerance_pass=%s exact_pattern_match=%s retry_read_ok=%s retry_observed_pattern=%s retry_observed_float=%s retry_exact_pattern_match=%s delayed_read_ok=%s delayed_observed_pattern=%s delayed_observed_float=%s delayed_exact_pattern_match=%s mismatch_reason=%s live_state_hint=%s final_filter_outcome=%s',
+    format_hex(observation.addr),
+    format_hex(observation.target_value_addr),
+    format_hex(observation.target_value_pattern, 8),
+    format_decimal(observation.target_value_float),
+    tostring(observation.match_mode),
+    tostring(observation.comparison_mode),
+    tostring(observation.read_ok),
+    format_hex(observation.observed_pattern, 8),
+    tostring(observation.observed_raw_bytes),
+    format_decimal(observation.observed_float),
+    tostring(observation.observed_int),
+    format_decimal(observation.float_delta),
+    tostring(observation.tolerance_pass),
+    tostring(observation.exact_pattern_match),
+    tostring(observation.retry_read_ok),
+    format_hex(observation.retry_observed_pattern, 8),
+    format_decimal(observation.retry_observed_float),
+    tostring(observation.retry_exact_pattern_match),
+    tostring(observation.delayed_read_ok),
+    format_hex(observation.delayed_observed_pattern, 8),
+    format_decimal(observation.delayed_observed_float),
+    tostring(observation.delayed_exact_pattern_match),
+    tostring(observation.mismatch_reason),
+    tostring(observation.live_state_hint),
+    tostring(observation.final_filter_outcome)
+  )
+end
+
+local function record_value_mismatch_sample(stats, observation, is_known_true)
+  if stats == nil or observation == nil then
+    return
+  end
+  stats.value_mismatch_samples = stats.value_mismatch_samples or {}
+  stats.mismatch_observation_by_addr = stats.mismatch_observation_by_addr or {}
+  stats.mismatch_observation_by_addr[observation.addr] = observation
+
+  local already_recorded = false
+  for _, sample in ipairs(stats.value_mismatch_samples) do
+    if sample.addr == observation.addr then
+      already_recorded = true
+      break
+    end
+  end
+
+  if not already_recorded and (#stats.value_mismatch_samples < 5 or is_known_true) then
+    table.insert(stats.value_mismatch_samples, observation)
+  end
+end
+
 local function record_reject_reason(raw_debug_state, reason)
   if raw_debug_state == nil or reason == nil then
     return
@@ -923,7 +1067,7 @@ local function build_address_set(addresses)
   return set
 end
 
-local function filter_target_match_single_pass(addresses, target_value_pattern, known_true_addr)
+local function filter_target_match_single_pass(addresses, target_value_pattern, known_true_addr, target_value_float, target_value_addr)
   local matched = {}
   local true_in_filtered = false
   local mismatch_addresses = {}
@@ -934,16 +1078,48 @@ local function filter_target_match_single_pass(addresses, target_value_pattern, 
     retry_recovered_count = 0,
     retry_still_mismatch_count = 0,
     retry_read_failed_count = 0,
+    target_value_addr = target_value_addr,
+    target_value_pattern = target_value_pattern,
+    target_value_float = target_value_float,
+    match_mode = 'filter_target_match',
+    comparison_mode = 'exact_u32_pattern',
+    value_mismatch_samples = {},
+    known_true_filter_debug = nil,
+    mismatch_observation_by_addr = {},
   }
 
   for _, addr in ipairs(addresses) do
     local ok, value = pcall(read_u32, addr)
     if not ok or type(value) ~= 'number' then
       stats.read_failed_count = stats.read_failed_count + 1
+      if known_true_addr ~= nil and addr == known_true_addr then
+        stats.known_true_filter_debug = build_filter_value_observation(
+          addr,
+          target_value_pattern,
+          target_value_float,
+          target_value_addr,
+          false,
+          nil,
+          false,
+          nil,
+          'read_type_mismatch'
+        )
+      end
     elseif value == target_value_pattern then
       stats.matched_count = stats.matched_count + 1
       if known_true_addr ~= nil and addr == known_true_addr then
         true_in_filtered = true
+        stats.known_true_filter_debug = build_filter_value_observation(
+          addr,
+          target_value_pattern,
+          target_value_float,
+          target_value_addr,
+          true,
+          value,
+          false,
+          nil,
+          'matched'
+        )
       end
       table.insert(matched, addr)
     else
@@ -953,6 +1129,17 @@ local function filter_target_match_single_pass(addresses, target_value_pattern, 
         stats.matched_count = stats.matched_count + 1
         if known_true_addr ~= nil and addr == known_true_addr then
           true_in_filtered = true
+          stats.known_true_filter_debug = build_filter_value_observation(
+            addr,
+            target_value_pattern,
+            target_value_float,
+            target_value_addr,
+            true,
+            value,
+            true,
+            retry_value,
+            'retry_recovered'
+          )
         end
         table.insert(matched, addr)
       else
@@ -962,6 +1149,22 @@ local function filter_target_match_single_pass(addresses, target_value_pattern, 
         else
           stats.retry_still_mismatch_count = stats.retry_still_mismatch_count + 1
         end
+        local observation = build_filter_value_observation(
+          addr,
+          target_value_pattern,
+          target_value_float,
+          target_value_addr,
+          true,
+          value,
+          retry_ok and type(retry_value) == 'number',
+          retry_value,
+          'pattern_mismatch'
+        )
+        local is_known_true = known_true_addr ~= nil and addr == known_true_addr
+        if is_known_true then
+          stats.known_true_filter_debug = observation
+        end
+        record_value_mismatch_sample(stats, observation, is_known_true)
         mismatch_addresses[#mismatch_addresses + 1] = addr
       end
     end
@@ -970,16 +1173,16 @@ local function filter_target_match_single_pass(addresses, target_value_pattern, 
   return matched, true_in_filtered, mismatch_addresses, stats
 end
 
-local function filter_target_match(addresses, target_value_pattern, known_true_addr, stable_filter_intersection_enabled, delayed_recheck_enabled)
+local function filter_target_match(addresses, target_value_pattern, known_true_addr, stable_filter_intersection_enabled, delayed_recheck_enabled, target_value_float, target_value_addr)
   if delayed_recheck_enabled == nil then
     delayed_recheck_enabled = true
   end
 
   if stable_filter_intersection_enabled then
     local pass1_matched, _, _, pass1_stats =
-      filter_target_match_single_pass(addresses, target_value_pattern, known_true_addr)
+      filter_target_match_single_pass(addresses, target_value_pattern, known_true_addr, target_value_float, target_value_addr)
     local pass2_matched, _, _, pass2_stats =
-      filter_target_match_single_pass(addresses, target_value_pattern, known_true_addr)
+      filter_target_match_single_pass(addresses, target_value_pattern, known_true_addr, target_value_float, target_value_addr)
     local pass1_set = build_address_set(pass1_matched)
     local pass2_set = build_address_set(pass2_matched)
     local filtered = {}
@@ -1028,13 +1231,21 @@ local function filter_target_match(addresses, target_value_pattern, known_true_a
       pass2_matched_addresses = pass2_matched,
       pass1_only_addresses = pass1_only,
       pass2_only_addresses = pass2_only,
+      target_value_addr = target_value_addr,
+      target_value_pattern = target_value_pattern,
+      target_value_float = target_value_float,
+      match_mode = 'filter_target_match',
+      comparison_mode = 'exact_u32_pattern',
+      known_true_filter_debug = pass1_stats.known_true_filter_debug,
+      value_mismatch_samples = pass1_stats.value_mismatch_samples,
+      mismatch_observation_by_addr = pass1_stats.mismatch_observation_by_addr,
     }
 
     return filtered, true_in_filtered, stats
   end
 
   local filtered, true_in_filtered, delayed_candidates, stats =
-    filter_target_match_single_pass(addresses, target_value_pattern, known_true_addr)
+    filter_target_match_single_pass(addresses, target_value_pattern, known_true_addr, target_value_float, target_value_addr)
 
   stats.delayed_recheck_enabled = delayed_recheck_enabled
   stats.delayed_recheck_candidate_count = delayed_recheck_enabled and #delayed_candidates or 0
@@ -1060,16 +1271,33 @@ local function filter_target_match(addresses, target_value_pattern, known_true_a
 
   for _, addr in ipairs(delayed_candidates) do
     local delayed_ok, delayed_value = pcall(read_u32, addr)
+    local observation = stats.mismatch_observation_by_addr and stats.mismatch_observation_by_addr[addr] or nil
+    if observation ~= nil then
+      local delayed_pattern = delayed_ok and type(delayed_value) == 'number' and delayed_value or nil
+      observation.delayed_read_ok = delayed_pattern ~= nil
+      observation.delayed_observed_pattern = u32(delayed_pattern)
+      observation.delayed_observed_float = u32_to_float(delayed_pattern)
+      observation.delayed_exact_pattern_match = delayed_pattern ~= nil and delayed_pattern == target_value_pattern
+    end
     if delayed_ok and type(delayed_value) == 'number' and delayed_value == target_value_pattern then
       stats.delayed_recovered_count = stats.delayed_recovered_count + 1
+      if observation ~= nil then
+        observation.final_filter_outcome = 'delayed_recovered'
+      end
       if known_true_addr ~= nil and addr == known_true_addr then
         true_in_filtered = true
       end
       table.insert(filtered, addr)
     elseif not delayed_ok or type(delayed_value) ~= 'number' then
       stats.delayed_read_failed_count = stats.delayed_read_failed_count + 1
+      if observation ~= nil then
+        observation.final_filter_outcome = 'delayed_read_failed'
+      end
     else
       stats.delayed_still_mismatch_count = stats.delayed_still_mismatch_count + 1
+      if observation ~= nil then
+        observation.final_filter_outcome = 'value_mismatch'
+      end
     end
   end
 
@@ -1178,7 +1406,7 @@ local function select_top_scored_diverse(addresses, wanted_count, target_value_p
         end
       end
     end
-    return addresses, #addresses, nil, nil, true, true_in_selected
+    return addresses, #addresses, nil, nil, true_in_selected, true_in_selected
   end
 
   local scored, true_in_prescored = build_scored_pool(addresses, target_value_pattern, known_true_addr)
@@ -1245,6 +1473,8 @@ function MVP0FoundList.collect(opts)
   local max_candidates = opts.max_candidates or MVP0FoundList.CONFIG.default_max_candidates
   local scan_budget = opts.scan_budget
   local target_value_pattern = u32(opts.target_value_pattern)
+  local target_value_addr = opts.target_value_addr and to_address_number(opts.target_value_addr) or nil
+  local target_value_float = tonumber(opts.target_value_float)
   local should_filter = opts.filter_target_match
   local use_prescore_selection = opts.use_prescore_selection
   local bucket_shift = opts.bucket_shift or MVP0FoundList.CONFIG.default_bucket_shift
@@ -1287,7 +1517,7 @@ function MVP0FoundList.collect(opts)
 
   if should_filter then
     filtered_addresses, true_in_filtered, filter_debug =
-      filter_target_match(unique_addresses, target_value_pattern, known_true_addr, stable_filter_intersection_enabled, delayed_recheck_enabled)
+      filter_target_match(unique_addresses, target_value_pattern, known_true_addr, stable_filter_intersection_enabled, delayed_recheck_enabled, target_value_float, target_value_addr)
     append_probe_log(truth_probe_logs, 'filter', string.format(
       'filter_target_match enabled unique=%d matched=%d value_mismatch=%d read_failed=%d retry_recovered=%d retry_still_mismatch=%d retry_read_failed=%d delayed_recheck_enabled=%s delayed_candidates=%d delayed_recovered=%d delayed_still_mismatch=%d delayed_read_failed=%d stable_intersection_enabled=%s pass1_matched=%d pass2_matched=%d intersection_filtered=%d pass1_only=%d pass2_only=%d final_filtered=%d probe_enabled=%s',
       #unique_addresses,
@@ -1311,6 +1541,14 @@ function MVP0FoundList.collect(opts)
       #filtered_addresses,
       tostring(probe_full_foundlist)
     ))
+    if filter_debug ~= nil and filter_debug.known_true_filter_debug ~= nil then
+      append_probe_log(truth_probe_logs, 'filter_known_true', format_filter_observation(filter_debug.known_true_filter_debug))
+    end
+    if filter_debug ~= nil then
+      for i, sample in ipairs(filter_debug.value_mismatch_samples or {}) do
+        append_probe_log(truth_probe_logs, 'filter_mismatch_sample', string.format('%02d: %s', i, format_filter_observation(sample)))
+      end
+    end
   else
     append_probe_log(truth_probe_logs, 'filter', string.format(
       'filter_target_match disabled unique=%d probe_enabled=%s',
@@ -1346,6 +1584,13 @@ function MVP0FoundList.collect(opts)
     pass1_only_addresses = sort_numeric(copy_numeric_array(filter_debug and filter_debug.pass1_only_addresses or {})),
     pass2_only_addresses = sort_numeric(copy_numeric_array(filter_debug and filter_debug.pass2_only_addresses or {})),
     matched_addresses = copy_numeric_array(sorted_addresses),
+    target_value_addr = filter_debug and filter_debug.target_value_addr or target_value_addr,
+    target_value_pattern = filter_debug and filter_debug.target_value_pattern or target_value_pattern,
+    target_value_float = filter_debug and filter_debug.target_value_float or target_value_float,
+    match_mode = filter_debug and filter_debug.match_mode or (should_filter and 'filter_target_match' or 'filter_disabled'),
+    comparison_mode = filter_debug and filter_debug.comparison_mode or (should_filter and 'exact_u32_pattern' or nil),
+    known_true_filter_debug = filter_debug and filter_debug.known_true_filter_debug or nil,
+    value_mismatch_samples = filter_debug and filter_debug.value_mismatch_samples or {},
   }
 
   local selected_addresses
