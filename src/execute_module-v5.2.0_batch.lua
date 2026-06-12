@@ -283,6 +283,10 @@ local function known_true_needs_diagnostics(bundle, result, known_true_addr)
   return best_addr ~= nil and best_addr ~= known_true_addr
 end
 
+local function has_selected_quota_anomaly(source)
+  return source ~= nil and source.selected_drop_reason ~= nil
+end
+
 local function filter_truth_probe_logs(logs, diagnostic_level, include_detail)
   if diagnostic_level == "trace" or include_detail then
     return logs
@@ -777,6 +781,41 @@ local function print_hex_kv(label, value)
   end
 end
 
+local function print_selected_quota_debug(source)
+  if not has_selected_quota_anomaly(source) then
+    return
+  end
+  print("=== selected_quota_debug ===")
+  print_kv("known_true_prescore_rank", source.known_true_prescore_rank)
+  print_kv("known_true_prescore_score", source.known_true_prescore_score)
+  print_kv("selected_cap", source.selected_cap)
+  print_kv("selected_drop_reason", source.selected_drop_reason)
+  print_kv("cutoff_score", source.cutoff_score)
+  print_hex_kv("candidate_at_cutoff", source.candidate_at_cutoff)
+  print_hex_kv("known_true_bucket", source.known_true_bucket)
+  print_kv("known_true_bucket_selected_count_at_eval", source.known_true_bucket_selected_count_at_eval)
+  print_kv("known_true_bucket_selected_count", source.known_true_bucket_selected_count)
+  print_kv("selected_bucket_shift", source.selected_bucket_shift)
+  print_kv("selected_max_per_bucket", source.selected_max_per_bucket)
+end
+
+local function append_selected_quota_debug_lines(lines, source)
+  if not has_selected_quota_anomaly(source) then
+    return
+  end
+  lines[#lines + 1] = "known_true_prescore_rank = " .. tostring(source.known_true_prescore_rank)
+  lines[#lines + 1] = "known_true_prescore_score = " .. tostring(source.known_true_prescore_score)
+  lines[#lines + 1] = "selected_cap = " .. tostring(source.selected_cap)
+  lines[#lines + 1] = "selected_drop_reason = " .. tostring(source.selected_drop_reason)
+  lines[#lines + 1] = "cutoff_score = " .. tostring(source.cutoff_score)
+  lines[#lines + 1] = "candidate_at_cutoff = " .. tostring(hex_u64(source.candidate_at_cutoff))
+  lines[#lines + 1] = "known_true_bucket = " .. tostring(hex_u64(source.known_true_bucket))
+  lines[#lines + 1] = "known_true_bucket_selected_count_at_eval = " .. tostring(source.known_true_bucket_selected_count_at_eval)
+  lines[#lines + 1] = "known_true_bucket_selected_count = " .. tostring(source.known_true_bucket_selected_count)
+  lines[#lines + 1] = "selected_bucket_shift = " .. tostring(source.selected_bucket_shift)
+  lines[#lines + 1] = "selected_max_per_bucket = " .. tostring(source.selected_max_per_bucket)
+end
+
 local function print_log_table(title, t)
   print("=== " .. title .. " ===")
 
@@ -928,6 +967,7 @@ local function emit_compact_bundle_report(case_cfg, mode_cfg, bundle, policy)
   print_kv("filtered_count", bundle and bundle.filtered_count)
   print_kv("prescored_count", bundle and bundle.prescored_count)
   print_kv("selected_count", bundle and bundle.selected_count)
+  print_selected_quota_debug(bundle)
   print_report_policy(policy)
 end
 
@@ -986,6 +1026,7 @@ local function emit_bundle_report(case_cfg, mode_cfg, bundle, policy)
   print_kv("known_true_base_score", pick_known_true_field(bundle, result, "known_true_base_score"))
   print_kv("known_true_final_score", pick_known_true_field(bundle, result, "known_true_final_score"))
   print_kv("known_true_tie_break_vector", pick_known_true_field(bundle, result, "known_true_tie_break_vector"))
+  print_selected_quota_debug(bundle)
   print_report_policy(policy)
 
   print("=== report_text ===")
@@ -1021,6 +1062,17 @@ local function build_run_summary(case_cfg, mode_cfg, bundle, log_path, filter_de
     true_in_selected = bundle and bundle.true_in_selected,
     known_true_raw_admission_path = bundle and bundle.known_true_raw_admission_path,
     selected_count = bundle and bundle.selected_count,
+    known_true_prescore_rank = bundle and bundle.known_true_prescore_rank,
+    known_true_prescore_score = bundle and bundle.known_true_prescore_score,
+    selected_cap = bundle and bundle.selected_cap,
+    selected_drop_reason = bundle and bundle.selected_drop_reason,
+    cutoff_score = bundle and bundle.cutoff_score,
+    candidate_at_cutoff = bundle and bundle.candidate_at_cutoff,
+    known_true_bucket = bundle and bundle.known_true_bucket,
+    known_true_bucket_selected_count_at_eval = bundle and bundle.known_true_bucket_selected_count_at_eval,
+    known_true_bucket_selected_count = bundle and bundle.known_true_bucket_selected_count,
+    selected_bucket_shift = bundle and bundle.selected_bucket_shift,
+    selected_max_per_bucket = bundle and bundle.selected_max_per_bucket,
     filtered_count = bundle and bundle.filtered_count,
     matched_count = filter_debug and filter_debug.matched_count or nil,
     value_mismatch_count = filter_debug and filter_debug.value_mismatch_count or nil,
@@ -1108,6 +1160,7 @@ local function print_run_summary(summary)
   print_kv("true_in_selected", summary.true_in_selected)
   print_kv("known_true_raw_admission_path", summary.known_true_raw_admission_path)
   print_kv("selected_count", summary.selected_count)
+  print_selected_quota_debug(summary)
   print_kv("filtered_count", summary.filtered_count)
   print_kv("matched_count", summary.matched_count)
   print_kv("value_mismatch_count", summary.value_mismatch_count)
@@ -1218,6 +1271,7 @@ local function render_summary_file(batch_id, summaries)
     lines[#lines + 1] = "true_in_selected = " .. tostring(summary.true_in_selected)
     lines[#lines + 1] = "known_true_raw_admission_path = " .. tostring(summary.known_true_raw_admission_path)
     lines[#lines + 1] = "selected_count = " .. tostring(summary.selected_count)
+    append_selected_quota_debug_lines(lines, summary)
     lines[#lines + 1] = "filtered_count = " .. tostring(summary.filtered_count)
     lines[#lines + 1] = "matched_count = " .. tostring(summary.matched_count)
     lines[#lines + 1] = "value_mismatch_count = " .. tostring(summary.value_mismatch_count)
@@ -1282,6 +1336,7 @@ local function render_summary_file(batch_id, summaries)
       lines[#lines + 1] = "stable_intersection_prescored_count = " .. tostring(summary.stable_intersection_prescored_count)
       lines[#lines + 1] = "stable_intersection_selected_count = " .. tostring(summary.stable_intersection_selected_count)
       lines[#lines + 1] = "stable_intersection_known_true_rank_position = " .. tostring(summary.stable_intersection_known_true_rank_position)
+      append_selected_quota_debug_lines(lines, summary)
       lines[#lines + 1] = "stable_intersection_best_candidate = " .. tostring(hex_u64(summary.stable_intersection_best_candidate))
       lines[#lines + 1] = "stable_intersection_best_score = " .. tostring(summary.stable_intersection_best_score)
       lines[#lines + 1] = "stable_intersection_second_score = " .. tostring(summary.stable_intersection_second_score)
@@ -1353,6 +1408,7 @@ local function emit_compact_stable_intersection_report(case_cfg, summary, policy
   print_kv("stable_intersection_prescored_count", summary.stable_intersection_prescored_count)
   print_kv("stable_intersection_selected_count", summary.stable_intersection_selected_count)
   print_kv("stable_intersection_known_true_rank_position", summary.stable_intersection_known_true_rank_position)
+  print_selected_quota_debug(summary)
   print_hex_kv("stable_intersection_best_candidate", summary.stable_intersection_best_candidate)
   print_kv("stable_intersection_best_score", summary.stable_intersection_best_score)
   print_kv("stable_intersection_second_score", summary.stable_intersection_second_score)
@@ -1423,6 +1479,7 @@ local function emit_stable_intersection_report(case_cfg, bundle, summary, policy
   print_kv("stable_intersection_prescored_count", summary.stable_intersection_prescored_count)
   print_kv("stable_intersection_selected_count", summary.stable_intersection_selected_count)
   print_kv("stable_intersection_known_true_rank_position", summary.stable_intersection_known_true_rank_position)
+  print_selected_quota_debug(summary)
   print_hex_kv("stable_intersection_best_candidate", summary.stable_intersection_best_candidate)
   print_kv("stable_intersection_best_score", summary.stable_intersection_best_score)
   print_kv("stable_intersection_second_score", summary.stable_intersection_second_score)
@@ -1530,6 +1587,17 @@ local function build_stable_intersection_summary(case_cfg, bundle, log_path, ana
     stable_intersection_prescored_count = bundle and bundle.prescored_count or nil,
     stable_intersection_selected_count = bundle and bundle.selected_count or nil,
     stable_intersection_known_true_rank_position = bundle and bundle.known_true_rank_position or nil,
+    known_true_prescore_rank = bundle and bundle.known_true_prescore_rank or nil,
+    known_true_prescore_score = bundle and bundle.known_true_prescore_score or nil,
+    selected_cap = bundle and bundle.selected_cap or nil,
+    selected_drop_reason = bundle and bundle.selected_drop_reason or nil,
+    cutoff_score = bundle and bundle.cutoff_score or nil,
+    candidate_at_cutoff = bundle and bundle.candidate_at_cutoff or nil,
+    known_true_bucket = bundle and bundle.known_true_bucket or nil,
+    known_true_bucket_selected_count_at_eval = bundle and bundle.known_true_bucket_selected_count_at_eval or nil,
+    known_true_bucket_selected_count = bundle and bundle.known_true_bucket_selected_count or nil,
+    selected_bucket_shift = bundle and bundle.selected_bucket_shift or nil,
+    selected_max_per_bucket = bundle and bundle.selected_max_per_bucket or nil,
     stable_intersection_best_candidate = best and best.candidate and best.candidate.value_addr or nil,
     stable_intersection_best_score = result and result.best and result.best.score or nil,
     stable_intersection_second_score = result and result.second and result.second.score or nil,
@@ -1871,6 +1939,7 @@ local function render_diagnostic_diff_file(batch_id, summaries)
         )
         lines[#lines + 1] = "known_true_raw_admission_path = " .. tostring(summary.known_true_raw_admission_path)
         lines[#lines + 1] = "known_true_rank_position = " .. tostring(summary.known_true_rank_position)
+        append_selected_quota_debug_lines(lines, summary)
         lines[#lines + 1] = "best_candidate = " .. tostring(hex_u64(summary.best_candidate_addr))
         lines[#lines + 1] = "best_score = " .. tostring(summary.best_score)
         lines[#lines + 1] = "second_score = " .. tostring(summary.second_score)
@@ -1933,6 +2002,7 @@ local function render_diagnostic_diff_file(batch_id, summaries)
         lines[#lines + 1] = "stable_intersection_prescored_count = " .. tostring(stable_summary.stable_intersection_prescored_count)
         lines[#lines + 1] = "stable_intersection_selected_count = " .. tostring(stable_summary.stable_intersection_selected_count)
         lines[#lines + 1] = "stable_intersection_known_true_rank_position = " .. tostring(stable_summary.stable_intersection_known_true_rank_position)
+        append_selected_quota_debug_lines(lines, stable_summary)
         lines[#lines + 1] = "stable_intersection_best_candidate = " .. tostring(hex_u64(stable_summary.stable_intersection_best_candidate))
         lines[#lines + 1] = "stable_intersection_best_score = " .. tostring(stable_summary.stable_intersection_best_score)
         lines[#lines + 1] = "stable_intersection_second_score = " .. tostring(stable_summary.stable_intersection_second_score)

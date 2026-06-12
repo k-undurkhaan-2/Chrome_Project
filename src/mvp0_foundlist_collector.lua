@@ -1378,6 +1378,8 @@ end
 local function build_scored_pool(addresses, target_value_pattern, known_true_addr)
   local scored = {}
   local true_in_prescored = false
+  local known_true_prescore_rank = nil
+  local known_true_prescore_score = nil
   local prescore_read_ms = 0
   local prescore_score_ms = 0
 
@@ -1411,10 +1413,22 @@ local function build_scored_pool(addresses, target_value_pattern, known_true_add
   end)
   local prescore_sort_ms = elapsed_ms(sort_start_ms)
 
+  if known_true_addr ~= nil then
+    for rank, item in ipairs(scored) do
+      if item.addr == known_true_addr then
+        known_true_prescore_rank = rank
+        known_true_prescore_score = item.prescore_score
+        break
+      end
+    end
+  end
+
   return scored, true_in_prescored, {
     prescore_read_ms = math.floor(prescore_read_ms + 0.5),
     prescore_score_ms = math.floor(prescore_score_ms + 0.5),
     prescore_sort_ms = prescore_sort_ms,
+    known_true_prescore_rank = known_true_prescore_rank,
+    known_true_prescore_score = known_true_prescore_score,
   }
 end
 
@@ -1447,12 +1461,24 @@ local function select_top_scored_diverse(addresses, wanted_count, target_value_p
   local deferred = {}
   local cutoff_score = nil
   local tied_count = nil
+  local candidate_at_cutoff = nil
   local true_in_selected = false
+  local known_true_bucket = nil
+  local known_true_bucket_count_at_eval = nil
+  local known_true_bucket_final_count = nil
+  local known_true_deferred_by_bucket = false
+  local known_true_deferred_by_selected_cap = false
   local select_start_ms = now_ms()
 
   for _, item in ipairs(scored) do
     local bucket = region_bucket(item.addr, bucket_shift)
     local count = bucket_counts[bucket] or 0
+    if known_true_addr ~= nil and item.addr == known_true_addr then
+      known_true_bucket = bucket
+      known_true_bucket_count_at_eval = count
+      known_true_deferred_by_bucket = count >= max_per_bucket
+      known_true_deferred_by_selected_cap = #selected >= wanted_count
+    end
     if count < max_per_bucket and #selected < wanted_count then
       bucket_counts[bucket] = count + 1
       table.insert(selected, item.addr)
@@ -1478,6 +1504,7 @@ local function select_top_scored_diverse(addresses, wanted_count, target_value_p
 
   if #selected > 0 then
     local cutoff_addr = selected[#selected]
+    candidate_at_cutoff = cutoff_addr
     for _, item in ipairs(scored) do
       if item.addr == cutoff_addr then
         cutoff_score = item.prescore_score
@@ -1495,6 +1522,10 @@ local function select_top_scored_diverse(addresses, wanted_count, target_value_p
     end
   end
 
+  if known_true_bucket ~= nil then
+    known_true_bucket_final_count = bucket_counts[known_true_bucket] or 0
+  end
+
   prescore_detail.prescore_select_ms = elapsed_ms(select_start_ms)
   prescore_detail.prescore_detail_ms =
     (prescore_detail.prescore_read_ms or 0)
@@ -1502,7 +1533,40 @@ local function select_top_scored_diverse(addresses, wanted_count, target_value_p
     + (prescore_detail.prescore_sort_ms or 0)
     + (prescore_detail.prescore_select_ms or 0)
 
-  return selected, #scored, cutoff_score, tied_count, true_in_prescored, true_in_selected, prescore_detail
+  local selected_drop_reason = nil
+  if true_in_prescored and not true_in_selected then
+    if known_true_deferred_by_bucket and #selected >= wanted_count then
+      selected_drop_reason = 'diversity_bucket_cap_then_selected_cap'
+    elseif known_true_deferred_by_bucket then
+      selected_drop_reason = 'diversity_bucket_cap'
+    elseif known_true_deferred_by_selected_cap then
+      selected_drop_reason = 'selected_cap_reached'
+    elseif prescore_detail.known_true_prescore_rank ~= nil
+        and prescore_detail.known_true_prescore_rank > wanted_count then
+      selected_drop_reason = 'prescore_rank_beyond_selected_cap'
+    else
+      selected_drop_reason = 'not_selected_unknown'
+    end
+  end
+
+  local selected_anomaly_debug = nil
+  if selected_drop_reason ~= nil then
+    selected_anomaly_debug = {
+      known_true_prescore_rank = prescore_detail.known_true_prescore_rank,
+      known_true_prescore_score = prescore_detail.known_true_prescore_score,
+      selected_cap = wanted_count,
+      selected_drop_reason = selected_drop_reason,
+      cutoff_score = cutoff_score,
+      candidate_at_cutoff = candidate_at_cutoff,
+      known_true_bucket = known_true_bucket,
+      known_true_bucket_selected_count_at_eval = known_true_bucket_count_at_eval,
+      known_true_bucket_selected_count = known_true_bucket_final_count,
+      bucket_shift = bucket_shift,
+      max_per_bucket = max_per_bucket,
+    }
+  end
+
+  return selected, #scored, cutoff_score, tied_count, true_in_prescored, true_in_selected, prescore_detail, selected_anomaly_debug
 end
 
 function MVP0FoundList.collect(opts)
@@ -1645,10 +1709,11 @@ function MVP0FoundList.collect(opts)
   local true_in_prescored = false
   local true_in_selected = false
   local prescore_detail = nil
+  local selected_anomaly_debug = nil
   local prescore_start_ms = now_ms()
 
   if use_prescore_selection and #sorted_addresses > 0 then
-    selected_addresses, prescored_count, prescore_cutoff_score, prescore_tied_count, true_in_prescored, true_in_selected, prescore_detail =
+    selected_addresses, prescored_count, prescore_cutoff_score, prescore_tied_count, true_in_prescored, true_in_selected, prescore_detail, selected_anomaly_debug =
       select_top_scored_diverse(sorted_addresses, max_candidates, target_value_pattern, bucket_shift, max_per_bucket, known_true_addr)
     selection_strategy = 'prescore_diverse_top_scored'
   else
@@ -1692,6 +1757,17 @@ function MVP0FoundList.collect(opts)
     selection_strategy = selection_strategy,
     prescore_cutoff_score = prescore_cutoff_score,
     prescore_tied_count = prescore_tied_count,
+    known_true_prescore_rank = selected_anomaly_debug and selected_anomaly_debug.known_true_prescore_rank or nil,
+    known_true_prescore_score = selected_anomaly_debug and selected_anomaly_debug.known_true_prescore_score or nil,
+    selected_cap = selected_anomaly_debug and selected_anomaly_debug.selected_cap or nil,
+    selected_drop_reason = selected_anomaly_debug and selected_anomaly_debug.selected_drop_reason or nil,
+    cutoff_score = selected_anomaly_debug and selected_anomaly_debug.cutoff_score or nil,
+    candidate_at_cutoff = selected_anomaly_debug and selected_anomaly_debug.candidate_at_cutoff or nil,
+    known_true_bucket = selected_anomaly_debug and selected_anomaly_debug.known_true_bucket or nil,
+    known_true_bucket_selected_count_at_eval = selected_anomaly_debug and selected_anomaly_debug.known_true_bucket_selected_count_at_eval or nil,
+    known_true_bucket_selected_count = selected_anomaly_debug and selected_anomaly_debug.known_true_bucket_selected_count or nil,
+    selected_bucket_shift = selected_anomaly_debug and selected_anomaly_debug.bucket_shift or nil,
+    selected_max_per_bucket = selected_anomaly_debug and selected_anomaly_debug.max_per_bucket or nil,
     bucket_shift = bucket_shift,
     max_per_bucket = max_per_bucket,
     known_true_addr = known_true_addr,
@@ -1775,10 +1851,11 @@ local function collect_from_filtered_addresses(opts)
   local true_in_prescored = false
   local true_in_selected = false
   local prescore_detail = nil
+  local selected_anomaly_debug = nil
   local prescore_start_ms = now_ms()
 
   if use_prescore_selection and #filtered_addresses > 0 then
-    selected_addresses, prescored_count, prescore_cutoff_score, prescore_tied_count, true_in_prescored, true_in_selected, prescore_detail =
+    selected_addresses, prescored_count, prescore_cutoff_score, prescore_tied_count, true_in_prescored, true_in_selected, prescore_detail, selected_anomaly_debug =
       select_top_scored_diverse(filtered_addresses, max_candidates, target_value_pattern, bucket_shift, max_per_bucket, known_true_addr)
     selection_strategy = 'prescore_diverse_top_scored'
   else
@@ -1805,6 +1882,17 @@ local function collect_from_filtered_addresses(opts)
     selection_strategy = selection_strategy,
     prescore_cutoff_score = prescore_cutoff_score,
     prescore_tied_count = prescore_tied_count,
+    known_true_prescore_rank = selected_anomaly_debug and selected_anomaly_debug.known_true_prescore_rank or nil,
+    known_true_prescore_score = selected_anomaly_debug and selected_anomaly_debug.known_true_prescore_score or nil,
+    selected_cap = selected_anomaly_debug and selected_anomaly_debug.selected_cap or nil,
+    selected_drop_reason = selected_anomaly_debug and selected_anomaly_debug.selected_drop_reason or nil,
+    cutoff_score = selected_anomaly_debug and selected_anomaly_debug.cutoff_score or nil,
+    candidate_at_cutoff = selected_anomaly_debug and selected_anomaly_debug.candidate_at_cutoff or nil,
+    known_true_bucket = selected_anomaly_debug and selected_anomaly_debug.known_true_bucket or nil,
+    known_true_bucket_selected_count_at_eval = selected_anomaly_debug and selected_anomaly_debug.known_true_bucket_selected_count_at_eval or nil,
+    known_true_bucket_selected_count = selected_anomaly_debug and selected_anomaly_debug.known_true_bucket_selected_count or nil,
+    selected_bucket_shift = selected_anomaly_debug and selected_anomaly_debug.bucket_shift or nil,
+    selected_max_per_bucket = selected_anomaly_debug and selected_anomaly_debug.max_per_bucket or nil,
     bucket_shift = bucket_shift,
     max_per_bucket = max_per_bucket,
     known_true_addr = known_true_addr,
