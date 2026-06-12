@@ -1,10 +1,32 @@
 param(
     [int]$Latest = 5,
-    [string]$LogRoot = "D:\armedforces.io-v2\log\auto_output"
+    [string]$LogRoot = "D:\armedforces.io-v2\log\auto_output",
+    [string]$OutFile
 )
 
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = "Stop"
+
+$ClassificationOrder = @(
+    "success",
+    "collector_runtime_empty",
+    "incomplete_output",
+    "known_true_value_mismatch",
+    "suspected_filter_bug",
+    "selected_quota_issue",
+    "ranking_issue",
+    "other"
+)
+
+$PerformanceMetricNames = @(
+    "report_render_ms",
+    "total_ms",
+    "collector_call_ms",
+    "prescore_ms",
+    "stable_intersection_ms",
+    "write_log_ms",
+    "log_size_bytes"
+)
 
 function Get-BatchIds {
     param([string]$Root, [int]$Count)
@@ -151,6 +173,194 @@ function Format-Triplet {
     return "$(Format-Cell $A)/$(Format-Cell $W)/$(Format-Cell $B)"
 }
 
+function Normalize-ReportValue {
+    param($Value)
+
+    if ($null -eq $Value -or "$Value" -eq "" -or "$Value" -eq "nil") {
+        return "not_available"
+    }
+    return "$Value"
+}
+
+function Limit-Text {
+    param($Value, [int]$MaxLength = 180)
+
+    if ($null -eq $Value -or "$Value" -eq "") {
+        return "-"
+    }
+
+    $text = "$Value"
+    if ($text.Length -le $MaxLength) {
+        return $text
+    }
+    return $text.Substring(0, $MaxLength - 3) + "..."
+}
+
+function Get-NumericKvValues {
+    param([string]$Path, [string]$Key)
+
+    $values = @()
+    if (-not $Path -or -not (Test-Path -LiteralPath $Path)) {
+        return $values
+    }
+
+    $pattern = "^\s*" + [regex]::Escape($Key) + "\s*=\s*([^\s]+)\s*$"
+    foreach ($line in Get-Content -LiteralPath $Path) {
+        if ($line -match $pattern) {
+            $raw = $matches[1]
+            if ($raw -match "^-?\d+(\.\d+)?$") {
+                $values += [double]::Parse($raw, [System.Globalization.CultureInfo]::InvariantCulture)
+            }
+        }
+    }
+    return $values
+}
+
+function Get-PerformanceMap {
+    param([string[]]$Paths)
+
+    $map = [ordered]@{}
+    foreach ($metric in $PerformanceMetricNames) {
+        $map[$metric] = @()
+    }
+
+    foreach ($path in $Paths) {
+        foreach ($metric in $PerformanceMetricNames) {
+            $map[$metric] = @($map[$metric]) + @(Get-NumericKvValues -Path $path -Key $metric)
+        }
+    }
+    return $map
+}
+
+function Get-MetricStats {
+    param([double[]]$Values)
+
+    $items = @($Values | Sort-Object)
+    if ($items.Count -eq 0) {
+        return $null
+    }
+
+    $sum = 0.0
+    foreach ($item in $items) {
+        $sum += $item
+    }
+
+    $middle = [int][Math]::Floor($items.Count / 2)
+    if (($items.Count % 2) -eq 0) {
+        $median = ($items[$middle - 1] + $items[$middle]) / 2
+    } else {
+        $median = $items[$middle]
+    }
+
+    return [pscustomobject][ordered]@{
+        average = $sum / $items.Count
+        median = $median
+        min = $items[0]
+        max = $items[$items.Count - 1]
+        count = $items.Count
+    }
+}
+
+function Format-Number {
+    param($Value)
+
+    if ($null -eq $Value) {
+        return "-"
+    }
+
+    if ([Math]::Abs([double]$Value - [Math]::Round([double]$Value)) -lt 0.005) {
+        return ([Math]::Round([double]$Value)).ToString([System.Globalization.CultureInfo]::InvariantCulture)
+    }
+    return ([Math]::Round([double]$Value, 2)).ToString([System.Globalization.CultureInfo]::InvariantCulture)
+}
+
+function Get-RepoRoot {
+    param([string]$Root)
+
+    $candidates = @()
+    if ($Root) {
+        $logParent = Split-Path -Parent $Root
+        if ($logParent) {
+            $candidates += Split-Path -Parent $logParent
+        }
+    }
+    if ($PSScriptRoot) {
+        $candidates += Split-Path -Parent $PSScriptRoot
+    }
+
+    foreach ($candidate in $candidates | Where-Object { $_ } | Select-Object -Unique) {
+        if (Test-Path -LiteralPath (Join-Path $candidate ".git")) {
+            return [System.IO.Path]::GetFullPath($candidate)
+        }
+    }
+
+    return $null
+}
+
+function Invoke-GitText {
+    param([string]$RepoPath, [string[]]$Arguments)
+
+    if (-not $RepoPath) {
+        return $null
+    }
+
+    try {
+        $output = & git -C $RepoPath @Arguments 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            return $null
+        }
+        return @($output)
+    } catch {
+        return $null
+    }
+}
+
+function Get-GitStatusSummary {
+    param([string]$RepoPath)
+
+    if (-not $RepoPath) {
+        return "not_available"
+    }
+
+    $lines = @(Invoke-GitText -RepoPath $RepoPath -Arguments @("status", "--short"))
+    if ($lines.Count -eq 0) {
+        return "clean"
+    }
+
+    $modified = 0
+    $added = 0
+    $deleted = 0
+    $renamed = 0
+    $untracked = 0
+    $other = 0
+
+    foreach ($line in $lines) {
+        if ($line.StartsWith("??")) {
+            $untracked += 1
+        } elseif ($line.Substring(0, [Math]::Min(2, $line.Length)) -match "M") {
+            $modified += 1
+        } elseif ($line.Substring(0, [Math]::Min(2, $line.Length)) -match "A") {
+            $added += 1
+        } elseif ($line.Substring(0, [Math]::Min(2, $line.Length)) -match "D") {
+            $deleted += 1
+        } elseif ($line.Substring(0, [Math]::Min(2, $line.Length)) -match "R") {
+            $renamed += 1
+        } else {
+            $other += 1
+        }
+    }
+
+    $parts = @()
+    if ($modified -gt 0) { $parts += "modified=$modified" }
+    if ($added -gt 0) { $parts += "added=$added" }
+    if ($deleted -gt 0) { $parts += "deleted=$deleted" }
+    if ($renamed -gt 0) { $parts += "renamed=$renamed" }
+    if ($untracked -gt 0) { $parts += "untracked=$untracked" }
+    if ($other -gt 0) { $parts += "other=$other" }
+
+    return ($parts -join ", ")
+}
+
 function Parse-ModeLog {
     param([string]$Path)
 
@@ -159,6 +369,8 @@ function Parse-ModeLog {
 
     return [pscustomobject][ordered]@{
         present = [bool]$Path
+        diagnostic_level = Get-KvValue $kv "diagnostic_level"
+        validation_profile = Get-KvValue $kv "validation_profile"
         raw_count = Get-KvValue $kv "raw_count"
         unique_count = Get-KvValue $kv "unique_count"
         filtered_count = Get-KvValue $kv "filtered_count"
@@ -225,9 +437,27 @@ function Get-BatchRecord {
     $runValid = Select-FirstValue @((Get-KvValue $stable "run_valid"), (Get-KvValue $summary "run_valid"))
     $failureClass = Select-FirstValue @((Get-KvValue $stable "failure_class"), (Get-KvValue $summary "failure_class"))
     $collectorEmpty = Select-FirstValue @((Get-KvValue $stable "collector_empty"), (Get-KvValue $summary "collector_empty"))
+    $diagnosticLevel = Select-FirstValue @(
+        (Get-KvValue $stable "diagnostic_level"),
+        (Get-KvValue $summary "diagnostic_level"),
+        $noProbeA.diagnostic_level,
+        $withProbe.diagnostic_level,
+        $noProbeB.diagnostic_level
+    )
+    $validationProfile = Select-FirstValue @(
+        (Get-KvValue $stable "validation_profile"),
+        (Get-KvValue $summary "validation_profile")
+    )
     $stableRank = Get-KvValue $stable "stable_intersection_known_true_rank_position"
     $bestCandidate = Select-FirstValue @((Get-KvValue $stable "stable_intersection_best_candidate"), (Get-KvValue $summary "best_candidate"))
     $recommendation = Get-Recommendation @($stablePath, $summaryPath)
+    $performancePaths = @()
+    if ($summaryPath) {
+        $performancePaths += $summaryPath
+    } else {
+        $performancePaths += @($stablePath, $noProbeAPath, $withProbePath, $noProbeBPath)
+    }
+    $performanceMetrics = Get-PerformanceMap -Paths $performancePaths
 
     $missing = @()
     if (-not $summaryPath) { $missing += "summary.txt" }
@@ -298,6 +528,8 @@ function Get-BatchRecord {
         known_true_addr = $knownTrue
         target_value_pattern = $targetPattern
         target_value_float = $targetFloat
+        diagnostic_level = $diagnosticLevel
+        validation_profile = $validationProfile
         run_valid = $runValid
         failure_class = $failureClass
         collector_empty = $collectorEmpty
@@ -313,63 +545,224 @@ function Get-BatchRecord {
         recommendation = $recommendation
         classification = $classification
         details = $details
+        performance_metrics = $performanceMetrics
     }
+}
+
+function Build-ReportLines {
+    param([object[]]$Records, [int]$RequestedLatest, [string]$Root)
+
+    $repoRoot = Get-RepoRoot -Root $Root
+    $commitHash = "not_available"
+    if ($repoRoot) {
+        $commitOutput = @(Invoke-GitText -RepoPath $repoRoot -Arguments @("rev-parse", "HEAD"))
+        if ($commitOutput.Count -gt 0 -and $commitOutput[0]) {
+            $commitHash = $commitOutput[0]
+        }
+    }
+
+    $diagnosticLevels = @($Records |
+        ForEach-Object { Normalize-ReportValue $_.diagnostic_level } |
+        Where-Object { $_ -ne "not_available" } |
+        Select-Object -Unique)
+    $validationProfiles = @($Records |
+        ForEach-Object { Normalize-ReportValue $_.validation_profile } |
+        Where-Object { $_ -ne "not_available" } |
+        Select-Object -Unique)
+    $diagnosticLevel = "not_available"
+    if ($diagnosticLevels.Count -gt 0) {
+        $diagnosticLevel = $diagnosticLevels -join ", "
+    }
+    $validationProfile = "not_available"
+    if ($validationProfiles.Count -gt 0) {
+        $validationProfile = $validationProfiles -join ", "
+    }
+
+    $classificationCounts = [ordered]@{}
+    foreach ($classification in $ClassificationOrder) {
+        $classificationCounts[$classification] = 0
+    }
+    foreach ($record in $Records) {
+        if ($classificationCounts.Contains($record.classification)) {
+            $classificationCounts[$record.classification] += 1
+        } else {
+            $classificationCounts["other"] += 1
+        }
+    }
+
+    $nonSuccessRecords = @($Records | Where-Object { $_.classification -ne "success" })
+    $cleanBaselineStatus = "CLEAN"
+    if ($nonSuccessRecords.Count -gt 0) {
+        $cleanBaselineStatus = "CONTAINS_OUTLIERS"
+    }
+
+    $uniqueTrue = @($Records |
+        Where-Object { $_.known_true_addr } |
+        Select-Object -ExpandProperty known_true_addr -Unique)
+    $knownTrueGroups = @($Records |
+        Where-Object { $_.known_true_addr } |
+        Group-Object known_true_addr |
+        Sort-Object -Property @{ Expression = "Count"; Descending = $true }, Name)
+    $repeatedKnownTrue = @($knownTrueGroups | Where-Object { $_.Count -gt 1 })
+
+    $lines = @()
+    $lines += "# Baseline Batch Log Classification Report"
+    $lines += ""
+    $lines += "| field | value |"
+    $lines += "|---|---|"
+    $lines += ("| report_title | {0} |" -f (Format-Cell "Baseline Batch Log Classification Report"))
+    $lines += ("| generated_at | {0} |" -f (Format-Cell (Get-Date -Format "yyyy-MM-dd HH:mm:ss zzz")))
+    $lines += ("| latest N | {0} |" -f (Format-Cell $RequestedLatest))
+    $lines += ("| log root path | {0} |" -f (Format-Cell $Root))
+    $lines += ("| repository path | {0} |" -f (Format-Cell (Normalize-ReportValue $repoRoot)))
+    $lines += ("| git commit hash | {0} |" -f (Format-Cell $commitHash))
+    $lines += ("| git working tree status summary | {0} |" -f (Format-Cell (Normalize-ReportValue (Get-GitStatusSummary -RepoPath $repoRoot))))
+    $lines += ("| diagnostic_level | {0} |" -f (Format-Cell $diagnosticLevel))
+    $lines += ("| validation_profile | {0} |" -f (Format-Cell $validationProfile))
+    $lines += ""
+
+    $lines += "## Classification Summary"
+    $lines += ""
+    $lines += "| classification | count |"
+    $lines += "|---|---:|"
+    foreach ($classification in $ClassificationOrder) {
+        $lines += ("| {0} | {1} |" -f (Format-Cell $classification), $classificationCounts[$classification])
+    }
+    $lines += ""
+
+    $lines += "## Coverage"
+    $lines += ""
+    $lines += ("- unique known_true_addr count: {0}" -f $uniqueTrue.Count)
+    $lines += ("- total batch count: {0}" -f $Records.Count)
+    $lines += ("- clean baseline status: {0}" -f $cleanBaselineStatus)
+    if ($repeatedKnownTrue.Count -eq 0) {
+        $lines += "- repeated known_true_addr list: none"
+    } else {
+        $lines += "- repeated known_true_addr list:"
+        foreach ($group in $repeatedKnownTrue) {
+            $lines += ("  - {0} ({1})" -f $group.Name, $group.Count)
+        }
+    }
+    if ($uniqueTrue.Count -eq 1) {
+        $lines += "- note: these runs reuse the same known_true_addr, so they prove repeat-run stability rather than cross-case generalization"
+    } elseif ($uniqueTrue.Count -gt 1) {
+        $lines += "- note: these runs cover multiple known_true_addr values"
+    }
+    $lines += ""
+
+    $lines += "## Correctness Table"
+    $lines += ""
+    $lines += "| batch_id | known_true_addr | diagnostic_level | run_valid | collector_empty | classification | final hit | rank A/W/B | stable rank | best_candidate | selected A/W/B | recommendation |"
+    $lines += "|---|---|---|---|---|---|---|---|---|---|---|---|"
+    foreach ($record in $Records) {
+        $lines += ("| {0} | {1} | {2} | {3} | {4} | {5} | {6} | {7} | {8} | {9} | {10} | {11} |" -f `
+            (Format-Cell $record.batch_id),
+            (Format-Cell $record.known_true_addr),
+            (Format-Cell (Normalize-ReportValue $record.diagnostic_level)),
+            (Format-Cell $record.run_valid),
+            (Format-Cell $record.collector_empty),
+            (Format-Cell $record.classification),
+            (Format-Cell $record.final_hit_true_addr),
+            (Format-Cell $record.known_true_rank_position),
+            (Format-Cell $record.stable_intersection_known_true_rank_position),
+            (Format-Cell $record.final_best_candidate),
+            (Format-Cell $record.true_in_selected),
+            (Format-Cell $record.recommendation))
+    }
+    $lines += ""
+
+    $lines += "## Performance Summary"
+    $lines += ""
+    $lines += "| metric | count | average | median | min | max |"
+    $lines += "|---|---:|---:|---:|---:|---:|"
+    foreach ($metric in $PerformanceMetricNames) {
+        $values = @()
+        foreach ($record in $Records) {
+            if ($record.performance_metrics.Contains($metric)) {
+                $values += @($record.performance_metrics[$metric])
+            }
+        }
+        $stats = Get-MetricStats -Values $values
+        if ($null -eq $stats) {
+            $lines += ("| {0} | 0 | - | - | - | - |" -f (Format-Cell $metric))
+        } else {
+            $lines += ("| {0} | {1} | {2} | {3} | {4} | {5} |" -f `
+                (Format-Cell $metric),
+                $stats.count,
+                (Format-Number $stats.average),
+                (Format-Number $stats.median),
+                (Format-Number $stats.min),
+                (Format-Number $stats.max))
+        }
+    }
+    $lines += ""
+
+    $lines += "## Outliers"
+    $lines += ""
+    if ($nonSuccessRecords.Count -eq 0) {
+        $lines += "No non-success batches detected."
+    } else {
+        $lines += "| batch_id | known_true_addr | classification | reason |"
+        $lines += "|---|---|---|---|"
+        foreach ($record in $nonSuccessRecords) {
+            $reason = "-"
+            $details = @($record.details)
+            if ($details.Count -gt 0) {
+                $reason = Limit-Text $details[0]
+            } elseif ($record.recommendation) {
+                $reason = Limit-Text $record.recommendation
+            }
+            $lines += ("| {0} | {1} | {2} | {3} |" -f `
+                (Format-Cell $record.batch_id),
+                (Format-Cell $record.known_true_addr),
+                (Format-Cell $record.classification),
+                (Format-Cell $reason))
+        }
+    }
+    $lines += ""
+
+    $codeChangeRecommendation = "no code changes recommended"
+    $clearIssueClasses = @("suspected_filter_bug", "selected_quota_issue", "ranking_issue")
+    foreach ($record in $nonSuccessRecords) {
+        if ($clearIssueClasses -contains $record.classification) {
+            $codeChangeRecommendation = "code review recommended for classifier-detected issue"
+            break
+        }
+    }
+
+    $replacementRecommendation = "no replacement sample recommended"
+    if ($nonSuccessRecords.Count -gt 0) {
+        $replacementRecommendation = "replacement sample recommended for non-success outliers"
+    }
+
+    $lines += "## Conclusion"
+    $lines += ""
+    $lines += ("- clean baseline: {0}" -f $cleanBaselineStatus)
+    $lines += ("- replacement sample recommendation: {0}" -f $replacementRecommendation)
+    $lines += ("- code change recommendation: {0}" -f $codeChangeRecommendation)
+
+    return $lines
 }
 
 $records = @(Get-BatchIds -Root $LogRoot -Count $Latest | ForEach-Object {
     Get-BatchRecord -Root $LogRoot -BatchId $_
 })
 
-Write-Output "# Batch Log Classification"
-Write-Output ""
-Write-Output "Log root: ``$LogRoot``"
-Write-Output "Latest batches requested: ``$Latest``"
-Write-Output ""
-Write-Output "| batch_id | known_true_addr | target_pattern | target_float | run_valid | failure_class | collector_empty | raw A/W/B | filtered A/W/B | prescored A/W/B | selected A/W/B | rank A/W/B | stable rank | best_candidate | final hit | recommendation | classification |"
-Write-Output "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"
-foreach ($record in $records) {
-    Write-Output ("| {0} | {1} | {2} | {3} | {4} | {5} | {6} | {7} | {8} | {9} | {10} | {11} | {12} | {13} | {14} | {15} | {16} |" -f `
-        (Format-Cell $record.batch_id),
-        (Format-Cell $record.known_true_addr),
-        (Format-Cell $record.target_value_pattern),
-        (Format-Cell $record.target_value_float),
-        (Format-Cell $record.run_valid),
-        (Format-Cell $record.failure_class),
-        (Format-Cell $record.collector_empty),
-        (Format-Cell $record.true_in_raw),
-        (Format-Cell $record.true_in_filtered),
-        (Format-Cell $record.true_in_prescored),
-        (Format-Cell $record.true_in_selected),
-        (Format-Cell $record.known_true_rank_position),
-        (Format-Cell $record.stable_intersection_known_true_rank_position),
-        (Format-Cell $record.final_best_candidate),
-        (Format-Cell $record.final_hit_true_addr),
-        (Format-Cell $record.recommendation),
-        (Format-Cell $record.classification))
-}
+$reportLines = @(Build-ReportLines -Records $records -RequestedLatest $Latest -Root $LogRoot)
+Write-Output $reportLines
 
-Write-Output ""
-Write-Output "## Summary"
-foreach ($group in ($records | Group-Object classification | Sort-Object Name)) {
-    Write-Output ("- {0}: {1}" -f $group.Name, $group.Count)
-}
-
-$uniqueTrue = @($records | Where-Object { $_.known_true_addr } | Select-Object -ExpandProperty known_true_addr -Unique)
-Write-Output ("- unique known_true_addr count: {0}" -f $uniqueTrue.Count)
-if ($uniqueTrue.Count -eq 1) {
-    Write-Output "- note: these runs reuse the same known_true_addr, so they prove repeat-run stability rather than cross-case generalization"
-} elseif ($uniqueTrue.Count -gt 1) {
-    Write-Output "- note: these runs cover multiple known_true_addr values"
-}
-
-$detailRecords = @($records | Where-Object { $_.details.Count -gt 0 })
-if ($detailRecords.Count -gt 0) {
-    Write-Output ""
-    Write-Output "## Details"
-    foreach ($record in $detailRecords) {
-        Write-Output ("- {0}:" -f $record.batch_id)
-        foreach ($detail in $record.details) {
-            Write-Output ("  - {0}" -f $detail)
+if ($OutFile) {
+    try {
+        $resolvedOutFile = [System.IO.Path]::GetFullPath($OutFile)
+        $outDir = [System.IO.Path]::GetDirectoryName($resolvedOutFile)
+        if ($outDir -and -not (Test-Path -LiteralPath $outDir)) {
+            New-Item -ItemType Directory -Path $outDir -Force | Out-Null
         }
+
+        Set-Content -LiteralPath $resolvedOutFile -Value $reportLines -Encoding UTF8
+        Write-Output ""
+        Write-Output ("Baseline report saved to: {0}" -f $resolvedOutFile)
+    } catch {
+        Write-Warning ("Failed to save baseline report to {0}: {1}" -f $OutFile, $_.Exception.Message)
     }
 }
