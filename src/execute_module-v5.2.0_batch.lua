@@ -301,6 +301,50 @@ local function filter_truth_probe_logs(logs, diagnostic_level, include_detail)
   return filtered
 end
 
+local function make_report_policy(compact_enabled, skipped_sections, verbose_section_count)
+  return {
+    compact_report_enabled = compact_enabled,
+    skipped_verbose_report_sections = skipped_sections,
+    verbose_report_section_count = verbose_section_count,
+  }
+end
+
+local function should_emit_verbose_bundle_report(case_cfg, bundle, result)
+  if case_cfg.diagnostic_level == "trace" then
+    return true
+  end
+  if known_true_needs_diagnostics(bundle, result, case_cfg.known_true_addr) then
+    return true
+  end
+  if case_cfg.diagnostic_level == "debug" and (bundle == nil or bundle.raw_count == 0) then
+    return true
+  end
+  return false
+end
+
+local function should_emit_verbose_stable_report(case_cfg, summary)
+  if case_cfg.diagnostic_level == "trace" then
+    return true
+  end
+  if summary == nil then
+    return true
+  end
+  if summary.stable_intersection_true_in_filtered == false then
+    return true
+  end
+  if summary.stable_intersection_known_true_rank_position ~= nil and summary.stable_intersection_known_true_rank_position ~= 1 then
+    return true
+  end
+  if summary.stable_intersection_best_candidate ~= nil and case_cfg.known_true_addr ~= nil
+      and summary.stable_intersection_best_candidate ~= case_cfg.known_true_addr then
+    return true
+  end
+  if case_cfg.diagnostic_level == "debug" and (summary.run_valid == false or summary.collector_empty == true) then
+    return true
+  end
+  return false
+end
+
 local function build_address_set(addresses)
   local set = {}
   for _, addr in ipairs(addresses or {}) do
@@ -768,6 +812,13 @@ local function print_log_table(title, t)
   end
 end
 
+local function print_report_policy(policy)
+  print("=== report_render_policy ===")
+  print_kv("compact_report_enabled", policy and policy.compact_report_enabled)
+  print_kv("skipped_verbose_report_sections", policy and policy.skipped_verbose_report_sections)
+  print_kv("verbose_report_section_count", policy and policy.verbose_report_section_count)
+end
+
 local function pick_known_true_field(bundle, result, name)
   if bundle and bundle[name] ~= nil then
     return bundle[name]
@@ -837,7 +888,50 @@ local function get_filter_debug_snapshot()
   }
 end
 
-local function emit_bundle_report(case_cfg, mode_cfg, bundle)
+local function emit_compact_bundle_report(case_cfg, mode_cfg, bundle, policy)
+  local result = (bundle and bundle.result) or {}
+  local best = result and result.best or nil
+  local collector_empty = bundle and bundle.raw_count == 0
+  local run_valid = bundle and bundle.raw_count ~= nil and bundle.raw_count ~= 0
+  local rank_position = pick_known_true_field(bundle, result, "known_true_rank_position")
+
+  print("=== compact_report ===")
+  print_kv("case_id", case_cfg.case_id)
+  print_kv("case_config_loaded", case_cfg.case_config_loaded)
+  print_kv("case_config_path", case_cfg.case_config_path)
+  print_kv("known_true_addr_source", case_cfg.known_true_addr_source)
+  print_kv("target_value_source", case_cfg.target_value_source)
+  print_kv("diagnostic_level", case_cfg.diagnostic_level)
+  print_kv("session_id", case_cfg.session_id)
+  print_kv("mode", mode_cfg.mode)
+  print_hex_kv("known_true_addr", case_cfg.known_true_addr)
+  print_hex_kv("target_value_addr", case_cfg.target_value_addr)
+  print_hex_kv("target_value_pattern", case_cfg.target_value_pattern)
+  print_kv("target_value_float", case_cfg.target_value_float)
+  print_kv("run_valid", run_valid)
+  print_kv("failure_class", collector_empty and "collector_runtime_empty" or nil)
+  print_kv("collector_empty", collector_empty)
+  print_kv("true_in_raw", bundle and bundle.true_in_raw)
+  print_kv("true_in_unique", bundle and bundle.true_in_unique)
+  print_kv("true_in_filtered", bundle and bundle.true_in_filtered)
+  print_kv("true_in_prescored", bundle and bundle.true_in_prescored)
+  print_kv("true_in_selected", bundle and bundle.true_in_selected)
+  print_kv("rank_position", rank_position)
+  print_kv("known_true_rank_position", rank_position)
+  print_hex_kv("best_candidate", best and best.candidate and best.candidate.value_addr or nil)
+  print_kv("best_score", result and result.best and result.best.score or nil)
+  print_kv("second_score", result and result.second and result.second.score or nil)
+  print_kv("score_gap", result and result.score_gap or nil)
+  print_kv("recommendation", result and result.final_decision and result.final_decision.action or nil)
+  print_kv("raw_count", bundle and bundle.raw_count)
+  print_kv("unique_count", bundle and bundle.unique_count)
+  print_kv("filtered_count", bundle and bundle.filtered_count)
+  print_kv("prescored_count", bundle and bundle.prescored_count)
+  print_kv("selected_count", bundle and bundle.selected_count)
+  print_report_policy(policy)
+end
+
+local function emit_bundle_report(case_cfg, mode_cfg, bundle, policy)
   local result = (bundle and bundle.result) or {}
 
   print("=== run_config ===")
@@ -892,6 +986,7 @@ local function emit_bundle_report(case_cfg, mode_cfg, bundle)
   print_kv("known_true_base_score", pick_known_true_field(bundle, result, "known_true_base_score"))
   print_kv("known_true_final_score", pick_known_true_field(bundle, result, "known_true_final_score"))
   print_kv("known_true_tie_break_vector", pick_known_true_field(bundle, result, "known_true_tie_break_vector"))
+  print_report_policy(policy)
 
   print("=== report_text ===")
   if result and result.report_text then
@@ -946,6 +1041,9 @@ local function build_run_summary(case_cfg, mode_cfg, bundle, log_path, filter_de
     stable_snapshot_B_ms = timing and timing.stable_snapshot_B_ms or filter_debug and filter_debug.stable_snapshot_B_ms or nil,
     stable_intersection_build_ms = timing and timing.stable_intersection_build_ms or filter_debug and filter_debug.stable_intersection_build_ms or nil,
     report_render_ms = timing and timing.report_render_ms or nil,
+    compact_report_enabled = timing and timing.compact_report_enabled or false,
+    skipped_verbose_report_sections = timing and timing.skipped_verbose_report_sections or "none",
+    verbose_report_section_count = timing and timing.verbose_report_section_count or 0,
     stable_report_render_ms = timing and timing.stable_report_render_ms or nil,
     diagnostic_render_ms = timing and timing.diagnostic_render_ms or nil,
     console_print_ms = timing and timing.console_print_ms or nil,
@@ -1034,6 +1132,9 @@ local function print_run_summary(summary)
   print_kv("stable_snapshot_B_ms", summary.stable_snapshot_B_ms)
   print_kv("stable_intersection_build_ms", summary.stable_intersection_build_ms)
   print_kv("report_render_ms", summary.report_render_ms)
+  print_kv("compact_report_enabled", summary.compact_report_enabled)
+  print_kv("skipped_verbose_report_sections", summary.skipped_verbose_report_sections)
+  print_kv("verbose_report_section_count", summary.verbose_report_section_count)
   print_kv("stable_report_render_ms", summary.stable_report_render_ms)
   print_kv("diagnostic_render_ms", summary.diagnostic_render_ms)
   print_kv("console_print_ms", summary.console_print_ms)
@@ -1141,6 +1242,9 @@ local function render_summary_file(batch_id, summaries)
     lines[#lines + 1] = "stable_snapshot_B_ms = " .. tostring(summary.stable_snapshot_B_ms)
     lines[#lines + 1] = "stable_intersection_build_ms = " .. tostring(summary.stable_intersection_build_ms)
     lines[#lines + 1] = "report_render_ms = " .. tostring(summary.report_render_ms)
+    lines[#lines + 1] = "compact_report_enabled = " .. tostring(summary.compact_report_enabled)
+    lines[#lines + 1] = "skipped_verbose_report_sections = " .. tostring(summary.skipped_verbose_report_sections)
+    lines[#lines + 1] = "verbose_report_section_count = " .. tostring(summary.verbose_report_section_count)
     lines[#lines + 1] = "stable_report_render_ms = " .. tostring(summary.stable_report_render_ms)
     lines[#lines + 1] = "diagnostic_render_ms = " .. tostring(summary.diagnostic_render_ms)
     lines[#lines + 1] = "console_print_ms = " .. tostring(summary.console_print_ms)
@@ -1223,7 +1327,40 @@ local function render_summary_file(batch_id, summaries)
   return table.concat(lines, "\r\n")
 end
 
-local function emit_stable_intersection_report(case_cfg, bundle, summary)
+local function emit_compact_stable_intersection_report(case_cfg, summary, policy)
+  print("=== stable_intersection_compact_report ===")
+  print_kv("case_id", case_cfg.case_id)
+  print_kv("case_config_loaded", case_cfg.case_config_loaded)
+  print_kv("case_config_path", case_cfg.case_config_path)
+  print_kv("known_true_addr_source", case_cfg.known_true_addr_source)
+  print_kv("target_value_source", case_cfg.target_value_source)
+  print_kv("diagnostic_level", case_cfg.diagnostic_level)
+  print_kv("session_id", case_cfg.session_id)
+  print_kv("mode", "stable_no_probe_intersection")
+  print_kv("run_valid", summary.run_valid)
+  print_kv("failure_class", summary.failure_class)
+  print_kv("collector_empty", summary.collector_empty)
+  print_kv("recommendation", summary.recommendation)
+  print_hex_kv("known_true_addr", case_cfg.known_true_addr)
+  print_hex_kv("target_value_addr", summary.target_value_addr)
+  print_hex_kv("target_value_pattern", summary.target_value_pattern)
+  print_kv("target_value_float", summary.target_value_float)
+  print_kv("stable_no_probe_intersection_enabled", summary.stable_no_probe_intersection_enabled)
+  print_kv("stable_intersection_snapshot_A_filtered_count", summary.stable_intersection_snapshot_A_filtered_count)
+  print_kv("stable_intersection_snapshot_B_filtered_count", summary.stable_intersection_snapshot_B_filtered_count)
+  print_kv("stable_intersection_filtered_count", summary.stable_intersection_filtered_count)
+  print_kv("stable_intersection_true_in_filtered", summary.stable_intersection_true_in_filtered)
+  print_kv("stable_intersection_prescored_count", summary.stable_intersection_prescored_count)
+  print_kv("stable_intersection_selected_count", summary.stable_intersection_selected_count)
+  print_kv("stable_intersection_known_true_rank_position", summary.stable_intersection_known_true_rank_position)
+  print_hex_kv("stable_intersection_best_candidate", summary.stable_intersection_best_candidate)
+  print_kv("stable_intersection_best_score", summary.stable_intersection_best_score)
+  print_kv("stable_intersection_second_score", summary.stable_intersection_second_score)
+  print_kv("stable_intersection_score_gap", summary.stable_intersection_score_gap)
+  print_report_policy(policy)
+end
+
+local function emit_stable_intersection_report(case_cfg, bundle, summary, policy)
   print("=== stable_intersection_experiment ===")
   print_kv("case_id", case_cfg.case_id)
   print_kv("case_config_loaded", case_cfg.case_config_loaded)
@@ -1295,6 +1432,7 @@ local function emit_stable_intersection_report(case_cfg, bundle, summary)
   print_kv("delayed_snapshot_no_probe_A_only_count", summary.delayed_snapshot_no_probe_A_only_count)
   print_kv("delayed_snapshot_no_probe_B_only_count", summary.delayed_snapshot_no_probe_B_only_count)
   print_kv("delayed_snapshot_known_true_in_intersection", summary.delayed_snapshot_known_true_in_intersection)
+  print_report_policy(policy)
 
   print("=== report_text ===")
   if bundle and bundle.result and bundle.result.report_text then
@@ -1359,6 +1497,9 @@ local function build_stable_intersection_summary(case_cfg, bundle, log_path, ana
     stable_snapshot_B_ms = bundle and bundle.stable_snapshot_B_ms or nil,
     stable_intersection_build_ms = bundle and bundle.stable_intersection_build_ms or timing and timing.stable_intersection_build_ms or nil,
     report_render_ms = timing and timing.report_render_ms or nil,
+    compact_report_enabled = timing and timing.compact_report_enabled or false,
+    skipped_verbose_report_sections = timing and timing.skipped_verbose_report_sections or "none",
+    verbose_report_section_count = timing and timing.verbose_report_section_count or 0,
     stable_report_render_ms = timing and timing.stable_report_render_ms or nil,
     diagnostic_render_ms = timing and timing.diagnostic_render_ms or nil,
     console_print_ms = timing and timing.console_print_ms or nil,
@@ -1432,6 +1573,9 @@ local function run_stable_intersection_mode(case_cfg, no_probe_a, no_probe_b, ba
   local stable_intersection_ms = nil
   local report_render_ms = nil
   local console_print_ms = nil
+  local compact_report_enabled = nil
+  local skipped_verbose_report_sections = nil
+  local verbose_report_section_count = nil
   local ok, bundle_or_err = xpcall(function()
     local module_load_start_ms = now_ms()
     load_modules()
@@ -1463,12 +1607,26 @@ local function run_stable_intersection_mode(case_cfg, no_probe_a, no_probe_b, ba
     })
     local report_console_start_ms = console_print_total_ms
     local report_render_start_ms = now_ms()
-    emit_stable_intersection_report(case_cfg, bundle, summary)
+    local emit_verbose_report = should_emit_verbose_stable_report(case_cfg, summary)
+    local report_policy
+    if emit_verbose_report then
+      report_policy = make_report_policy(false, "none", 1)
+      emit_stable_intersection_report(case_cfg, bundle, summary, report_policy)
+    else
+      report_policy = make_report_policy(true, "report_text", 0)
+      emit_compact_stable_intersection_report(case_cfg, summary, report_policy)
+    end
+    compact_report_enabled = report_policy.compact_report_enabled
+    skipped_verbose_report_sections = report_policy.skipped_verbose_report_sections
+    verbose_report_section_count = report_policy.verbose_report_section_count
     report_render_ms = elapsed_ms(report_render_start_ms)
     console_print_ms = console_print_total_ms - report_console_start_ms
     summary.report_render_ms = report_render_ms
     summary.stable_report_render_ms = report_render_ms
     summary.console_print_ms = console_print_ms
+    summary.compact_report_enabled = compact_report_enabled
+    summary.skipped_verbose_report_sections = skipped_verbose_report_sections
+    summary.verbose_report_section_count = verbose_report_section_count
     return {
       bundle = bundle,
       summary = summary,
@@ -1512,6 +1670,9 @@ local function run_stable_intersection_mode(case_cfg, no_probe_a, no_probe_b, ba
       stable_intersection_ms = stable_intersection_ms,
       stable_intersection_build_ms = stable_intersection_build_ms,
       report_render_ms = report_render_ms,
+      compact_report_enabled = compact_report_enabled,
+      skipped_verbose_report_sections = skipped_verbose_report_sections,
+      verbose_report_section_count = verbose_report_section_count,
       stable_report_render_ms = report_render_ms,
       diagnostic_render_ms = nil,
       console_print_ms = console_print_ms,
@@ -1660,6 +1821,9 @@ local function render_diagnostic_diff_file(batch_id, summaries)
         lines[#lines + 1] = "stable_snapshot_B_ms = " .. tostring(summary.stable_snapshot_B_ms)
         lines[#lines + 1] = "stable_intersection_build_ms = " .. tostring(summary.stable_intersection_build_ms)
         lines[#lines + 1] = "report_render_ms = " .. tostring(summary.report_render_ms)
+        lines[#lines + 1] = "compact_report_enabled = " .. tostring(summary.compact_report_enabled)
+        lines[#lines + 1] = "skipped_verbose_report_sections = " .. tostring(summary.skipped_verbose_report_sections)
+        lines[#lines + 1] = "verbose_report_section_count = " .. tostring(summary.verbose_report_section_count)
         lines[#lines + 1] = "stable_report_render_ms = " .. tostring(summary.stable_report_render_ms)
         lines[#lines + 1] = "diagnostic_render_ms = " .. tostring(summary.diagnostic_render_ms)
         lines[#lines + 1] = "console_print_ms = " .. tostring(summary.console_print_ms)
@@ -1793,6 +1957,9 @@ local function render_diagnostic_diff_file(batch_id, summaries)
         lines[#lines + 1] = "stable_snapshot_B_ms = " .. tostring(stable_summary.stable_snapshot_B_ms)
         lines[#lines + 1] = "stable_intersection_build_ms = " .. tostring(stable_summary.stable_intersection_build_ms)
         lines[#lines + 1] = "report_render_ms = " .. tostring(stable_summary.report_render_ms)
+        lines[#lines + 1] = "compact_report_enabled = " .. tostring(stable_summary.compact_report_enabled)
+        lines[#lines + 1] = "skipped_verbose_report_sections = " .. tostring(stable_summary.skipped_verbose_report_sections)
+        lines[#lines + 1] = "verbose_report_section_count = " .. tostring(stable_summary.verbose_report_section_count)
         lines[#lines + 1] = "stable_report_render_ms = " .. tostring(stable_summary.stable_report_render_ms)
         lines[#lines + 1] = "diagnostic_render_ms = " .. tostring(stable_summary.diagnostic_render_ms)
         lines[#lines + 1] = "console_print_ms = " .. tostring(stable_summary.console_print_ms)
@@ -1862,6 +2029,9 @@ local function run_case_mode(case_cfg, mode_entry, batch_id)
   local collector_ms = nil
   local report_render_ms = nil
   local console_print_ms = nil
+  local compact_report_enabled = nil
+  local skipped_verbose_report_sections = nil
+  local verbose_report_section_count = nil
   local ok, bundle_or_err = xpcall(function()
     local module_load_start_ms = now_ms()
     load_modules()
@@ -1884,7 +2054,18 @@ local function run_case_mode(case_cfg, mode_entry, batch_id)
 
     local report_console_start_ms = console_print_total_ms
     local report_render_start_ms = now_ms()
-    emit_bundle_report(case_cfg, mode_cfg, bundle)
+    local emit_verbose_report = should_emit_verbose_bundle_report(case_cfg, bundle, bundle.result)
+    local report_policy
+    if emit_verbose_report then
+      report_policy = make_report_policy(false, "none", 2)
+      emit_bundle_report(case_cfg, mode_cfg, bundle, report_policy)
+    else
+      report_policy = make_report_policy(true, "truth_probe_logs, report_text", 0)
+      emit_compact_bundle_report(case_cfg, mode_cfg, bundle, report_policy)
+    end
+    compact_report_enabled = report_policy.compact_report_enabled
+    skipped_verbose_report_sections = report_policy.skipped_verbose_report_sections
+    verbose_report_section_count = report_policy.verbose_report_section_count
     report_render_ms = elapsed_ms(report_render_start_ms)
     console_print_ms = console_print_total_ms - report_console_start_ms
     return bundle
@@ -1954,6 +2135,9 @@ local function run_case_mode(case_cfg, mode_entry, batch_id)
       prescore_ms = nil,
       stable_intersection_ms = nil,
       report_render_ms = report_render_ms,
+      compact_report_enabled = compact_report_enabled,
+      skipped_verbose_report_sections = skipped_verbose_report_sections,
+      verbose_report_section_count = verbose_report_section_count,
       diagnostic_render_ms = nil,
       console_print_ms = console_print_ms,
       file_write_ms = file_write_ms,
@@ -1973,6 +2157,9 @@ local function run_case_mode(case_cfg, mode_entry, batch_id)
     collector_call_ms = collector_ms,
     stable_intersection_ms = nil,
     report_render_ms = report_render_ms,
+    compact_report_enabled = compact_report_enabled,
+    skipped_verbose_report_sections = skipped_verbose_report_sections,
+    verbose_report_section_count = verbose_report_section_count,
     console_print_ms = console_print_ms,
     file_write_ms = file_write_ms,
     write_log_ms = write_log_ms,
