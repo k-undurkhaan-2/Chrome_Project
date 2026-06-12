@@ -44,6 +44,17 @@ MVP0FoundList.CONFIG = {
   raw_structure_signature_cap = 2,
 }
 
+local function now_ms()
+  return os.clock() * 1000
+end
+
+local function elapsed_ms(start_ms)
+  if start_ms == nil then
+    return nil
+  end
+  return math.floor((now_ms() - start_ms) + 0.5)
+end
+
 local function assert_mvp0_loaded()
   if type(MVP0) ~= 'table'
     or type(MVP0.make_input) ~= 'function'
@@ -1514,10 +1525,13 @@ function MVP0FoundList.collect(opts)
   local filtered_addresses = unique_addresses
   local true_in_filtered = true_in_unique
   local filter_debug = nil
+  local filter_ms = 0
 
   if should_filter then
+    local filter_start_ms = now_ms()
     filtered_addresses, true_in_filtered, filter_debug =
       filter_target_match(unique_addresses, target_value_pattern, known_true_addr, stable_filter_intersection_enabled, delayed_recheck_enabled, target_value_float, target_value_addr)
+    filter_ms = elapsed_ms(filter_start_ms)
     append_probe_log(truth_probe_logs, 'filter', string.format(
       'filter_target_match enabled unique=%d matched=%d value_mismatch=%d read_failed=%d retry_recovered=%d retry_still_mismatch=%d retry_read_failed=%d delayed_recheck_enabled=%s delayed_candidates=%d delayed_recovered=%d delayed_still_mismatch=%d delayed_read_failed=%d stable_intersection_enabled=%s pass1_matched=%d pass2_matched=%d intersection_filtered=%d pass1_only=%d pass2_only=%d final_filtered=%d probe_enabled=%s',
       #unique_addresses,
@@ -1587,6 +1601,8 @@ function MVP0FoundList.collect(opts)
     target_value_addr = filter_debug and filter_debug.target_value_addr or target_value_addr,
     target_value_pattern = filter_debug and filter_debug.target_value_pattern or target_value_pattern,
     target_value_float = filter_debug and filter_debug.target_value_float or target_value_float,
+    filter_ms = filter_ms,
+    prescore_ms = 0,
     match_mode = filter_debug and filter_debug.match_mode or (should_filter and 'filter_target_match' or 'filter_disabled'),
     comparison_mode = filter_debug and filter_debug.comparison_mode or (should_filter and 'exact_u32_pattern' or nil),
     known_true_filter_debug = filter_debug and filter_debug.known_true_filter_debug or nil,
@@ -1600,6 +1616,7 @@ function MVP0FoundList.collect(opts)
   local prescore_tied_count = nil
   local true_in_prescored = false
   local true_in_selected = false
+  local prescore_start_ms = now_ms()
 
   if use_prescore_selection and #sorted_addresses > 0 then
     selected_addresses, prescored_count, prescore_cutoff_score, prescore_tied_count, true_in_prescored, true_in_selected =
@@ -1610,6 +1627,8 @@ function MVP0FoundList.collect(opts)
     selection_strategy = 'evenly_spread'
     true_in_prescored = false
   end
+  local prescore_ms = elapsed_ms(prescore_start_ms)
+  MVP0FoundList.LAST_FILTER_DEBUG.prescore_ms = prescore_ms
 
   local true_in_full_foundlist_checked = raw_admission_debug and raw_admission_debug.true_in_full_foundlist_checked or false
   local true_in_full_foundlist_value = nil
@@ -1673,6 +1692,8 @@ function MVP0FoundList.collect(opts)
     true_in_filtered = true_in_filtered,
     true_in_prescored = true_in_prescored,
     true_in_selected = true_in_selected,
+    filter_ms = filter_ms,
+    prescore_ms = prescore_ms,
   }
 end
 
@@ -1714,6 +1735,7 @@ local function collect_from_filtered_addresses(opts)
   local prescore_tied_count = nil
   local true_in_prescored = false
   local true_in_selected = false
+  local prescore_start_ms = now_ms()
 
   if use_prescore_selection and #filtered_addresses > 0 then
     selected_addresses, prescored_count, prescore_cutoff_score, prescore_tied_count, true_in_prescored, true_in_selected =
@@ -1724,6 +1746,7 @@ local function collect_from_filtered_addresses(opts)
     selection_strategy = 'evenly_spread'
     true_in_prescored = false
   end
+  local prescore_ms = elapsed_ms(prescore_start_ms)
 
   return {
     source_mode = opts.source_mode or 'filtered_override',
@@ -1759,6 +1782,8 @@ local function collect_from_filtered_addresses(opts)
     true_in_prescored = true_in_prescored,
     true_in_selected = true_in_selected,
     session_mode = opts.session_mode,
+    filter_ms = 0,
+    prescore_ms = prescore_ms,
   }
 end
 
@@ -1921,6 +1946,8 @@ local function run_stable_no_probe_intersection(opts)
     stable_intersection_snapshot_B_only_count = #snapshot_b_only,
     stable_intersection_canonical_source_count = #snapshot_b_filtered,
     stable_intersection_downstream_input_count = #stable_filtered,
+    filter_ms = bundle.filter_ms,
+    prescore_ms = bundle.prescore_ms,
   }
 
   return bundle
