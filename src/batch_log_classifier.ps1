@@ -9,6 +9,8 @@ $ErrorActionPreference = "Stop"
 
 $ClassificationOrder = @(
     "success",
+    "quick_success",
+    "quick_failure",
     "collector_runtime_empty",
     "incomplete_output",
     "known_true_value_mismatch",
@@ -335,6 +337,7 @@ function Get-GitStatusSummary {
     $other = 0
 
     foreach ($line in $lines) {
+        if (-not $line) { continue }
         if ($line.StartsWith("??")) {
             $untracked += 1
         } elseif ($line.Substring(0, [Math]::Min(2, $line.Length)) -match "M") {
@@ -446,8 +449,13 @@ function Get-BatchRecord {
     )
     $validationProfile = Select-FirstValue @(
         (Get-KvValue $stable "validation_profile"),
-        (Get-KvValue $summary "validation_profile")
+        (Get-KvValue $summary "validation_profile"),
+        $noProbeA.validation_profile
     )
+    if (-not $validationProfile -or $validationProfile -eq "nil") {
+        $validationProfile = "full"
+    }
+    $isQuickProfile = $validationProfile -eq "quick"
     $stableRank = Get-KvValue $stable "stable_intersection_known_true_rank_position"
     $bestCandidate = Select-FirstValue @((Get-KvValue $stable "stable_intersection_best_candidate"), (Get-KvValue $summary "best_candidate"))
     $recommendation = Get-Recommendation @($stablePath, $summaryPath)
@@ -462,10 +470,12 @@ function Get-BatchRecord {
     $missing = @()
     if (-not $summaryPath) { $missing += "summary.txt" }
     if (-not $diagnosticPath) { $missing += "diagnostic_diff.txt" }
-    if (-not $stablePath) { $missing += "stable output" }
     if (-not $noProbeAPath) { $missing += "no_probe_A" }
-    if (-not $withProbePath) { $missing += "with_probe" }
-    if (-not $noProbeBPath) { $missing += "no_probe_B" }
+    if (-not $isQuickProfile) {
+        if (-not $stablePath) { $missing += "stable output" }
+        if (-not $withProbePath) { $missing += "with_probe" }
+        if (-not $noProbeBPath) { $missing += "no_probe_B" }
+    }
 
     $modes = [ordered]@{
         no_probe_A = $noProbeA
@@ -518,6 +528,14 @@ function Get-BatchRecord {
                 }
             }
         }
+        if ($classification -eq "other" -and $isQuickProfile) {
+            if ($noProbeA.known_true_rank_position -eq "1" -and $bestCandidate -and $knownTrue -and $bestCandidate -eq $knownTrue) {
+                $classification = "quick_success"
+            } else {
+                $classification = "quick_failure"
+                $details += "quick profile did not meet smoke success criteria"
+            }
+        }
         if ($classification -eq "other" -and $stableRank -eq "1" -and $bestCandidate -eq $knownTrue) {
             $classification = "success"
         }
@@ -530,6 +548,7 @@ function Get-BatchRecord {
         target_value_float = $targetFloat
         diagnostic_level = $diagnosticLevel
         validation_profile = $validationProfile
+        baseline_eligible = Select-FirstValue @((Get-KvValue $stable "baseline_eligible"), (Get-KvValue $summary "baseline_eligible"))
         run_valid = $runValid
         failure_class = $failureClass
         collector_empty = $collectorEmpty
@@ -590,9 +609,14 @@ function Build-ReportLines {
         }
     }
 
-    $nonSuccessRecords = @($Records | Where-Object { $_.classification -ne "success" })
+    $quickRecords = @($Records | Where-Object { $_.validation_profile -eq "quick" })
+    $fullSuccessCount = @($Records | Where-Object { $_.validation_profile -eq "full" -and $_.classification -eq "success" }).Count
+    $quickSuccessCount = @($Records | Where-Object { $_.classification -eq "quick_success" }).Count
+    $nonSuccessRecords = @($Records | Where-Object { $_.classification -ne "success" -and $_.classification -ne "quick_success" })
     $cleanBaselineStatus = "CLEAN"
-    if ($nonSuccessRecords.Count -gt 0) {
+    if ($quickRecords.Count -gt 0) {
+        $cleanBaselineStatus = "NOT_BASELINE_ELIGIBLE"
+    } elseif ($nonSuccessRecords.Count -gt 0) {
         $cleanBaselineStatus = "CONTAINS_OUTLIERS"
     }
 
@@ -619,6 +643,8 @@ function Build-ReportLines {
     $lines += ("| git working tree status summary | {0} |" -f (Format-Cell (Normalize-ReportValue (Get-GitStatusSummary -RepoPath $repoRoot))))
     $lines += ("| diagnostic_level | {0} |" -f (Format-Cell $diagnosticLevel))
     $lines += ("| validation_profile | {0} |" -f (Format-Cell $validationProfile))
+    $lines += ("| full_success count | {0} |" -f (Format-Cell $fullSuccessCount))
+    $lines += ("| quick_success count | {0} |" -f (Format-Cell $quickSuccessCount))
     $lines += ""
 
     $lines += "## Classification Summary"
@@ -652,13 +678,15 @@ function Build-ReportLines {
 
     $lines += "## Correctness Table"
     $lines += ""
-    $lines += "| batch_id | known_true_addr | diagnostic_level | run_valid | collector_empty | classification | final hit | rank A/W/B | stable rank | best_candidate | selected A/W/B | recommendation |"
-    $lines += "|---|---|---|---|---|---|---|---|---|---|---|---|"
+    $lines += "| batch_id | known_true_addr | diagnostic_level | validation_profile | baseline_eligible | run_valid | collector_empty | classification | final hit | rank A/W/B | stable rank | best_candidate | selected A/W/B | recommendation |"
+    $lines += "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"
     foreach ($record in $Records) {
-        $lines += ("| {0} | {1} | {2} | {3} | {4} | {5} | {6} | {7} | {8} | {9} | {10} | {11} |" -f `
+        $lines += ("| {0} | {1} | {2} | {3} | {4} | {5} | {6} | {7} | {8} | {9} | {10} | {11} | {12} | {13} |" -f `
             (Format-Cell $record.batch_id),
             (Format-Cell $record.known_true_addr),
             (Format-Cell (Normalize-ReportValue $record.diagnostic_level)),
+            (Format-Cell (Normalize-ReportValue $record.validation_profile)),
+            (Format-Cell $record.baseline_eligible),
             (Format-Cell $record.run_valid),
             (Format-Cell $record.collector_empty),
             (Format-Cell $record.classification),

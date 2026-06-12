@@ -86,6 +86,14 @@ local function normalize_diagnostic_level(value)
   error("invalid diagnostic_level: " .. tostring(value))
 end
 
+local function normalize_validation_profile(value)
+  local profile = tostring(value or "full"):lower()
+  if profile == "full" or profile == "quick" then
+    return profile
+  end
+  error("invalid validation_profile: " .. tostring(value))
+end
+
 local function apply_local_case_config(run_cases, path)
   for _, case_cfg in ipairs(run_cases or {}) do
     case_cfg.case_config_loaded = false
@@ -93,6 +101,7 @@ local function apply_local_case_config(run_cases, path)
     case_cfg.known_true_addr_source = "default"
     case_cfg.target_value_source = "default"
     case_cfg.diagnostic_level = normalize_diagnostic_level(case_cfg.diagnostic_level)
+    case_cfg.validation_profile = normalize_validation_profile(case_cfg.validation_profile)
   end
 
   if not file_exists(path) then
@@ -132,6 +141,9 @@ local function apply_local_case_config(run_cases, path)
   if loaded.diagnostic_level ~= nil then
     case_cfg.diagnostic_level = normalize_diagnostic_level(loaded.diagnostic_level)
   end
+  if loaded.validation_profile ~= nil then
+    case_cfg.validation_profile = normalize_validation_profile(loaded.validation_profile)
+  end
 
   return run_cases
 end
@@ -149,6 +161,7 @@ local RUN_CASES = {
     use_prescore_selection = true,
     stable_filter_intersection_enabled = false,
     diagnostic_level = "basic",
+    validation_profile = "full",
     modes = {
       {name = "no_probe_A", probe_full_foundlist = false},
       {name = "with_probe", probe_full_foundlist = true},
@@ -689,8 +702,8 @@ local function build_no_probe_snapshot_intersection_analysis(no_probe_a, no_prob
   }
 end
 
-local function build_runtime_empty_diagnostics(group)
-  local mode_names = {"no_probe_A", "with_probe", "no_probe_B"}
+local function build_runtime_empty_diagnostics(group, mode_names)
+  mode_names = mode_names or {"no_probe_A", "with_probe", "no_probe_B"}
   local empty_modes = {}
   local all_present = true
   local all_empty = true
@@ -723,6 +736,18 @@ local function build_runtime_empty_diagnostics(group)
   }
 end
 
+local function collect_mode_names(mode_entries)
+  local names = {}
+  for _, mode_entry in ipairs(mode_entries or {}) do
+    if type(mode_entry) == "table" then
+      names[#names + 1] = mode_entry.name or mode_entry.mode
+    else
+      names[#names + 1] = tostring(mode_entry)
+    end
+  end
+  return names
+end
+
 local function apply_runtime_empty_diagnostics(summary, diagnostics)
   if summary == nil or diagnostics == nil then
     return
@@ -736,6 +761,25 @@ local function apply_runtime_empty_diagnostics(summary, diagnostics)
   summary.no_probe_A_collector_empty = diagnostics.no_probe_A_collector_empty
   summary.with_probe_collector_empty = diagnostics.with_probe_collector_empty
   summary.no_probe_B_collector_empty = diagnostics.no_probe_B_collector_empty
+end
+
+local function get_case_mode_entries(case_cfg)
+  if case_cfg.validation_profile == "quick" then
+    return {
+      {name = "no_probe_A", probe_full_foundlist = false},
+    }, "with_probe, no_probe_B, stable_no_probe_intersection"
+  end
+  return case_cfg.modes or {}, "none"
+end
+
+local function apply_validation_profile_fields(summary, case_cfg, skipped_modes)
+  if summary == nil or case_cfg == nil then
+    return
+  end
+  summary.validation_profile = case_cfg.validation_profile or "full"
+  summary.baseline_eligible = summary.validation_profile == "full"
+  summary.skipped_modes = skipped_modes or "none"
+  summary.profile_note = summary.validation_profile == "quick" and "smoke_test_only" or "baseline_eligible"
 end
 
 local function get_runtime_diagnostic(diagnostics, key)
@@ -941,6 +985,10 @@ local function emit_compact_bundle_report(case_cfg, mode_cfg, bundle, policy)
   print_kv("known_true_addr_source", case_cfg.known_true_addr_source)
   print_kv("target_value_source", case_cfg.target_value_source)
   print_kv("diagnostic_level", case_cfg.diagnostic_level)
+  print_kv("validation_profile", case_cfg.validation_profile)
+  print_kv("baseline_eligible", case_cfg.validation_profile == "full")
+  print_kv("skipped_modes", case_cfg.skipped_modes or "none")
+  print_kv("profile_note", case_cfg.validation_profile == "quick" and "smoke_test_only" or "baseline_eligible")
   print_kv("session_id", case_cfg.session_id)
   print_kv("mode", mode_cfg.mode)
   print_hex_kv("known_true_addr", case_cfg.known_true_addr)
@@ -981,6 +1029,10 @@ local function emit_bundle_report(case_cfg, mode_cfg, bundle, policy)
   print_kv("known_true_addr_source", case_cfg.known_true_addr_source)
   print_kv("target_value_source", case_cfg.target_value_source)
   print_kv("diagnostic_level", case_cfg.diagnostic_level)
+  print_kv("validation_profile", case_cfg.validation_profile)
+  print_kv("baseline_eligible", case_cfg.validation_profile == "full")
+  print_kv("skipped_modes", case_cfg.skipped_modes or "none")
+  print_kv("profile_note", case_cfg.validation_profile == "quick" and "smoke_test_only" or "baseline_eligible")
   print_kv("session_id", case_cfg.session_id)
   print_kv("mode", mode_cfg.mode)
   print_hex_kv("known_true_addr", case_cfg.known_true_addr)
@@ -1048,6 +1100,10 @@ local function build_run_summary(case_cfg, mode_cfg, bundle, log_path, filter_de
     known_true_addr_source = case_cfg.known_true_addr_source,
     target_value_source = case_cfg.target_value_source,
     diagnostic_level = case_cfg.diagnostic_level,
+    validation_profile = case_cfg.validation_profile,
+    baseline_eligible = case_cfg.validation_profile == "full",
+    skipped_modes = case_cfg.skipped_modes or "none",
+    profile_note = case_cfg.validation_profile == "quick" and "smoke_test_only" or "baseline_eligible",
     session_id = case_cfg.session_id,
     mode = mode_cfg.mode,
     probe_full_foundlist = mode_cfg.probe_full_foundlist,
@@ -1141,6 +1197,10 @@ local function print_run_summary(summary)
   print_kv("known_true_addr_source", summary.known_true_addr_source)
   print_kv("target_value_source", summary.target_value_source)
   print_kv("diagnostic_level", summary.diagnostic_level)
+  print_kv("validation_profile", summary.validation_profile)
+  print_kv("baseline_eligible", summary.baseline_eligible)
+  print_kv("skipped_modes", summary.skipped_modes)
+  print_kv("profile_note", summary.profile_note)
   print_kv("session_id", summary.session_id)
   print_kv("mode", summary.mode)
   print_kv("run_valid", summary.run_valid)
@@ -1249,6 +1309,10 @@ local function render_summary_file(batch_id, summaries)
     lines[#lines + 1] = "known_true_addr_source = " .. tostring(summary.known_true_addr_source)
     lines[#lines + 1] = "target_value_source = " .. tostring(summary.target_value_source)
     lines[#lines + 1] = "diagnostic_level = " .. tostring(summary.diagnostic_level)
+    lines[#lines + 1] = "validation_profile = " .. tostring(summary.validation_profile)
+    lines[#lines + 1] = "baseline_eligible = " .. tostring(summary.baseline_eligible)
+    lines[#lines + 1] = "skipped_modes = " .. tostring(summary.skipped_modes)
+    lines[#lines + 1] = "profile_note = " .. tostring(summary.profile_note)
     lines[#lines + 1] = "known_true_addr = " .. tostring(hex_u64(summary.known_true_addr))
     lines[#lines + 1] = "probe_full_foundlist = " .. tostring(summary.probe_full_foundlist)
     lines[#lines + 1] = "run_valid = " .. tostring(summary.run_valid)
@@ -1390,6 +1454,10 @@ local function emit_compact_stable_intersection_report(case_cfg, summary, policy
   print_kv("known_true_addr_source", case_cfg.known_true_addr_source)
   print_kv("target_value_source", case_cfg.target_value_source)
   print_kv("diagnostic_level", case_cfg.diagnostic_level)
+  print_kv("validation_profile", summary.validation_profile)
+  print_kv("baseline_eligible", summary.baseline_eligible)
+  print_kv("skipped_modes", summary.skipped_modes)
+  print_kv("profile_note", summary.profile_note)
   print_kv("session_id", case_cfg.session_id)
   print_kv("mode", "stable_no_probe_intersection")
   print_kv("run_valid", summary.run_valid)
@@ -1424,6 +1492,10 @@ local function emit_stable_intersection_report(case_cfg, bundle, summary, policy
   print_kv("known_true_addr_source", case_cfg.known_true_addr_source)
   print_kv("target_value_source", case_cfg.target_value_source)
   print_kv("diagnostic_level", case_cfg.diagnostic_level)
+  print_kv("validation_profile", summary.validation_profile)
+  print_kv("baseline_eligible", summary.baseline_eligible)
+  print_kv("skipped_modes", summary.skipped_modes)
+  print_kv("profile_note", summary.profile_note)
   print_kv("session_id", case_cfg.session_id)
   print_kv("mode", "stable_no_probe_intersection")
   -- [stable-intersection-report]
@@ -1512,6 +1584,10 @@ local function build_stable_intersection_summary(case_cfg, bundle, log_path, ana
     known_true_addr_source = case_cfg.known_true_addr_source,
     target_value_source = case_cfg.target_value_source,
     diagnostic_level = case_cfg.diagnostic_level,
+    validation_profile = case_cfg.validation_profile,
+    baseline_eligible = case_cfg.validation_profile == "full",
+    skipped_modes = case_cfg.skipped_modes or "none",
+    profile_note = case_cfg.validation_profile == "quick" and "smoke_test_only" or "baseline_eligible",
     session_id = case_cfg.session_id,
     mode = "stable_no_probe_intersection",
     probe_full_foundlist = false,
@@ -1723,6 +1799,10 @@ local function run_stable_intersection_mode(case_cfg, no_probe_a, no_probe_b, ba
       known_true_addr_source = case_cfg.known_true_addr_source,
       target_value_source = case_cfg.target_value_source,
       diagnostic_level = case_cfg.diagnostic_level,
+      validation_profile = case_cfg.validation_profile,
+      baseline_eligible = case_cfg.validation_profile == "full",
+      skipped_modes = case_cfg.skipped_modes or "none",
+      profile_note = case_cfg.validation_profile == "quick" and "smoke_test_only" or "baseline_eligible",
       session_id = case_cfg.session_id,
       mode = "stable_no_probe_intersection",
       known_true_addr = case_cfg.known_true_addr,
@@ -1854,6 +1934,10 @@ local function render_diagnostic_diff_file(batch_id, summaries)
       lines[#lines + 1] = "known_true_addr_source = " .. tostring(no_probe_a.known_true_addr_source)
       lines[#lines + 1] = "target_value_source = " .. tostring(no_probe_a.target_value_source)
       lines[#lines + 1] = "diagnostic_level = " .. tostring(no_probe_a.diagnostic_level)
+      lines[#lines + 1] = "validation_profile = " .. tostring(no_probe_a.validation_profile)
+      lines[#lines + 1] = "baseline_eligible = " .. tostring(no_probe_a.baseline_eligible)
+      lines[#lines + 1] = "skipped_modes = " .. tostring(no_probe_a.skipped_modes)
+      lines[#lines + 1] = "profile_note = " .. tostring(no_probe_a.profile_note)
       lines[#lines + 1] = "no_probe_A_collector_empty = " .. tostring(runtime_empty_diagnostics.no_probe_A_collector_empty)
       lines[#lines + 1] = "with_probe_collector_empty = " .. tostring(runtime_empty_diagnostics.with_probe_collector_empty)
       lines[#lines + 1] = "no_probe_B_collector_empty = " .. tostring(runtime_empty_diagnostics.no_probe_B_collector_empty)
@@ -2038,6 +2122,50 @@ local function render_diagnostic_diff_file(batch_id, summaries)
         lines[#lines + 1] = "total_ms = " .. tostring(stable_summary.total_ms)
         lines[#lines + 1] = "log_size_bytes = " .. tostring(stable_summary.log_size_bytes)
       end
+      lines[#lines + 1] = ""
+    elseif no_probe_a ~= nil then
+      local runtime_empty_diagnostics = build_runtime_empty_diagnostics(group, {"no_probe_A"})
+
+      lines[#lines + 1] = "--- " .. tostring(key) .. " ---"
+      lines[#lines + 1] = "run_valid = " .. tostring(runtime_empty_diagnostics.run_valid)
+      lines[#lines + 1] = "failure_class = " .. tostring(runtime_empty_diagnostics.failure_class)
+      lines[#lines + 1] = "collector_empty = " .. tostring(runtime_empty_diagnostics.collector_empty)
+      lines[#lines + 1] = "empty_modes = " .. tostring(runtime_empty_diagnostics.empty_modes)
+      lines[#lines + 1] = "recommendation = " .. tostring(runtime_empty_diagnostics.recommendation)
+      lines[#lines + 1] = "case_config_loaded = " .. tostring(no_probe_a.case_config_loaded)
+      lines[#lines + 1] = "case_config_path = " .. tostring(no_probe_a.case_config_path)
+      lines[#lines + 1] = "known_true_addr_source = " .. tostring(no_probe_a.known_true_addr_source)
+      lines[#lines + 1] = "target_value_source = " .. tostring(no_probe_a.target_value_source)
+      lines[#lines + 1] = "diagnostic_level = " .. tostring(no_probe_a.diagnostic_level)
+      lines[#lines + 1] = "validation_profile = " .. tostring(no_probe_a.validation_profile)
+      lines[#lines + 1] = "baseline_eligible = " .. tostring(no_probe_a.baseline_eligible)
+      lines[#lines + 1] = "skipped_modes = " .. tostring(no_probe_a.skipped_modes)
+      lines[#lines + 1] = "profile_note = " .. tostring(no_probe_a.profile_note)
+      lines[#lines + 1] = "no_probe_A_collector_empty = " .. tostring(runtime_empty_diagnostics.no_probe_A_collector_empty)
+      lines[#lines + 1] = "with_probe_collector_empty = " .. tostring(runtime_empty_diagnostics.with_probe_collector_empty)
+      lines[#lines + 1] = "no_probe_B_collector_empty = " .. tostring(runtime_empty_diagnostics.no_probe_B_collector_empty)
+      lines[#lines + 1] = "target_value_addr = " .. tostring(hex_u64(no_probe_a.target_value_addr))
+      lines[#lines + 1] = "target_value_pattern = " .. tostring(hex_u64(no_probe_a.target_value_pattern))
+      lines[#lines + 1] = "target_value_float = " .. tostring(no_probe_a.target_value_float)
+      lines[#lines + 1] = "[no_probe_A]"
+      lines[#lines + 1] = "raw_count = " .. tostring(no_probe_a.raw_count)
+      lines[#lines + 1] = "unique_count = " .. tostring(no_probe_a.unique_count)
+      lines[#lines + 1] = "filtered_count = " .. tostring(no_probe_a.filtered_count)
+      lines[#lines + 1] = "prescored_count = " .. tostring(no_probe_a.prescored_count)
+      lines[#lines + 1] = "selected_count = " .. tostring(no_probe_a.selected_count)
+      lines[#lines + 1] = "true_in_raw = " .. tostring(no_probe_a.true_in_raw)
+      lines[#lines + 1] = "true_in_unique = " .. tostring(no_probe_a.true_in_unique)
+      lines[#lines + 1] = "true_in_filtered = " .. tostring(no_probe_a.true_in_filtered)
+      lines[#lines + 1] = "true_in_prescored = " .. tostring(no_probe_a.true_in_prescored)
+      lines[#lines + 1] = "true_in_selected = " .. tostring(no_probe_a.true_in_selected)
+      lines[#lines + 1] = "known_true_rank_position = " .. tostring(no_probe_a.known_true_rank_position)
+      lines[#lines + 1] = "best_candidate = " .. tostring(hex_u64(no_probe_a.best_candidate_addr))
+      lines[#lines + 1] = "mode_total_ms = " .. tostring(no_probe_a.mode_total_ms)
+      lines[#lines + 1] = "collector_call_ms = " .. tostring(no_probe_a.collector_call_ms)
+      lines[#lines + 1] = "prescore_ms = " .. tostring(no_probe_a.prescore_ms)
+      lines[#lines + 1] = "report_render_ms = " .. tostring(no_probe_a.report_render_ms)
+      lines[#lines + 1] = "total_ms = " .. tostring(no_probe_a.total_ms)
+      lines[#lines + 1] = "log_size_bytes = " .. tostring(no_probe_a.log_size_bytes)
       lines[#lines + 1] = ""
     end
   end
@@ -2257,21 +2385,29 @@ local function main()
   local summaries = {}
 
   for _, case_cfg in ipairs(RUN_CASES) do
+    local mode_entries, skipped_modes = get_case_mode_entries(case_cfg)
+    local active_mode_names = collect_mode_names(mode_entries)
+    case_cfg.skipped_modes = skipped_modes
+
     local case_summaries = {}
-    for _, mode_entry in ipairs(case_cfg.modes or {}) do
+    for _, mode_entry in ipairs(mode_entries) do
       local summary = run_case_mode(case_cfg, mode_entry, batch_id)
+      apply_validation_profile_fields(summary, case_cfg, skipped_modes)
       summaries[#summaries + 1] = summary
       case_summaries[summary.mode] = summary
     end
 
-    local runtime_empty_diagnostics = build_runtime_empty_diagnostics(case_summaries)
+    local runtime_empty_diagnostics = build_runtime_empty_diagnostics(case_summaries, active_mode_names)
     apply_runtime_empty_diagnostics(case_summaries.no_probe_A, runtime_empty_diagnostics)
     apply_runtime_empty_diagnostics(case_summaries.with_probe, runtime_empty_diagnostics)
     apply_runtime_empty_diagnostics(case_summaries.no_probe_B, runtime_empty_diagnostics)
 
-    local stable_summary = run_stable_intersection_mode(case_cfg, case_summaries.no_probe_A, case_summaries.no_probe_B, batch_id, runtime_empty_diagnostics)
-    if stable_summary ~= nil then
-      summaries[#summaries + 1] = stable_summary
+    if case_cfg.validation_profile ~= "quick" then
+      local stable_summary = run_stable_intersection_mode(case_cfg, case_summaries.no_probe_A, case_summaries.no_probe_B, batch_id, runtime_empty_diagnostics)
+      apply_validation_profile_fields(stable_summary, case_cfg, skipped_modes)
+      if stable_summary ~= nil then
+        summaries[#summaries + 1] = stable_summary
+      end
     end
   end
 
