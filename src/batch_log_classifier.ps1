@@ -1,6 +1,10 @@
 param(
     [int]$Latest = 5,
     [string]$LogRoot = "D:\armedforces.io-v2\log\auto_output",
+    [ValidateSet("all", "full", "quick")]
+    [string]$Profile = "all",
+    [switch]$OnlyBaselineEligible,
+    [string]$CompareTo,
     [string]$OutFile
 )
 
@@ -30,8 +34,8 @@ $PerformanceMetricNames = @(
     "log_size_bytes"
 )
 
-function Get-BatchIds {
-    param([string]$Root, [int]$Count)
+function Get-BatchIdInfos {
+    param([string]$Root)
 
     if (-not (Test-Path -LiteralPath $Root)) {
         throw "LogRoot does not exist: $Root"
@@ -55,6 +59,13 @@ function Get-BatchIds {
             }
         } |
         Sort-Object LastWriteTime -Descending |
+        ForEach-Object { $_ }
+}
+
+function Get-BatchIds {
+    param([string]$Root, [int]$Count)
+
+    Get-BatchIdInfos -Root $Root |
         Select-Object -First $Count |
         ForEach-Object { $_.BatchId }
 }
@@ -276,6 +287,306 @@ function Format-Number {
     return ([Math]::Round([double]$Value, 2)).ToString([System.Globalization.CultureInfo]::InvariantCulture)
 }
 
+function Convert-ReportNumber {
+    param($Value)
+
+    if ($null -eq $Value) {
+        return $null
+    }
+
+    $text = "$Value".Trim()
+    if ($text -eq "" -or $text -eq "-" -or $text -eq "not_available") {
+        return $null
+    }
+
+    $number = 0.0
+    if ([double]::TryParse($text, [System.Globalization.NumberStyles]::Float, [System.Globalization.CultureInfo]::InvariantCulture, [ref]$number)) {
+        return $number
+    }
+    return $null
+}
+
+function Format-CompareValue {
+    param($Value)
+
+    if ($null -eq $Value) {
+        return "not_available"
+    }
+    return Format-Number $Value
+}
+
+function Format-CompareDelta {
+    param($Baseline, $Current)
+
+    if ($null -eq $Baseline -or $null -eq $Current) {
+        return "not_available"
+    }
+    $delta = [double]$Current - [double]$Baseline
+    if ($delta -gt 0) {
+        return "+" + (Format-Number $delta)
+    }
+    return Format-Number $delta
+}
+
+function Get-ClassificationCount {
+    param($Counts, [string]$Name)
+
+    if ($Counts -and $Counts.Contains($Name) -and $null -ne $Counts[$Name]) {
+        return [int]$Counts[$Name]
+    }
+    return $null
+}
+
+function Get-NonSuccessCount {
+    param($Counts)
+
+    if (-not $Counts) {
+        return $null
+    }
+
+    $total = 0
+    $hasValue = $false
+    foreach ($key in $Counts.Keys) {
+        if ($key -ne "success") {
+            if ($null -ne $Counts[$key]) {
+                $total += [int]$Counts[$key]
+                $hasValue = $true
+            }
+        }
+    }
+    if (-not $hasValue) {
+        return $null
+    }
+    return $total
+}
+
+function Get-PerformanceStatsMap {
+    param([object[]]$Records)
+
+    $statsByMetric = [ordered]@{}
+    foreach ($metric in $PerformanceMetricNames) {
+        $values = @()
+        foreach ($record in $Records) {
+            if ($record.performance_metrics.Contains($metric)) {
+                $values += @($record.performance_metrics[$metric])
+            }
+        }
+        $statsByMetric[$metric] = Get-MetricStats -Values $values
+    }
+    return $statsByMetric
+}
+
+function Read-BaselineReport {
+    param([string]$Path)
+
+    $classificationCounts = [ordered]@{}
+    foreach ($classification in $ClassificationOrder) {
+        $classificationCounts[$classification] = $null
+    }
+
+    $performance = [ordered]@{}
+    foreach ($metric in $PerformanceMetricNames) {
+        $performance[$metric] = $null
+    }
+
+    $result = [ordered]@{
+        readable = $false
+        path = $Path
+        error = $null
+        generated_at = "not_available"
+        latest_n = $null
+        validation_profile = "not_available"
+        clean_baseline_status = "not_available"
+        unique_known_true_addr_count = $null
+        classification_counts = $classificationCounts
+        performance = $performance
+    }
+
+    if (-not $Path -or -not (Test-Path -LiteralPath $Path)) {
+        $result.error = "baseline file not found"
+        return [pscustomobject]$result
+    }
+
+    $result.readable = $true
+    foreach ($line in Get-Content -LiteralPath $Path) {
+        if ($line -match "^\|\s*([^|]+?)\s*\|\s*([^|]*?)\s*\|\s*$") {
+            $field = $matches[1].Trim()
+            $value = $matches[2].Trim()
+            switch ($field) {
+                "generated_at" { $result.generated_at = $value }
+                "latest N" { $result.latest_n = Convert-ReportNumber $value }
+                "validation_profile" { $result.validation_profile = $value }
+                default {
+                    if ($ClassificationOrder -contains $field) {
+                        $result.classification_counts[$field] = [int](Convert-ReportNumber $value)
+                    }
+                }
+            }
+        }
+
+        if ($line -match "^\|\s*([A-Za-z0-9_]+)\s*\|\s*([^|]+)\s*\|\s*([^|]+)\s*\|\s*([^|]+)\s*\|\s*([^|]+)\s*\|\s*([^|]+)\s*\|\s*$") {
+            $metric = $matches[1].Trim()
+            if ($PerformanceMetricNames -contains $metric) {
+                $result.performance[$metric] = [pscustomobject][ordered]@{
+                    count = Convert-ReportNumber $matches[2]
+                    average = Convert-ReportNumber $matches[3]
+                    median = Convert-ReportNumber $matches[4]
+                    min = Convert-ReportNumber $matches[5]
+                    max = Convert-ReportNumber $matches[6]
+                }
+            }
+        }
+
+        if ($line -match "^- unique known_true_addr count:\s*(\d+)\s*$") {
+            $result.unique_known_true_addr_count = [int]$matches[1]
+        } elseif ($line -match "^- clean baseline status:\s*(\S+)\s*$") {
+            $result.clean_baseline_status = $matches[1]
+        }
+    }
+
+    return [pscustomobject]$result
+}
+
+function New-ComparisonMetric {
+    param([string]$Name, $Baseline, $Current, [string]$Status)
+
+    return [pscustomobject][ordered]@{
+        name = $Name
+        baseline = $Baseline
+        current = $Current
+        delta = Format-CompareDelta -Baseline $Baseline -Current $Current
+        status = $Status
+    }
+}
+
+function Get-PerformanceMetricValue {
+    param($Performance, [string]$Metric, [string]$Field)
+
+    if ($Performance -and $Performance.Contains($Metric) -and $null -ne $Performance[$Metric]) {
+        return $Performance[$Metric].$Field
+    }
+    return $null
+}
+
+function Get-RegressionComparisonLines {
+    param($Current, [string]$BaselinePath)
+
+    $baseline = Read-BaselineReport -Path $BaselinePath
+    $status = "PASS"
+    $reasons = @()
+    $codeChangesRecommended = "no"
+    $replacementSampleRecommended = "no"
+    $fullBaselineRerunRecommended = "no"
+
+    if (-not $baseline.readable) {
+        $status = "NOT_COMPARABLE"
+        $reasons += $baseline.error
+    } elseif ($baseline.clean_baseline_status -eq "not_available" -or $null -eq (Get-ClassificationCount $baseline.classification_counts "success")) {
+        $status = "NOT_COMPARABLE"
+        $reasons += "baseline fields insufficient"
+    } elseif ($baseline.clean_baseline_status -ne "CLEAN" -or $baseline.validation_profile -match "quick") {
+        $status = "NOT_COMPARABLE"
+        $reasons += "baseline is not a clean full baseline"
+    } elseif ($Current.clean_baseline_status -eq "NOT_BASELINE_ELIGIBLE") {
+        $status = "NOT_COMPARABLE"
+        $reasons += "current latest N is not baseline eligible"
+        $fullBaselineRerunRecommended = "yes"
+    } else {
+        $baselineSuccess = Get-ClassificationCount $baseline.classification_counts "success"
+        $currentSuccess = Get-ClassificationCount $Current.classification_counts "success"
+        if ($null -ne $baselineSuccess -and $null -ne $currentSuccess -and $currentSuccess -lt $baselineSuccess) {
+            $status = "FAIL"
+            $reasons += "success count decreased"
+            $replacementSampleRecommended = "yes"
+        }
+
+        foreach ($failureClass in @("collector_runtime_empty", "incomplete_output", "known_true_value_mismatch", "suspected_filter_bug", "selected_quota_issue", "ranking_issue")) {
+            $currentCount = Get-ClassificationCount $Current.classification_counts $failureClass
+            if ($currentCount -gt 0) {
+                $status = "FAIL"
+                $reasons += "$failureClass count is $currentCount"
+                $replacementSampleRecommended = "yes"
+                if (@("known_true_value_mismatch", "suspected_filter_bug", "selected_quota_issue", "ranking_issue") -contains $failureClass) {
+                    $codeChangesRecommended = "yes"
+                }
+            }
+        }
+
+        if ($status -ne "FAIL") {
+            if ($null -ne $baseline.unique_known_true_addr_count -and $Current.unique_known_true_addr_count -lt $baseline.unique_known_true_addr_count) {
+                $status = "WARN"
+                $reasons += "unique known_true_addr coverage decreased"
+                $fullBaselineRerunRecommended = "yes"
+            }
+
+            $baselineTotalAvg = Get-PerformanceMetricValue -Performance $baseline.performance -Metric "total_ms" -Field "average"
+            $currentTotalAvg = Get-PerformanceMetricValue -Performance $Current.performance -Metric "total_ms" -Field "average"
+            if ($null -ne $baselineTotalAvg -and $null -ne $currentTotalAvg -and $currentTotalAvg -gt ($baselineTotalAvg * 1.25)) {
+                $status = "WARN"
+                $reasons += "avg total_ms slowed by more than 25%"
+            }
+
+            $baselineReportAvg = Get-PerformanceMetricValue -Performance $baseline.performance -Metric "report_render_ms" -Field "average"
+            $currentReportAvg = Get-PerformanceMetricValue -Performance $Current.performance -Metric "report_render_ms" -Field "average"
+            if ($null -ne $baselineReportAvg -and $null -ne $currentReportAvg -and $currentReportAvg -gt ($baselineReportAvg * 1.5)) {
+                $status = "WARN"
+                $reasons += "avg report_render_ms slowed by more than 50%"
+            }
+
+            $baselineLogAvg = Get-PerformanceMetricValue -Performance $baseline.performance -Metric "log_size_bytes" -Field "average"
+            $currentLogAvg = Get-PerformanceMetricValue -Performance $Current.performance -Metric "log_size_bytes" -Field "average"
+            if ($null -ne $baselineLogAvg -and $null -ne $currentLogAvg -and $currentLogAvg -gt ($baselineLogAvg * 1.5)) {
+                $status = "WARN"
+                $reasons += "avg log_size_bytes grew by more than 50%"
+            }
+        }
+    }
+
+    if ($status -eq "PASS" -and $reasons.Count -eq 0) {
+        $reasons += "no regression detected"
+    }
+
+    $comparisonRows = @(
+        (New-ComparisonMetric -Name "success count" -Baseline (Get-ClassificationCount $baseline.classification_counts "success") -Current (Get-ClassificationCount $Current.classification_counts "success") -Status $status),
+        (New-ComparisonMetric -Name "non-success count" -Baseline (Get-NonSuccessCount $baseline.classification_counts) -Current (Get-NonSuccessCount $Current.classification_counts) -Status $status),
+        (New-ComparisonMetric -Name "unique known_true_addr count" -Baseline $baseline.unique_known_true_addr_count -Current $Current.unique_known_true_addr_count -Status $status),
+        (New-ComparisonMetric -Name "avg total_ms" -Baseline (Get-PerformanceMetricValue -Performance $baseline.performance -Metric "total_ms" -Field "average") -Current (Get-PerformanceMetricValue -Performance $Current.performance -Metric "total_ms" -Field "average") -Status $status),
+        (New-ComparisonMetric -Name "median total_ms" -Baseline (Get-PerformanceMetricValue -Performance $baseline.performance -Metric "total_ms" -Field "median") -Current (Get-PerformanceMetricValue -Performance $Current.performance -Metric "total_ms" -Field "median") -Status $status),
+        (New-ComparisonMetric -Name "avg report_render_ms" -Baseline (Get-PerformanceMetricValue -Performance $baseline.performance -Metric "report_render_ms" -Field "average") -Current (Get-PerformanceMetricValue -Performance $Current.performance -Metric "report_render_ms" -Field "average") -Status $status),
+        (New-ComparisonMetric -Name "avg log_size_bytes" -Baseline (Get-PerformanceMetricValue -Performance $baseline.performance -Metric "log_size_bytes" -Field "average") -Current (Get-PerformanceMetricValue -Performance $Current.performance -Metric "log_size_bytes" -Field "average") -Status $status)
+    )
+
+    $lines = @()
+    $lines += "## Regression Comparison"
+    $lines += ""
+    $lines += "| field | value |"
+    $lines += "|---|---|"
+    $lines += ("| baseline file path | {0} |" -f (Format-Cell $BaselinePath))
+    $lines += ("| baseline generated_at | {0} |" -f (Format-Cell $baseline.generated_at))
+    $lines += ("| current latest N | {0} |" -f (Format-Cell $Current.latest_n))
+    $lines += ("| comparison status | {0} |" -f (Format-Cell $status))
+    $lines += ("| comparison notes | {0} |" -f (Format-Cell ($reasons -join "; ")))
+    $lines += ""
+    $lines += "| metric | baseline | current | delta | status |"
+    $lines += "|---|---:|---:|---:|---|"
+    foreach ($row in $comparisonRows) {
+        $lines += ("| {0} | {1} | {2} | {3} | {4} |" -f `
+            (Format-Cell $row.name),
+            (Format-Cell (Format-CompareValue $row.baseline)),
+            (Format-Cell (Format-CompareValue $row.current)),
+            (Format-Cell $row.delta),
+            (Format-Cell $row.status))
+    }
+    $lines += ""
+    $lines += "Comparison conclusion:"
+    $lines += ("- status: {0}" -f $status)
+    $lines += ("- code changes recommended: {0}" -f $codeChangesRecommended)
+    $lines += ("- replacement sample recommended: {0}" -f $replacementSampleRecommended)
+    $lines += ("- full baseline rerun recommended: {0}" -f $fullBaselineRerunRecommended)
+
+    return $lines
+}
+
 function Get-RepoRoot {
     param([string]$Root)
 
@@ -398,6 +709,36 @@ function Parse-ModeLog {
         mismatch_reason = Get-LineField $filterLine "mismatch_reason"
         final_filter_outcome = Get-LineField $filterLine "final_filter_outcome"
     }
+}
+
+function Test-BaselineEligibleRecord {
+    param($Record)
+
+    if (-not $Record) {
+        return $false
+    }
+    if ($Record.baseline_eligible -eq "true") {
+        return $true
+    }
+    if ($Record.baseline_eligible -eq "false") {
+        return $false
+    }
+    return $Record.validation_profile -eq "full"
+}
+
+function Test-RecordProfileFilter {
+    param($Record, [string]$Profile, [bool]$OnlyBaselineEligible)
+
+    if (-not $Record) {
+        return $false
+    }
+    if ($Profile -ne "all" -and $Record.validation_profile -ne $Profile) {
+        return $false
+    }
+    if ($OnlyBaselineEligible -and -not (Test-BaselineEligibleRecord -Record $Record)) {
+        return $false
+    }
+    return $true
 }
 
 function Get-BatchRecord {
@@ -569,7 +910,7 @@ function Get-BatchRecord {
 }
 
 function Build-ReportLines {
-    param([object[]]$Records, [int]$RequestedLatest, [string]$Root)
+    param([object[]]$Records, [int]$RequestedLatest, [string]$Root, [string]$CompareTo, [string]$Profile, [bool]$OnlyBaselineEligible)
 
     $repoRoot = Get-RepoRoot -Root $Root
     $commitHash = "not_available"
@@ -608,6 +949,7 @@ function Build-ReportLines {
             $classificationCounts["other"] += 1
         }
     }
+    $performanceStatsByMetric = Get-PerformanceStatsMap -Records $Records
 
     $quickRecords = @($Records | Where-Object { $_.validation_profile -eq "quick" })
     $fullSuccessCount = @($Records | Where-Object { $_.validation_profile -eq "full" -and $_.classification -eq "success" }).Count
@@ -641,6 +983,8 @@ function Build-ReportLines {
     $lines += ("| repository path | {0} |" -f (Format-Cell (Normalize-ReportValue $repoRoot)))
     $lines += ("| git commit hash | {0} |" -f (Format-Cell $commitHash))
     $lines += ("| git working tree status summary | {0} |" -f (Format-Cell (Normalize-ReportValue (Get-GitStatusSummary -RepoPath $repoRoot))))
+    $lines += ("| profile filter | {0} |" -f (Format-Cell $Profile))
+    $lines += ("| only baseline eligible | {0} |" -f (Format-Cell $OnlyBaselineEligible))
     $lines += ("| diagnostic_level | {0} |" -f (Format-Cell $diagnosticLevel))
     $lines += ("| validation_profile | {0} |" -f (Format-Cell $validationProfile))
     $lines += ("| full_success count | {0} |" -f (Format-Cell $fullSuccessCount))
@@ -704,13 +1048,7 @@ function Build-ReportLines {
     $lines += "| metric | count | average | median | min | max |"
     $lines += "|---|---:|---:|---:|---:|---:|"
     foreach ($metric in $PerformanceMetricNames) {
-        $values = @()
-        foreach ($record in $Records) {
-            if ($record.performance_metrics.Contains($metric)) {
-                $values += @($record.performance_metrics[$metric])
-            }
-        }
-        $stats = Get-MetricStats -Values $values
+        $stats = $performanceStatsByMetric[$metric]
         if ($null -eq $stats) {
             $lines += ("| {0} | 0 | - | - | - | - |" -f (Format-Cell $metric))
         } else {
@@ -769,14 +1107,33 @@ function Build-ReportLines {
     $lines += ("- replacement sample recommendation: {0}" -f $replacementRecommendation)
     $lines += ("- code change recommendation: {0}" -f $codeChangeRecommendation)
 
+    if ($CompareTo) {
+        $currentSnapshot = [pscustomobject][ordered]@{
+            latest_n = $RequestedLatest
+            clean_baseline_status = $cleanBaselineStatus
+            classification_counts = $classificationCounts
+            unique_known_true_addr_count = $uniqueTrue.Count
+            performance = $performanceStatsByMetric
+        }
+        $lines += ""
+        $lines += Get-RegressionComparisonLines -Current $currentSnapshot -BaselinePath $CompareTo
+    }
+
     return $lines
 }
 
-$records = @(Get-BatchIds -Root $LogRoot -Count $Latest | ForEach-Object {
-    Get-BatchRecord -Root $LogRoot -BatchId $_
-})
+$records = @()
+foreach ($batchInfo in @(Get-BatchIdInfos -Root $LogRoot)) {
+    $record = Get-BatchRecord -Root $LogRoot -BatchId $batchInfo.BatchId
+    if (Test-RecordProfileFilter -Record $record -Profile $Profile -OnlyBaselineEligible ([bool]$OnlyBaselineEligible)) {
+        $records += $record
+    }
+    if ($records.Count -ge $Latest) {
+        break
+    }
+}
 
-$reportLines = @(Build-ReportLines -Records $records -RequestedLatest $Latest -Root $LogRoot)
+$reportLines = @(Build-ReportLines -Records $records -RequestedLatest $Latest -Root $LogRoot -CompareTo $CompareTo -Profile $Profile -OnlyBaselineEligible ([bool]$OnlyBaselineEligible))
 Write-Output $reportLines
 
 if ($OutFile) {
