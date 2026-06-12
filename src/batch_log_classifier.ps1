@@ -7,7 +7,9 @@ param(
     [string]$InspectBatch,
     [switch]$ExplainFailures,
     [string]$CompareTo,
-    [string]$OutFile
+    [string]$OutFile,
+    [switch]$AppendRegistry,
+    [string]$RegistryPath = "D:\armedforces.io-v2\log\case_registry.jsonl"
 )
 
 Set-StrictMode -Version 2.0
@@ -1201,6 +1203,127 @@ function Get-InspectionLines {
     return $lines
 }
 
+function Get-TripletPart {
+    param($Value, [int]$Index)
+
+    if ($null -eq $Value) {
+        return $null
+    }
+    $parts = "$Value" -split "/"
+    if ($Index -ge 0 -and $Index -lt $parts.Count) {
+        $item = $parts[$Index]
+        if ($item -and $item -ne "-") {
+            return $item
+        }
+    }
+    return $null
+}
+
+function Get-RegistryMetricTotal {
+    param($Record, [string]$Metric)
+
+    if (-not $Record -or -not $Record.performance_metrics -or -not $Record.performance_metrics.Contains($Metric)) {
+        return $null
+    }
+
+    $sum = 0.0
+    $hasValue = $false
+    foreach ($value in @($Record.performance_metrics[$Metric])) {
+        if ($null -ne $value) {
+            $sum += [double]$value
+            $hasValue = $true
+        }
+    }
+    if (-not $hasValue) {
+        return $null
+    }
+    return [Math]::Round($sum, 2)
+}
+
+function New-RegistryEntry {
+    param($Record, [string]$Root)
+
+    return [pscustomobject][ordered]@{
+        recorded_at = (Get-Date -Format "o")
+        batch_id = $Record.batch_id
+        known_true_addr = $Record.known_true_addr
+        target_value_pattern = $Record.target_value_pattern
+        target_value_float = $Record.target_value_float
+        diagnostic_level = $Record.diagnostic_level
+        validation_profile = $Record.validation_profile
+        baseline_eligible = $Record.baseline_eligible
+        classification = $Record.classification
+        run_valid = $Record.run_valid
+        collector_empty = $Record.collector_empty
+        final_hit = $Record.final_hit_true_addr
+        rank_A = Get-TripletPart -Value $Record.known_true_rank_position -Index 0
+        rank_W = Get-TripletPart -Value $Record.known_true_rank_position -Index 1
+        rank_B = Get-TripletPart -Value $Record.known_true_rank_position -Index 2
+        stable_rank = $Record.stable_intersection_known_true_rank_position
+        best_candidate = $Record.final_best_candidate
+        total_ms = Get-RegistryMetricTotal -Record $Record -Metric "total_ms"
+        report_render_ms = Get-RegistryMetricTotal -Record $Record -Metric "report_render_ms"
+        log_size_bytes = Get-RegistryMetricTotal -Record $Record -Metric "log_size_bytes"
+        log_root = $Root
+        source = "classifier"
+    }
+}
+
+function Append-RegistryRecords {
+    param([object[]]$Records, [string]$Path, [string]$Root)
+
+    $result = [ordered]@{
+        appended = 0
+        duplicates = 0
+        path = $Path
+        error = $null
+    }
+
+    try {
+        $resolvedPath = [System.IO.Path]::GetFullPath($Path)
+        $result.path = $resolvedPath
+        $dir = [System.IO.Path]::GetDirectoryName($resolvedPath)
+        if ($dir -and -not (Test-Path -LiteralPath $dir)) {
+            New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        }
+
+        $seen = @{}
+        if (Test-Path -LiteralPath $resolvedPath) {
+            foreach ($line in Get-Content -LiteralPath $resolvedPath) {
+                if (-not $line) { continue }
+                try {
+                    $item = $line | ConvertFrom-Json
+                    if ($item.batch_id) {
+                        $seen["$($item.batch_id)"] = $true
+                    }
+                } catch {
+                    continue
+                }
+            }
+        }
+
+        $newLines = @()
+        foreach ($record in @($Records)) {
+            if ($seen.ContainsKey($record.batch_id)) {
+                $result.duplicates += 1
+                continue
+            }
+            $entry = New-RegistryEntry -Record $record -Root $Root
+            $newLines += ($entry | ConvertTo-Json -Compress)
+            $seen[$record.batch_id] = $true
+            $result.appended += 1
+        }
+
+        if ($newLines.Count -gt 0) {
+            Add-Content -LiteralPath $resolvedPath -Value $newLines -Encoding UTF8
+        }
+    } catch {
+        $result.error = $_.Exception.Message
+    }
+
+    return [pscustomobject]$result
+}
+
 function Build-ReportLines {
     param([object[]]$Records, [int]$RequestedLatest, [string]$Root, [string]$CompareTo, [string]$Profile, [bool]$OnlyBaselineEligible, [bool]$ExplainFailures)
 
@@ -1429,8 +1552,10 @@ function Build-ReportLines {
 }
 
 $reportLines = @()
+$recordsForRegistry = @()
 if ($InspectBatch) {
     $record = Get-BatchRecord -Root $LogRoot -BatchId $InspectBatch
+    $recordsForRegistry = @($record)
     $reportLines = @(Get-InspectionLines -Record $record)
 } else {
     $records = @()
@@ -1444,6 +1569,7 @@ if ($InspectBatch) {
         }
     }
 
+    $recordsForRegistry = $records
     $reportLines = @(Build-ReportLines -Records $records -RequestedLatest $Latest -Root $LogRoot -CompareTo $CompareTo -Profile $Profile -OnlyBaselineEligible ([bool]$OnlyBaselineEligible) -ExplainFailures ([bool]$ExplainFailures))
 }
 Write-Output $reportLines
@@ -1461,5 +1587,17 @@ if ($OutFile) {
         Write-Output ("Baseline report saved to: {0}" -f $resolvedOutFile)
     } catch {
         Write-Warning ("Failed to save baseline report to {0}: {1}" -f $OutFile, $_.Exception.Message)
+    }
+}
+
+if ($AppendRegistry) {
+    $registryResult = Append-RegistryRecords -Records $recordsForRegistry -Path $RegistryPath -Root $LogRoot
+    Write-Output ""
+    Write-Output "=== registry_append ==="
+    Write-Output ("registry_path = {0}" -f $registryResult.path)
+    Write-Output ("appended_count = {0}" -f $registryResult.appended)
+    Write-Output ("skipped_duplicate_count = {0}" -f $registryResult.duplicates)
+    if ($registryResult.error) {
+        Write-Warning ("Registry append failed: {0}" -f $registryResult.error)
     }
 }
