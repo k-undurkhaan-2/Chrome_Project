@@ -1378,11 +1378,17 @@ end
 local function build_scored_pool(addresses, target_value_pattern, known_true_addr)
   local scored = {}
   local true_in_prescored = false
+  local prescore_read_ms = 0
+  local prescore_score_ms = 0
 
   for _, value_addr in ipairs(addresses) do
+    local read_start_ms = now_ms()
     local ok, candidate = pcall(MVP0.build_candidate, value_addr)
+    prescore_read_ms = prescore_read_ms + (now_ms() - read_start_ms)
     if ok and candidate ~= nil then
+      local score_start_ms = now_ms()
       local score_result = MVP0.score_candidate(candidate, target_value_pattern)
+      prescore_score_ms = prescore_score_ms + (now_ms() - score_start_ms)
       if known_true_addr ~= nil and value_addr == known_true_addr then
         true_in_prescored = true
       end
@@ -1396,18 +1402,25 @@ local function build_scored_pool(addresses, target_value_pattern, known_true_add
     end
   end
 
+  local sort_start_ms = now_ms()
   table.sort(scored, function(a, b)
     if a.prescore_score ~= b.prescore_score then
       return a.prescore_score > b.prescore_score
     end
     return a.addr < b.addr
   end)
+  local prescore_sort_ms = elapsed_ms(sort_start_ms)
 
-  return scored, true_in_prescored
+  return scored, true_in_prescored, {
+    prescore_read_ms = math.floor(prescore_read_ms + 0.5),
+    prescore_score_ms = math.floor(prescore_score_ms + 0.5),
+    prescore_sort_ms = prescore_sort_ms,
+  }
 end
 
 local function select_top_scored_diverse(addresses, wanted_count, target_value_pattern, bucket_shift, max_per_bucket, known_true_addr)
   if wanted_count == nil or wanted_count <= 0 or #addresses <= wanted_count then
+    local select_start_ms = now_ms()
     local true_in_selected = false
     if known_true_addr ~= nil then
       for _, addr in ipairs(addresses) do
@@ -1417,10 +1430,17 @@ local function select_top_scored_diverse(addresses, wanted_count, target_value_p
         end
       end
     end
-    return addresses, #addresses, nil, nil, true_in_selected, true_in_selected
+    local prescore_select_ms = elapsed_ms(select_start_ms)
+    return addresses, #addresses, nil, nil, true_in_selected, true_in_selected, {
+      prescore_read_ms = 0,
+      prescore_score_ms = 0,
+      prescore_sort_ms = 0,
+      prescore_select_ms = prescore_select_ms,
+      prescore_detail_ms = prescore_select_ms,
+    }
   end
 
-  local scored, true_in_prescored = build_scored_pool(addresses, target_value_pattern, known_true_addr)
+  local scored, true_in_prescored, prescore_detail = build_scored_pool(addresses, target_value_pattern, known_true_addr)
 
   local selected = {}
   local bucket_counts = {}
@@ -1428,6 +1448,7 @@ local function select_top_scored_diverse(addresses, wanted_count, target_value_p
   local cutoff_score = nil
   local tied_count = nil
   local true_in_selected = false
+  local select_start_ms = now_ms()
 
   for _, item in ipairs(scored) do
     local bucket = region_bucket(item.addr, bucket_shift)
@@ -1474,7 +1495,14 @@ local function select_top_scored_diverse(addresses, wanted_count, target_value_p
     end
   end
 
-  return selected, #scored, cutoff_score, tied_count, true_in_prescored, true_in_selected
+  prescore_detail.prescore_select_ms = elapsed_ms(select_start_ms)
+  prescore_detail.prescore_detail_ms =
+    (prescore_detail.prescore_read_ms or 0)
+    + (prescore_detail.prescore_score_ms or 0)
+    + (prescore_detail.prescore_sort_ms or 0)
+    + (prescore_detail.prescore_select_ms or 0)
+
+  return selected, #scored, cutoff_score, tied_count, true_in_prescored, true_in_selected, prescore_detail
 end
 
 function MVP0FoundList.collect(opts)
@@ -1616,10 +1644,11 @@ function MVP0FoundList.collect(opts)
   local prescore_tied_count = nil
   local true_in_prescored = false
   local true_in_selected = false
+  local prescore_detail = nil
   local prescore_start_ms = now_ms()
 
   if use_prescore_selection and #sorted_addresses > 0 then
-    selected_addresses, prescored_count, prescore_cutoff_score, prescore_tied_count, true_in_prescored, true_in_selected =
+    selected_addresses, prescored_count, prescore_cutoff_score, prescore_tied_count, true_in_prescored, true_in_selected, prescore_detail =
       select_top_scored_diverse(sorted_addresses, max_candidates, target_value_pattern, bucket_shift, max_per_bucket, known_true_addr)
     selection_strategy = 'prescore_diverse_top_scored'
   else
@@ -1629,6 +1658,11 @@ function MVP0FoundList.collect(opts)
   end
   local prescore_ms = elapsed_ms(prescore_start_ms)
   MVP0FoundList.LAST_FILTER_DEBUG.prescore_ms = prescore_ms
+  MVP0FoundList.LAST_FILTER_DEBUG.prescore_read_ms = prescore_detail and prescore_detail.prescore_read_ms or 0
+  MVP0FoundList.LAST_FILTER_DEBUG.prescore_score_ms = prescore_detail and prescore_detail.prescore_score_ms or 0
+  MVP0FoundList.LAST_FILTER_DEBUG.prescore_sort_ms = prescore_detail and prescore_detail.prescore_sort_ms or 0
+  MVP0FoundList.LAST_FILTER_DEBUG.prescore_select_ms = prescore_detail and prescore_detail.prescore_select_ms or 0
+  MVP0FoundList.LAST_FILTER_DEBUG.prescore_detail_ms = prescore_detail and prescore_detail.prescore_detail_ms or 0
 
   local true_in_full_foundlist_checked = raw_admission_debug and raw_admission_debug.true_in_full_foundlist_checked or false
   local true_in_full_foundlist_value = nil
@@ -1694,6 +1728,11 @@ function MVP0FoundList.collect(opts)
     true_in_selected = true_in_selected,
     filter_ms = filter_ms,
     prescore_ms = prescore_ms,
+    prescore_read_ms = prescore_detail and prescore_detail.prescore_read_ms or 0,
+    prescore_score_ms = prescore_detail and prescore_detail.prescore_score_ms or 0,
+    prescore_sort_ms = prescore_detail and prescore_detail.prescore_sort_ms or 0,
+    prescore_select_ms = prescore_detail and prescore_detail.prescore_select_ms or 0,
+    prescore_detail_ms = prescore_detail and prescore_detail.prescore_detail_ms or 0,
   }
 end
 
@@ -1735,10 +1774,11 @@ local function collect_from_filtered_addresses(opts)
   local prescore_tied_count = nil
   local true_in_prescored = false
   local true_in_selected = false
+  local prescore_detail = nil
   local prescore_start_ms = now_ms()
 
   if use_prescore_selection and #filtered_addresses > 0 then
-    selected_addresses, prescored_count, prescore_cutoff_score, prescore_tied_count, true_in_prescored, true_in_selected =
+    selected_addresses, prescored_count, prescore_cutoff_score, prescore_tied_count, true_in_prescored, true_in_selected, prescore_detail =
       select_top_scored_diverse(filtered_addresses, max_candidates, target_value_pattern, bucket_shift, max_per_bucket, known_true_addr)
     selection_strategy = 'prescore_diverse_top_scored'
   else
@@ -1784,6 +1824,11 @@ local function collect_from_filtered_addresses(opts)
     session_mode = opts.session_mode,
     filter_ms = 0,
     prescore_ms = prescore_ms,
+    prescore_read_ms = prescore_detail and prescore_detail.prescore_read_ms or 0,
+    prescore_score_ms = prescore_detail and prescore_detail.prescore_score_ms or 0,
+    prescore_sort_ms = prescore_detail and prescore_detail.prescore_sort_ms or 0,
+    prescore_select_ms = prescore_detail and prescore_detail.prescore_select_ms or 0,
+    prescore_detail_ms = prescore_detail and prescore_detail.prescore_detail_ms or 0,
   }
 end
 
@@ -1811,7 +1856,9 @@ local function run_stable_no_probe_intersection(opts)
   snapshot_a_opts.probe_full_foundlist = false
   snapshot_a_opts.session_mode = 'no_probe'
 
+  local snapshot_a_start_ms = now_ms()
   local snapshot_a = MVP0FoundList.collect(snapshot_a_opts)
+  local stable_snapshot_A_ms = elapsed_ms(snapshot_a_start_ms)
   local snapshot_a_filtered = copy_numeric_array(MVP0FoundList.LAST_FILTER_DEBUG and MVP0FoundList.LAST_FILTER_DEBUG.matched_addresses or {})
 
   local snapshot_b_opts = copy_option_table(opts)
@@ -1821,8 +1868,11 @@ local function run_stable_no_probe_intersection(opts)
   snapshot_b_opts.probe_full_foundlist = false
   snapshot_b_opts.session_mode = 'no_probe'
 
+  local snapshot_b_start_ms = now_ms()
   local snapshot_b = MVP0FoundList.collect(snapshot_b_opts)
+  local stable_snapshot_B_ms = elapsed_ms(snapshot_b_start_ms)
   local snapshot_b_filtered = copy_numeric_array(MVP0FoundList.LAST_FILTER_DEBUG and MVP0FoundList.LAST_FILTER_DEBUG.matched_addresses or {})
+  local stable_intersection_build_start_ms = now_ms()
   local stable_filtered = {}
   local snapshot_a_set = build_address_set(snapshot_a_filtered)
   local snapshot_b_set = build_address_set(snapshot_b_filtered)
@@ -1846,6 +1896,7 @@ local function run_stable_no_probe_intersection(opts)
       snapshot_b_only[#snapshot_b_only + 1] = addr
     end
   end
+  local stable_intersection_build_ms = elapsed_ms(stable_intersection_build_start_ms)
 
   local truth_probe_logs = copy_string_array(snapshot_b.truth_probe_logs)
   append_probe_log(truth_probe_logs, 'filter', string.format(
@@ -1910,6 +1961,9 @@ local function run_stable_no_probe_intersection(opts)
   bundle.stable_intersection_canonical_source_count = #snapshot_b_filtered
   bundle.stable_intersection_downstream_input_count = #stable_filtered
   bundle.stable_intersection_true_in_filtered = bundle.true_in_filtered
+  bundle.stable_snapshot_A_ms = stable_snapshot_A_ms
+  bundle.stable_snapshot_B_ms = stable_snapshot_B_ms
+  bundle.stable_intersection_build_ms = stable_intersection_build_ms
   bundle.session_mode = opts.session_mode or 'stable_no_probe_intersection'
 
   MVP0FoundList.LAST_FILTER_DEBUG = {
@@ -1946,8 +2000,16 @@ local function run_stable_no_probe_intersection(opts)
     stable_intersection_snapshot_B_only_count = #snapshot_b_only,
     stable_intersection_canonical_source_count = #snapshot_b_filtered,
     stable_intersection_downstream_input_count = #stable_filtered,
+    stable_snapshot_A_ms = stable_snapshot_A_ms,
+    stable_snapshot_B_ms = stable_snapshot_B_ms,
+    stable_intersection_build_ms = stable_intersection_build_ms,
     filter_ms = bundle.filter_ms,
     prescore_ms = bundle.prescore_ms,
+    prescore_read_ms = bundle.prescore_read_ms,
+    prescore_score_ms = bundle.prescore_score_ms,
+    prescore_sort_ms = bundle.prescore_sort_ms,
+    prescore_select_ms = bundle.prescore_select_ms,
+    prescore_detail_ms = bundle.prescore_detail_ms,
   }
 
   return bundle

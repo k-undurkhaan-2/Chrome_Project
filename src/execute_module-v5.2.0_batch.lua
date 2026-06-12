@@ -4,6 +4,7 @@
 local REPORT_MODULE_PATH = [[D:\Lua Developer\mvp0_candidate_report.lua]]
 local COLLECTOR_MODULE_PATH = [[D:\Lua Developer\mvp0_foundlist_collector.lua]]
 local OUTPUT_DIR = [[D:\armedforces.io-v2\log\auto_output]]
+local LOCAL_CASE_CONFIG_PATH = [[D:\Lua Developer\src\run_case_config.local.lua]]
 
 local MODE_PRESETS = {
   no_probe = {
@@ -24,11 +25,122 @@ local MODE_PRESETS = {
   },
 }
 
+local function file_exists(path)
+  local handle = io.open(path, "r")
+  if handle ~= nil then
+    handle:close()
+    return true
+  end
+  return false
+end
+
+local function parse_case_number(value, field_name)
+  if value == nil then
+    return nil
+  end
+  if type(value) == "number" then
+    return value
+  end
+  if type(value) == "string" then
+    local text = value:gsub("^%s+", ""):gsub("%s+$", "")
+    if text == "" then
+      return nil
+    end
+    local numeric = tonumber(text)
+    if numeric ~= nil then
+      return numeric
+    end
+    local hex = text:match("^0[xX]([%da-fA-F]+)$")
+    if hex ~= nil then
+      local parsed = 0
+      for i = 1, #hex do
+        parsed = parsed * 16 + tonumber(hex:sub(i, i), 16)
+      end
+      return parsed
+    end
+  end
+  error("invalid case config number for " .. tostring(field_name) .. ": " .. tostring(value))
+end
+
+local function parse_case_float(value, field_name)
+  if value == nil then
+    return nil
+  end
+  if type(value) == "number" then
+    return value
+  end
+  if type(value) == "string" then
+    local numeric = tonumber(value)
+    if numeric ~= nil then
+      return numeric
+    end
+  end
+  error("invalid case config float for " .. tostring(field_name) .. ": " .. tostring(value))
+end
+
+local function normalize_diagnostic_level(value)
+  local level = tostring(value or "basic"):lower()
+  if level == "basic" or level == "debug" or level == "trace" then
+    return level
+  end
+  error("invalid diagnostic_level: " .. tostring(value))
+end
+
+local function apply_local_case_config(run_cases, path)
+  for _, case_cfg in ipairs(run_cases or {}) do
+    case_cfg.case_config_loaded = false
+    case_cfg.case_config_path = path
+    case_cfg.known_true_addr_source = "default"
+    case_cfg.target_value_source = "default"
+    case_cfg.diagnostic_level = normalize_diagnostic_level(case_cfg.diagnostic_level)
+  end
+
+  if not file_exists(path) then
+    return run_cases
+  end
+
+  local loaded = dofile(path)
+  if type(loaded) ~= "table" then
+    error("case config must return a table: " .. tostring(path))
+  end
+
+  local case_cfg = run_cases[1]
+  if case_cfg == nil then
+    error("case config cannot be applied because RUN_CASES is empty")
+  end
+
+  case_cfg.case_config_loaded = true
+  if loaded.case_id ~= nil then
+    case_cfg.case_id = tostring(loaded.case_id)
+  end
+  if loaded.known_true_addr ~= nil then
+    case_cfg.known_true_addr = parse_case_number(loaded.known_true_addr, "known_true_addr")
+    case_cfg.known_true_addr_source = "local"
+  end
+  if loaded.target_value_addr ~= nil then
+    case_cfg.target_value_addr = parse_case_number(loaded.target_value_addr, "target_value_addr")
+    case_cfg.target_value_source = "local"
+  end
+  if loaded.target_value_pattern ~= nil then
+    case_cfg.target_value_pattern = parse_case_number(loaded.target_value_pattern, "target_value_pattern")
+    case_cfg.target_value_source = "local"
+  end
+  if loaded.target_value_float ~= nil then
+    case_cfg.target_value_float = parse_case_float(loaded.target_value_float, "target_value_float")
+    case_cfg.target_value_source = "local"
+  end
+  if loaded.diagnostic_level ~= nil then
+    case_cfg.diagnostic_level = normalize_diagnostic_level(loaded.diagnostic_level)
+  end
+
+  return run_cases
+end
+
 local RUN_CASES = {
   {
     case_id = "case_01",
     session_id = "collector-retest-wide-2",
-    known_true_addr = 0x,
+    known_true_addr = nil,
     target_value_pattern = 0x42C80000,
     target_value_float = 100.0,
     max_candidates = 100,
@@ -36,6 +148,7 @@ local RUN_CASES = {
     filter_target_match = true,
     use_prescore_selection = true,
     stable_filter_intersection_enabled = false,
+    diagnostic_level = "basic",
     modes = {
       {name = "no_probe_A", probe_full_foundlist = false},
       {name = "with_probe", probe_full_foundlist = true},
@@ -44,8 +157,11 @@ local RUN_CASES = {
   },
 }
 
+RUN_CASES = apply_local_case_config(RUN_CASES, LOCAL_CASE_CONFIG_PATH)
+
 local original_print = print
 local active_log_lines = nil
+local console_print_total_ms = 0
 
 local function stringify(...)
   local parts = {}
@@ -59,7 +175,9 @@ print = function(...)
   if active_log_lines ~= nil then
     active_log_lines[#active_log_lines + 1] = stringify(...)
   end
+  local print_start_ms = os.clock() * 1000
   original_print(...)
+  console_print_total_ms = console_print_total_ms + math.floor(((os.clock() * 1000) - print_start_ms) + 0.5)
 end
 
 local function ensure_directory(path)
@@ -78,6 +196,52 @@ local function sanitize_token(value)
   return text
 end
 
+local function now_ms()
+  return os.clock() * 1000
+end
+
+local function elapsed_ms(start_ms)
+  if start_ms == nil then
+    return nil
+  end
+  return math.floor((now_ms() - start_ms) + 0.5)
+end
+
+local function timing_value(value)
+  return tonumber(value) or 0
+end
+
+local function compute_known_timed_ms(summary)
+  return timing_value(summary.mode_config_ms)
+    + timing_value(summary.runner_setup_ms)
+    + timing_value(summary.collector_call_ms)
+    + timing_value(summary.report_render_ms)
+    + timing_value(summary.file_write_ms)
+    + timing_value(summary.stable_intersection_build_ms)
+end
+
+local function finalize_timing_summary(summary)
+  if summary == nil then
+    return nil
+  end
+
+  summary.mode_total_ms = summary.total_ms
+  summary.known_timed_ms = compute_known_timed_ms(summary)
+  if summary.mode_total_ms ~= nil then
+    summary.uninstrumented_gap_ms = summary.mode_total_ms - summary.known_timed_ms
+    if summary.mode_total_ms ~= 0 then
+      summary.uninstrumented_gap_ratio = summary.uninstrumented_gap_ms / summary.mode_total_ms
+    else
+      summary.uninstrumented_gap_ratio = nil
+    end
+  else
+    summary.uninstrumented_gap_ms = nil
+    summary.uninstrumented_gap_ratio = nil
+  end
+
+  return summary
+end
+
 local function hex_u64(value)
   if value == nil then
     return "nil"
@@ -91,6 +255,50 @@ local function copy_array(values)
     copied[i] = value
   end
   return copied
+end
+
+local function get_best_candidate_addr(result)
+  local best = result and result.best or nil
+  return best and best.candidate and best.candidate.value_addr or nil
+end
+
+local function known_true_needs_diagnostics(bundle, result, known_true_addr)
+  if known_true_addr == nil then
+    return false
+  end
+  if bundle == nil then
+    return true
+  end
+  if bundle.raw_count == 0 or bundle.true_in_raw == false or bundle.true_in_unique == false then
+    return true
+  end
+  if bundle.true_in_filtered == false or bundle.true_in_prescored == false or bundle.true_in_selected == false then
+    return true
+  end
+  local rank = (bundle and bundle.known_true_rank_position) or (result and result.known_true_rank_position)
+  if rank ~= nil and rank ~= 1 then
+    return true
+  end
+  local best_addr = get_best_candidate_addr(result)
+  return best_addr ~= nil and best_addr ~= known_true_addr
+end
+
+local function filter_truth_probe_logs(logs, diagnostic_level, include_detail)
+  if diagnostic_level == "trace" or include_detail then
+    return logs
+  end
+  if type(logs) ~= "table" then
+    return logs
+  end
+
+  local filtered = {}
+  for _, line in ipairs(logs) do
+    local text = tostring(line)
+    if not text:find("%[filter_known_true%]") and not text:find("%[filter_mismatch_sample%]") then
+      filtered[#filtered + 1] = line
+    end
+  end
+  return filtered
 end
 
 local function build_address_set(addresses)
@@ -595,6 +803,13 @@ local function get_filter_debug_snapshot()
     matched_count = debug_info.matched_count,
     value_mismatch_count = debug_info.value_mismatch_count,
     read_failed_count = debug_info.read_failed_count,
+    filter_ms = debug_info.filter_ms,
+    prescore_ms = debug_info.prescore_ms,
+    prescore_read_ms = debug_info.prescore_read_ms,
+    prescore_score_ms = debug_info.prescore_score_ms,
+    prescore_sort_ms = debug_info.prescore_sort_ms,
+    prescore_select_ms = debug_info.prescore_select_ms,
+    prescore_detail_ms = debug_info.prescore_detail_ms,
     retry_recovered_count = debug_info.retry_recovered_count,
     retry_still_mismatch_count = debug_info.retry_still_mismatch_count,
     retry_read_failed_count = debug_info.retry_read_failed_count,
@@ -616,6 +831,9 @@ local function get_filter_debug_snapshot()
     pass1_only_addresses = copy_array(debug_info.pass1_only_addresses),
     pass2_only_addresses = copy_array(debug_info.pass2_only_addresses),
     matched_addresses = copy_array(debug_info.matched_addresses),
+    stable_snapshot_A_ms = debug_info.stable_snapshot_A_ms,
+    stable_snapshot_B_ms = debug_info.stable_snapshot_B_ms,
+    stable_intersection_build_ms = debug_info.stable_intersection_build_ms,
   }
 end
 
@@ -624,6 +842,11 @@ local function emit_bundle_report(case_cfg, mode_cfg, bundle)
 
   print("=== run_config ===")
   print_kv("case_id", case_cfg.case_id)
+  print_kv("case_config_loaded", case_cfg.case_config_loaded)
+  print_kv("case_config_path", case_cfg.case_config_path)
+  print_kv("known_true_addr_source", case_cfg.known_true_addr_source)
+  print_kv("target_value_source", case_cfg.target_value_source)
+  print_kv("diagnostic_level", case_cfg.diagnostic_level)
   print_kv("session_id", case_cfg.session_id)
   print_kv("mode", mode_cfg.mode)
   print_hex_kv("known_true_addr", case_cfg.known_true_addr)
@@ -659,7 +882,10 @@ local function emit_bundle_report(case_cfg, mode_cfg, bundle)
   print_kv("raw_probe_used", bundle and bundle.raw_probe_used)
   print_kv("known_true_raw_admission_path", bundle and bundle.known_true_raw_admission_path)
 
-  print_log_table("truth_probe_logs", bundle and bundle.truth_probe_logs)
+  print_log_table(
+    "truth_probe_logs",
+    filter_truth_probe_logs(bundle and bundle.truth_probe_logs, case_cfg.diagnostic_level, known_true_needs_diagnostics(bundle, result, case_cfg.known_true_addr))
+  )
 
   print("=== known_true_debug ===")
   print_kv("known_true_rank_position", pick_known_true_field(bundle, result, "known_true_rank_position"))
@@ -675,12 +901,17 @@ local function emit_bundle_report(case_cfg, mode_cfg, bundle)
   end
 end
 
-local function build_run_summary(case_cfg, mode_cfg, bundle, log_path, filter_debug)
+local function build_run_summary(case_cfg, mode_cfg, bundle, log_path, filter_debug, timing)
   local result = (bundle and bundle.result) or {}
   local best = result and result.best or nil
 
   return {
     case_id = case_cfg.case_id,
+    case_config_loaded = case_cfg.case_config_loaded,
+    case_config_path = case_cfg.case_config_path,
+    known_true_addr_source = case_cfg.known_true_addr_source,
+    target_value_source = case_cfg.target_value_source,
+    diagnostic_level = case_cfg.diagnostic_level,
     session_id = case_cfg.session_id,
     mode = mode_cfg.mode,
     probe_full_foundlist = mode_cfg.probe_full_foundlist,
@@ -699,6 +930,29 @@ local function build_run_summary(case_cfg, mode_cfg, bundle, log_path, filter_de
     matched_count = filter_debug and filter_debug.matched_count or nil,
     value_mismatch_count = filter_debug and filter_debug.value_mismatch_count or nil,
     read_failed_count = filter_debug and filter_debug.read_failed_count or nil,
+    mode_config_ms = timing and timing.mode_config_ms or nil,
+    runner_setup_ms = timing and timing.runner_setup_ms or nil,
+    collector_ms = timing and timing.collector_ms or nil,
+    collector_call_ms = timing and timing.collector_call_ms or timing and timing.collector_ms or nil,
+    filter_ms = filter_debug and filter_debug.filter_ms or nil,
+    prescore_ms = filter_debug and filter_debug.prescore_ms or nil,
+    prescore_read_ms = filter_debug and filter_debug.prescore_read_ms or nil,
+    prescore_score_ms = filter_debug and filter_debug.prescore_score_ms or nil,
+    prescore_sort_ms = filter_debug and filter_debug.prescore_sort_ms or nil,
+    prescore_select_ms = filter_debug and filter_debug.prescore_select_ms or nil,
+    prescore_detail_ms = filter_debug and filter_debug.prescore_detail_ms or nil,
+    stable_intersection_ms = timing and timing.stable_intersection_ms or nil,
+    stable_snapshot_A_ms = timing and timing.stable_snapshot_A_ms or filter_debug and filter_debug.stable_snapshot_A_ms or nil,
+    stable_snapshot_B_ms = timing and timing.stable_snapshot_B_ms or filter_debug and filter_debug.stable_snapshot_B_ms or nil,
+    stable_intersection_build_ms = timing and timing.stable_intersection_build_ms or filter_debug and filter_debug.stable_intersection_build_ms or nil,
+    report_render_ms = timing and timing.report_render_ms or nil,
+    stable_report_render_ms = timing and timing.stable_report_render_ms or nil,
+    diagnostic_render_ms = timing and timing.diagnostic_render_ms or nil,
+    console_print_ms = timing and timing.console_print_ms or nil,
+    file_write_ms = timing and timing.file_write_ms or timing and timing.write_log_ms or nil,
+    write_log_ms = timing and timing.write_log_ms or nil,
+    total_ms = timing and timing.total_ms or nil,
+    log_size_bytes = timing and timing.log_size_bytes or nil,
     retry_recovered_count = filter_debug and filter_debug.retry_recovered_count or nil,
     retry_still_mismatch_count = filter_debug and filter_debug.retry_still_mismatch_count or nil,
     retry_read_failed_count = filter_debug and filter_debug.retry_read_failed_count or nil,
@@ -732,6 +986,11 @@ end
 local function print_run_summary(summary)
   print("=== compact_summary ===")
   print_kv("case_id", summary.case_id)
+  print_kv("case_config_loaded", summary.case_config_loaded)
+  print_kv("case_config_path", summary.case_config_path)
+  print_kv("known_true_addr_source", summary.known_true_addr_source)
+  print_kv("target_value_source", summary.target_value_source)
+  print_kv("diagnostic_level", summary.diagnostic_level)
   print_kv("session_id", summary.session_id)
   print_kv("mode", summary.mode)
   print_kv("run_valid", summary.run_valid)
@@ -755,6 +1014,33 @@ local function print_run_summary(summary)
   print_kv("matched_count", summary.matched_count)
   print_kv("value_mismatch_count", summary.value_mismatch_count)
   print_kv("read_failed_count", summary.read_failed_count)
+  print_kv("mode_total_ms", summary.mode_total_ms)
+  print_kv("known_timed_ms", summary.known_timed_ms)
+  print_kv("uninstrumented_gap_ms", summary.uninstrumented_gap_ms)
+  print_kv("uninstrumented_gap_ratio", summary.uninstrumented_gap_ratio)
+  print_kv("runner_setup_ms", summary.runner_setup_ms)
+  print_kv("mode_config_ms", summary.mode_config_ms)
+  print_kv("collector_call_ms", summary.collector_call_ms)
+  print_kv("collector_ms", summary.collector_ms)
+  print_kv("filter_ms", summary.filter_ms)
+  print_kv("prescore_ms", summary.prescore_ms)
+  print_kv("prescore_read_ms", summary.prescore_read_ms)
+  print_kv("prescore_score_ms", summary.prescore_score_ms)
+  print_kv("prescore_sort_ms", summary.prescore_sort_ms)
+  print_kv("prescore_select_ms", summary.prescore_select_ms)
+  print_kv("prescore_detail_ms", summary.prescore_detail_ms)
+  print_kv("stable_intersection_ms", summary.stable_intersection_ms)
+  print_kv("stable_snapshot_A_ms", summary.stable_snapshot_A_ms)
+  print_kv("stable_snapshot_B_ms", summary.stable_snapshot_B_ms)
+  print_kv("stable_intersection_build_ms", summary.stable_intersection_build_ms)
+  print_kv("report_render_ms", summary.report_render_ms)
+  print_kv("stable_report_render_ms", summary.stable_report_render_ms)
+  print_kv("diagnostic_render_ms", summary.diagnostic_render_ms)
+  print_kv("console_print_ms", summary.console_print_ms)
+  print_kv("file_write_ms", summary.file_write_ms)
+  print_kv("write_log_ms", summary.write_log_ms)
+  print_kv("total_ms", summary.total_ms)
+  print_kv("log_size_bytes", summary.log_size_bytes)
   print_kv("retry_recovered_count", summary.retry_recovered_count)
   print_kv("retry_still_mismatch_count", summary.retry_still_mismatch_count)
   print_kv("retry_read_failed_count", summary.retry_read_failed_count)
@@ -804,6 +1090,11 @@ local function render_summary_file(batch_id, summaries)
   for _, summary in ipairs(summaries) do
     lines[#lines + 1] = string.format("--- %s / %s ---", tostring(summary.session_id), tostring(summary.mode))
     lines[#lines + 1] = "case_id = " .. tostring(summary.case_id)
+    lines[#lines + 1] = "case_config_loaded = " .. tostring(summary.case_config_loaded)
+    lines[#lines + 1] = "case_config_path = " .. tostring(summary.case_config_path)
+    lines[#lines + 1] = "known_true_addr_source = " .. tostring(summary.known_true_addr_source)
+    lines[#lines + 1] = "target_value_source = " .. tostring(summary.target_value_source)
+    lines[#lines + 1] = "diagnostic_level = " .. tostring(summary.diagnostic_level)
     lines[#lines + 1] = "known_true_addr = " .. tostring(hex_u64(summary.known_true_addr))
     lines[#lines + 1] = "probe_full_foundlist = " .. tostring(summary.probe_full_foundlist)
     lines[#lines + 1] = "run_valid = " .. tostring(summary.run_valid)
@@ -830,6 +1121,33 @@ local function render_summary_file(batch_id, summaries)
     lines[#lines + 1] = "matched_count = " .. tostring(summary.matched_count)
     lines[#lines + 1] = "value_mismatch_count = " .. tostring(summary.value_mismatch_count)
     lines[#lines + 1] = "read_failed_count = " .. tostring(summary.read_failed_count)
+    lines[#lines + 1] = "mode_total_ms = " .. tostring(summary.mode_total_ms)
+    lines[#lines + 1] = "known_timed_ms = " .. tostring(summary.known_timed_ms)
+    lines[#lines + 1] = "uninstrumented_gap_ms = " .. tostring(summary.uninstrumented_gap_ms)
+    lines[#lines + 1] = "uninstrumented_gap_ratio = " .. tostring(summary.uninstrumented_gap_ratio)
+    lines[#lines + 1] = "runner_setup_ms = " .. tostring(summary.runner_setup_ms)
+    lines[#lines + 1] = "mode_config_ms = " .. tostring(summary.mode_config_ms)
+    lines[#lines + 1] = "collector_call_ms = " .. tostring(summary.collector_call_ms)
+    lines[#lines + 1] = "collector_ms = " .. tostring(summary.collector_ms)
+    lines[#lines + 1] = "filter_ms = " .. tostring(summary.filter_ms)
+    lines[#lines + 1] = "prescore_ms = " .. tostring(summary.prescore_ms)
+    lines[#lines + 1] = "prescore_read_ms = " .. tostring(summary.prescore_read_ms)
+    lines[#lines + 1] = "prescore_score_ms = " .. tostring(summary.prescore_score_ms)
+    lines[#lines + 1] = "prescore_sort_ms = " .. tostring(summary.prescore_sort_ms)
+    lines[#lines + 1] = "prescore_select_ms = " .. tostring(summary.prescore_select_ms)
+    lines[#lines + 1] = "prescore_detail_ms = " .. tostring(summary.prescore_detail_ms)
+    lines[#lines + 1] = "stable_intersection_ms = " .. tostring(summary.stable_intersection_ms)
+    lines[#lines + 1] = "stable_snapshot_A_ms = " .. tostring(summary.stable_snapshot_A_ms)
+    lines[#lines + 1] = "stable_snapshot_B_ms = " .. tostring(summary.stable_snapshot_B_ms)
+    lines[#lines + 1] = "stable_intersection_build_ms = " .. tostring(summary.stable_intersection_build_ms)
+    lines[#lines + 1] = "report_render_ms = " .. tostring(summary.report_render_ms)
+    lines[#lines + 1] = "stable_report_render_ms = " .. tostring(summary.stable_report_render_ms)
+    lines[#lines + 1] = "diagnostic_render_ms = " .. tostring(summary.diagnostic_render_ms)
+    lines[#lines + 1] = "console_print_ms = " .. tostring(summary.console_print_ms)
+    lines[#lines + 1] = "file_write_ms = " .. tostring(summary.file_write_ms)
+    lines[#lines + 1] = "write_log_ms = " .. tostring(summary.write_log_ms)
+    lines[#lines + 1] = "total_ms = " .. tostring(summary.total_ms)
+    lines[#lines + 1] = "log_size_bytes = " .. tostring(summary.log_size_bytes)
     lines[#lines + 1] = "retry_recovered_count = " .. tostring(summary.retry_recovered_count)
     lines[#lines + 1] = "retry_still_mismatch_count = " .. tostring(summary.retry_still_mismatch_count)
     lines[#lines + 1] = "retry_read_failed_count = " .. tostring(summary.retry_read_failed_count)
@@ -908,6 +1226,11 @@ end
 local function emit_stable_intersection_report(case_cfg, bundle, summary)
   print("=== stable_intersection_experiment ===")
   print_kv("case_id", case_cfg.case_id)
+  print_kv("case_config_loaded", case_cfg.case_config_loaded)
+  print_kv("case_config_path", case_cfg.case_config_path)
+  print_kv("known_true_addr_source", case_cfg.known_true_addr_source)
+  print_kv("target_value_source", case_cfg.target_value_source)
+  print_kv("diagnostic_level", case_cfg.diagnostic_level)
   print_kv("session_id", case_cfg.session_id)
   print_kv("mode", "stable_no_probe_intersection")
   -- [stable-intersection-report]
@@ -922,6 +1245,33 @@ local function emit_stable_intersection_report(case_cfg, bundle, summary)
   print_hex_kv("target_value_addr", summary.target_value_addr)
   print_hex_kv("target_value_pattern", summary.target_value_pattern)
   print_kv("target_value_float", summary.target_value_float)
+  print_kv("mode_total_ms", summary.mode_total_ms)
+  print_kv("known_timed_ms", summary.known_timed_ms)
+  print_kv("uninstrumented_gap_ms", summary.uninstrumented_gap_ms)
+  print_kv("uninstrumented_gap_ratio", summary.uninstrumented_gap_ratio)
+  print_kv("runner_setup_ms", summary.runner_setup_ms)
+  print_kv("mode_config_ms", summary.mode_config_ms)
+  print_kv("collector_call_ms", summary.collector_call_ms)
+  print_kv("collector_ms", summary.collector_ms)
+  print_kv("filter_ms", summary.filter_ms)
+  print_kv("prescore_ms", summary.prescore_ms)
+  print_kv("prescore_read_ms", summary.prescore_read_ms)
+  print_kv("prescore_score_ms", summary.prescore_score_ms)
+  print_kv("prescore_sort_ms", summary.prescore_sort_ms)
+  print_kv("prescore_select_ms", summary.prescore_select_ms)
+  print_kv("prescore_detail_ms", summary.prescore_detail_ms)
+  print_kv("stable_intersection_ms", summary.stable_intersection_ms)
+  print_kv("stable_snapshot_A_ms", summary.stable_snapshot_A_ms)
+  print_kv("stable_snapshot_B_ms", summary.stable_snapshot_B_ms)
+  print_kv("stable_intersection_build_ms", summary.stable_intersection_build_ms)
+  print_kv("report_render_ms", summary.report_render_ms)
+  print_kv("stable_report_render_ms", summary.stable_report_render_ms)
+  print_kv("diagnostic_render_ms", summary.diagnostic_render_ms)
+  print_kv("console_print_ms", summary.console_print_ms)
+  print_kv("file_write_ms", summary.file_write_ms)
+  print_kv("write_log_ms", summary.write_log_ms)
+  print_kv("total_ms", summary.total_ms)
+  print_kv("log_size_bytes", summary.log_size_bytes)
   print_kv("stable_no_probe_intersection_enabled", summary.stable_no_probe_intersection_enabled)
   print_kv("stable_intersection_snapshot_A_filtered_count", summary.stable_intersection_snapshot_A_filtered_count)
   print_kv("stable_intersection_snapshot_B_filtered_count", summary.stable_intersection_snapshot_B_filtered_count)
@@ -954,7 +1304,7 @@ local function emit_stable_intersection_report(case_cfg, bundle, summary)
   end
 end
 
-local function build_stable_intersection_summary(case_cfg, bundle, log_path, analysis, base_snapshot, runtime_diagnostics)
+local function build_stable_intersection_summary(case_cfg, bundle, log_path, analysis, base_snapshot, runtime_diagnostics, timing)
   local result = (bundle and bundle.result) or {}
   local best = result and result.best or nil
   local downstream_input_count = bundle and bundle.stable_intersection_downstream_input_count or nil
@@ -962,6 +1312,11 @@ local function build_stable_intersection_summary(case_cfg, bundle, log_path, ana
 
   return {
     case_id = case_cfg.case_id,
+    case_config_loaded = case_cfg.case_config_loaded,
+    case_config_path = case_cfg.case_config_path,
+    known_true_addr_source = case_cfg.known_true_addr_source,
+    target_value_source = case_cfg.target_value_source,
+    diagnostic_level = case_cfg.diagnostic_level,
     session_id = case_cfg.session_id,
     mode = "stable_no_probe_intersection",
     probe_full_foundlist = false,
@@ -988,6 +1343,29 @@ local function build_stable_intersection_summary(case_cfg, bundle, log_path, ana
     matched_count = bundle and bundle.filtered_count or nil,
     value_mismatch_count = nil,
     read_failed_count = nil,
+    mode_config_ms = timing and timing.mode_config_ms or nil,
+    runner_setup_ms = timing and timing.runner_setup_ms or nil,
+    collector_ms = timing and timing.collector_ms or nil,
+    collector_call_ms = timing and timing.collector_call_ms or timing and timing.collector_ms or nil,
+    filter_ms = bundle and bundle.filter_ms or nil,
+    prescore_ms = bundle and bundle.prescore_ms or nil,
+    prescore_read_ms = bundle and bundle.prescore_read_ms or nil,
+    prescore_score_ms = bundle and bundle.prescore_score_ms or nil,
+    prescore_sort_ms = bundle and bundle.prescore_sort_ms or nil,
+    prescore_select_ms = bundle and bundle.prescore_select_ms or nil,
+    prescore_detail_ms = bundle and bundle.prescore_detail_ms or nil,
+    stable_intersection_ms = timing and timing.stable_intersection_ms or nil,
+    stable_snapshot_A_ms = bundle and bundle.stable_snapshot_A_ms or nil,
+    stable_snapshot_B_ms = bundle and bundle.stable_snapshot_B_ms or nil,
+    stable_intersection_build_ms = bundle and bundle.stable_intersection_build_ms or timing and timing.stable_intersection_build_ms or nil,
+    report_render_ms = timing and timing.report_render_ms or nil,
+    stable_report_render_ms = timing and timing.stable_report_render_ms or nil,
+    diagnostic_render_ms = timing and timing.diagnostic_render_ms or nil,
+    console_print_ms = timing and timing.console_print_ms or nil,
+    file_write_ms = timing and timing.file_write_ms or timing and timing.write_log_ms or nil,
+    write_log_ms = timing and timing.write_log_ms or nil,
+    total_ms = timing and timing.total_ms or nil,
+    log_size_bytes = timing and timing.log_size_bytes or nil,
     retry_recovered_count = nil,
     retry_still_mismatch_count = nil,
     retry_read_failed_count = nil,
@@ -1030,11 +1408,15 @@ local function build_stable_intersection_summary(case_cfg, bundle, log_path, ana
 end
 
 local function run_stable_intersection_mode(case_cfg, no_probe_a, no_probe_b, batch_id, runtime_diagnostics)
+  local total_start_ms = now_ms()
+  local stable_intersection_build_start_ms = now_ms()
   local analysis = build_no_probe_snapshot_intersection_analysis(no_probe_a, no_probe_b)
+  local stable_intersection_build_ms = elapsed_ms(stable_intersection_build_start_ms)
   if analysis == nil then
     return nil
   end
 
+  local runner_setup_start_ms = now_ms()
   active_log_lines = {}
   local safe_session = sanitize_token(case_cfg.session_id)
   local safe_case = sanitize_token(case_cfg.case_id)
@@ -1045,9 +1427,16 @@ local function run_stable_intersection_mode(case_cfg, no_probe_a, no_probe_b, ba
     safe_session,
     safe_case
   )
+  local runner_setup_ms = elapsed_ms(runner_setup_start_ms)
 
+  local stable_intersection_ms = nil
+  local report_render_ms = nil
+  local console_print_ms = nil
   local ok, bundle_or_err = xpcall(function()
+    local module_load_start_ms = now_ms()
     load_modules()
+    runner_setup_ms = runner_setup_ms + elapsed_ms(module_load_start_ms)
+    local stable_start_ms = now_ms()
     local bundle = MVP0FoundList.run({
       max_candidates = case_cfg.max_candidates,
       scan_budget = case_cfg.scan_budget,
@@ -1062,9 +1451,24 @@ local function run_stable_intersection_mode(case_cfg, no_probe_a, no_probe_b, ba
       probe_full_foundlist = false,
       known_true_addr = case_cfg.known_true_addr,
     })
+    stable_intersection_ms = elapsed_ms(stable_start_ms)
 
-    local summary = build_stable_intersection_summary(case_cfg, bundle, log_path, analysis, no_probe_b, runtime_diagnostics)
+    local summary = build_stable_intersection_summary(case_cfg, bundle, log_path, analysis, no_probe_b, runtime_diagnostics, {
+      mode_config_ms = 0,
+      runner_setup_ms = runner_setup_ms,
+      collector_ms = stable_intersection_ms,
+      collector_call_ms = stable_intersection_ms,
+      stable_intersection_ms = stable_intersection_ms,
+      stable_intersection_build_ms = stable_intersection_build_ms,
+    })
+    local report_console_start_ms = console_print_total_ms
+    local report_render_start_ms = now_ms()
     emit_stable_intersection_report(case_cfg, bundle, summary)
+    report_render_ms = elapsed_ms(report_render_start_ms)
+    console_print_ms = console_print_total_ms - report_console_start_ms
+    summary.report_render_ms = report_render_ms
+    summary.stable_report_render_ms = report_render_ms
+    summary.console_print_ms = console_print_ms
     return {
       bundle = bundle,
       summary = summary,
@@ -1077,18 +1481,44 @@ local function run_stable_intersection_mode(case_cfg, no_probe_a, no_probe_b, ba
   end
 
   local log_text = table.concat(active_log_lines, "\r\n") .. "\r\n"
+  local log_size_bytes = #log_text
+  local write_start_ms = now_ms()
   write_text_file(log_path, log_text)
+  local write_log_ms = elapsed_ms(write_start_ms)
+  local file_write_ms = write_log_ms
   active_log_lines = nil
+  local total_ms = elapsed_ms(total_start_ms)
 
   if not ok then
-    return {
+    return finalize_timing_summary({
       case_id = case_cfg.case_id,
+      case_config_loaded = case_cfg.case_config_loaded,
+      case_config_path = case_cfg.case_config_path,
+      known_true_addr_source = case_cfg.known_true_addr_source,
+      target_value_source = case_cfg.target_value_source,
+      diagnostic_level = case_cfg.diagnostic_level,
       session_id = case_cfg.session_id,
       mode = "stable_no_probe_intersection",
       known_true_addr = case_cfg.known_true_addr,
       target_value_addr = case_cfg.target_value_addr,
       target_value_pattern = case_cfg.target_value_pattern,
       target_value_float = case_cfg.target_value_float,
+      mode_config_ms = 0,
+      runner_setup_ms = runner_setup_ms,
+      collector_ms = stable_intersection_ms,
+      collector_call_ms = stable_intersection_ms,
+      filter_ms = nil,
+      prescore_ms = nil,
+      stable_intersection_ms = stable_intersection_ms,
+      stable_intersection_build_ms = stable_intersection_build_ms,
+      report_render_ms = report_render_ms,
+      stable_report_render_ms = report_render_ms,
+      diagnostic_render_ms = nil,
+      console_print_ms = console_print_ms,
+      file_write_ms = file_write_ms,
+      write_log_ms = write_log_ms,
+      total_ms = total_ms,
+      log_size_bytes = log_size_bytes,
       run_valid = get_runtime_diagnostic(runtime_diagnostics, "run_valid"),
       failure_class = get_runtime_diagnostic(runtime_diagnostics, "failure_class"),
       collector_empty = get_runtime_diagnostic(runtime_diagnostics, "collector_empty"),
@@ -1122,10 +1552,17 @@ local function run_stable_intersection_mode(case_cfg, no_probe_a, no_probe_b, ba
       delayed_snapshot_no_probe_A_only_count = analysis.delayed_snapshot_no_probe_A_only_count,
       delayed_snapshot_no_probe_B_only_count = analysis.delayed_snapshot_no_probe_B_only_count,
       delayed_snapshot_known_true_in_intersection = analysis.delayed_snapshot_known_true_in_intersection,
-    }
+    })
   end
 
+  bundle_or_err.summary.write_log_ms = write_log_ms
+  bundle_or_err.summary.file_write_ms = file_write_ms
+  bundle_or_err.summary.total_ms = total_ms
+  bundle_or_err.summary.log_size_bytes = log_size_bytes
+  finalize_timing_summary(bundle_or_err.summary)
+  local diagnostic_render_start_ms = now_ms()
   print_run_summary(bundle_or_err.summary)
+  bundle_or_err.summary.diagnostic_render_ms = elapsed_ms(diagnostic_render_start_ms)
   return bundle_or_err.summary
 end
 
@@ -1183,6 +1620,11 @@ local function render_diagnostic_diff_file(batch_id, summaries)
       lines[#lines + 1] = "collector_empty = " .. tostring(runtime_empty_diagnostics.collector_empty)
       lines[#lines + 1] = "empty_modes = " .. tostring(runtime_empty_diagnostics.empty_modes)
       lines[#lines + 1] = "recommendation = " .. tostring(runtime_empty_diagnostics.recommendation)
+      lines[#lines + 1] = "case_config_loaded = " .. tostring(no_probe_a.case_config_loaded)
+      lines[#lines + 1] = "case_config_path = " .. tostring(no_probe_a.case_config_path)
+      lines[#lines + 1] = "known_true_addr_source = " .. tostring(no_probe_a.known_true_addr_source)
+      lines[#lines + 1] = "target_value_source = " .. tostring(no_probe_a.target_value_source)
+      lines[#lines + 1] = "diagnostic_level = " .. tostring(no_probe_a.diagnostic_level)
       lines[#lines + 1] = "no_probe_A_collector_empty = " .. tostring(runtime_empty_diagnostics.no_probe_A_collector_empty)
       lines[#lines + 1] = "with_probe_collector_empty = " .. tostring(runtime_empty_diagnostics.with_probe_collector_empty)
       lines[#lines + 1] = "no_probe_B_collector_empty = " .. tostring(runtime_empty_diagnostics.no_probe_B_collector_empty)
@@ -1198,6 +1640,33 @@ local function render_diagnostic_diff_file(batch_id, summaries)
         lines[#lines + 1] = "matched_count = " .. tostring(summary.matched_count)
         lines[#lines + 1] = "value_mismatch_count = " .. tostring(summary.value_mismatch_count)
         lines[#lines + 1] = "read_failed_count = " .. tostring(summary.read_failed_count)
+        lines[#lines + 1] = "mode_total_ms = " .. tostring(summary.mode_total_ms)
+        lines[#lines + 1] = "known_timed_ms = " .. tostring(summary.known_timed_ms)
+        lines[#lines + 1] = "uninstrumented_gap_ms = " .. tostring(summary.uninstrumented_gap_ms)
+        lines[#lines + 1] = "uninstrumented_gap_ratio = " .. tostring(summary.uninstrumented_gap_ratio)
+        lines[#lines + 1] = "runner_setup_ms = " .. tostring(summary.runner_setup_ms)
+        lines[#lines + 1] = "mode_config_ms = " .. tostring(summary.mode_config_ms)
+        lines[#lines + 1] = "collector_call_ms = " .. tostring(summary.collector_call_ms)
+        lines[#lines + 1] = "collector_ms = " .. tostring(summary.collector_ms)
+        lines[#lines + 1] = "filter_ms = " .. tostring(summary.filter_ms)
+        lines[#lines + 1] = "prescore_ms = " .. tostring(summary.prescore_ms)
+        lines[#lines + 1] = "prescore_read_ms = " .. tostring(summary.prescore_read_ms)
+        lines[#lines + 1] = "prescore_score_ms = " .. tostring(summary.prescore_score_ms)
+        lines[#lines + 1] = "prescore_sort_ms = " .. tostring(summary.prescore_sort_ms)
+        lines[#lines + 1] = "prescore_select_ms = " .. tostring(summary.prescore_select_ms)
+        lines[#lines + 1] = "prescore_detail_ms = " .. tostring(summary.prescore_detail_ms)
+        lines[#lines + 1] = "stable_intersection_ms = " .. tostring(summary.stable_intersection_ms)
+        lines[#lines + 1] = "stable_snapshot_A_ms = " .. tostring(summary.stable_snapshot_A_ms)
+        lines[#lines + 1] = "stable_snapshot_B_ms = " .. tostring(summary.stable_snapshot_B_ms)
+        lines[#lines + 1] = "stable_intersection_build_ms = " .. tostring(summary.stable_intersection_build_ms)
+        lines[#lines + 1] = "report_render_ms = " .. tostring(summary.report_render_ms)
+        lines[#lines + 1] = "stable_report_render_ms = " .. tostring(summary.stable_report_render_ms)
+        lines[#lines + 1] = "diagnostic_render_ms = " .. tostring(summary.diagnostic_render_ms)
+        lines[#lines + 1] = "console_print_ms = " .. tostring(summary.console_print_ms)
+        lines[#lines + 1] = "file_write_ms = " .. tostring(summary.file_write_ms)
+        lines[#lines + 1] = "write_log_ms = " .. tostring(summary.write_log_ms)
+        lines[#lines + 1] = "total_ms = " .. tostring(summary.total_ms)
+        lines[#lines + 1] = "log_size_bytes = " .. tostring(summary.log_size_bytes)
         lines[#lines + 1] = "retry_recovered_count = " .. tostring(summary.retry_recovered_count)
         lines[#lines + 1] = "retry_still_mismatch_count = " .. tostring(summary.retry_still_mismatch_count)
         lines[#lines + 1] = "retry_read_failed_count = " .. tostring(summary.retry_read_failed_count)
@@ -1304,6 +1773,33 @@ local function render_diagnostic_diff_file(batch_id, summaries)
         lines[#lines + 1] = "stable_intersection_best_score = " .. tostring(stable_summary.stable_intersection_best_score)
         lines[#lines + 1] = "stable_intersection_second_score = " .. tostring(stable_summary.stable_intersection_second_score)
         lines[#lines + 1] = "stable_intersection_score_gap = " .. tostring(stable_summary.stable_intersection_score_gap)
+        lines[#lines + 1] = "mode_total_ms = " .. tostring(stable_summary.mode_total_ms)
+        lines[#lines + 1] = "known_timed_ms = " .. tostring(stable_summary.known_timed_ms)
+        lines[#lines + 1] = "uninstrumented_gap_ms = " .. tostring(stable_summary.uninstrumented_gap_ms)
+        lines[#lines + 1] = "uninstrumented_gap_ratio = " .. tostring(stable_summary.uninstrumented_gap_ratio)
+        lines[#lines + 1] = "runner_setup_ms = " .. tostring(stable_summary.runner_setup_ms)
+        lines[#lines + 1] = "mode_config_ms = " .. tostring(stable_summary.mode_config_ms)
+        lines[#lines + 1] = "collector_call_ms = " .. tostring(stable_summary.collector_call_ms)
+        lines[#lines + 1] = "collector_ms = " .. tostring(stable_summary.collector_ms)
+        lines[#lines + 1] = "filter_ms = " .. tostring(stable_summary.filter_ms)
+        lines[#lines + 1] = "prescore_ms = " .. tostring(stable_summary.prescore_ms)
+        lines[#lines + 1] = "prescore_read_ms = " .. tostring(stable_summary.prescore_read_ms)
+        lines[#lines + 1] = "prescore_score_ms = " .. tostring(stable_summary.prescore_score_ms)
+        lines[#lines + 1] = "prescore_sort_ms = " .. tostring(stable_summary.prescore_sort_ms)
+        lines[#lines + 1] = "prescore_select_ms = " .. tostring(stable_summary.prescore_select_ms)
+        lines[#lines + 1] = "prescore_detail_ms = " .. tostring(stable_summary.prescore_detail_ms)
+        lines[#lines + 1] = "stable_intersection_ms = " .. tostring(stable_summary.stable_intersection_ms)
+        lines[#lines + 1] = "stable_snapshot_A_ms = " .. tostring(stable_summary.stable_snapshot_A_ms)
+        lines[#lines + 1] = "stable_snapshot_B_ms = " .. tostring(stable_summary.stable_snapshot_B_ms)
+        lines[#lines + 1] = "stable_intersection_build_ms = " .. tostring(stable_summary.stable_intersection_build_ms)
+        lines[#lines + 1] = "report_render_ms = " .. tostring(stable_summary.report_render_ms)
+        lines[#lines + 1] = "stable_report_render_ms = " .. tostring(stable_summary.stable_report_render_ms)
+        lines[#lines + 1] = "diagnostic_render_ms = " .. tostring(stable_summary.diagnostic_render_ms)
+        lines[#lines + 1] = "console_print_ms = " .. tostring(stable_summary.console_print_ms)
+        lines[#lines + 1] = "file_write_ms = " .. tostring(stable_summary.file_write_ms)
+        lines[#lines + 1] = "write_log_ms = " .. tostring(stable_summary.write_log_ms)
+        lines[#lines + 1] = "total_ms = " .. tostring(stable_summary.total_ms)
+        lines[#lines + 1] = "log_size_bytes = " .. tostring(stable_summary.log_size_bytes)
       end
       lines[#lines + 1] = ""
     end
@@ -1340,12 +1836,16 @@ local function resolve_mode_config(mode_entry)
 end
 
 local function run_case_mode(case_cfg, mode_entry, batch_id)
+  local total_start_ms = now_ms()
+  local mode_config_start_ms = now_ms()
   local mode_cfg = resolve_mode_config(mode_entry)
   if mode_cfg.probe_full_foundlist == nil then
     local preset = MODE_PRESETS[mode_cfg.mode]
     mode_cfg.probe_full_foundlist = preset and preset.probe_full_foundlist or false
   end
+  local mode_config_ms = elapsed_ms(mode_config_start_ms)
 
+  local runner_setup_start_ms = now_ms()
   active_log_lines = {}
   local safe_session = sanitize_token(case_cfg.session_id)
   local safe_case = sanitize_token(case_cfg.case_id)
@@ -1357,10 +1857,17 @@ local function run_case_mode(case_cfg, mode_entry, batch_id)
     safe_case,
     sanitize_token(mode_cfg.mode)
   )
+  local runner_setup_ms = elapsed_ms(runner_setup_start_ms)
 
+  local collector_ms = nil
+  local report_render_ms = nil
+  local console_print_ms = nil
   local ok, bundle_or_err = xpcall(function()
+    local module_load_start_ms = now_ms()
     load_modules()
+    runner_setup_ms = runner_setup_ms + elapsed_ms(module_load_start_ms)
 
+    local collector_start_ms = now_ms()
     local bundle = MVP0FoundList.run({
       max_candidates = case_cfg.max_candidates,
       scan_budget = case_cfg.scan_budget,
@@ -1373,8 +1880,13 @@ local function run_case_mode(case_cfg, mode_entry, batch_id)
       probe_full_foundlist = mode_cfg.probe_full_foundlist,
       known_true_addr = case_cfg.known_true_addr,
     })
+    collector_ms = elapsed_ms(collector_start_ms)
 
+    local report_console_start_ms = console_print_total_ms
+    local report_render_start_ms = now_ms()
     emit_bundle_report(case_cfg, mode_cfg, bundle)
+    report_render_ms = elapsed_ms(report_render_start_ms)
+    console_print_ms = console_print_total_ms - report_console_start_ms
     return bundle
   end, debug.traceback)
 
@@ -1384,12 +1896,22 @@ local function run_case_mode(case_cfg, mode_entry, batch_id)
   end
 
   local log_text = table.concat(active_log_lines, "\r\n") .. "\r\n"
+  local log_size_bytes = #log_text
+  local write_start_ms = now_ms()
   write_text_file(log_path, log_text)
+  local write_log_ms = elapsed_ms(write_start_ms)
+  local file_write_ms = write_log_ms
   active_log_lines = nil
+  local total_ms = elapsed_ms(total_start_ms)
 
   if not ok then
-    return {
+    return finalize_timing_summary({
       case_id = case_cfg.case_id,
+      case_config_loaded = case_cfg.case_config_loaded,
+      case_config_path = case_cfg.case_config_path,
+      known_true_addr_source = case_cfg.known_true_addr_source,
+      target_value_source = case_cfg.target_value_source,
+      diagnostic_level = case_cfg.diagnostic_level,
       session_id = case_cfg.session_id,
       mode = mode_cfg.mode,
       raw_count = nil,
@@ -1424,14 +1946,43 @@ local function run_case_mode(case_cfg, mode_entry, batch_id)
       target_value_addr = case_cfg.target_value_addr,
       target_value_pattern = case_cfg.target_value_pattern,
       target_value_float = case_cfg.target_value_float,
+      mode_config_ms = mode_config_ms,
+      runner_setup_ms = runner_setup_ms,
+      collector_ms = collector_ms,
+      collector_call_ms = collector_ms,
+      filter_ms = nil,
+      prescore_ms = nil,
+      stable_intersection_ms = nil,
+      report_render_ms = report_render_ms,
+      diagnostic_render_ms = nil,
+      console_print_ms = console_print_ms,
+      file_write_ms = file_write_ms,
+      write_log_ms = write_log_ms,
+      total_ms = total_ms,
+      log_size_bytes = log_size_bytes,
       log_path = log_path,
       error = bundle_or_err,
-    }
+    })
   end
 
   local filter_debug = get_filter_debug_snapshot()
-  local summary = build_run_summary(case_cfg, mode_cfg, bundle_or_err, log_path, filter_debug)
+  local summary = build_run_summary(case_cfg, mode_cfg, bundle_or_err, log_path, filter_debug, {
+    mode_config_ms = mode_config_ms,
+    runner_setup_ms = runner_setup_ms,
+    collector_ms = collector_ms,
+    collector_call_ms = collector_ms,
+    stable_intersection_ms = nil,
+    report_render_ms = report_render_ms,
+    console_print_ms = console_print_ms,
+    file_write_ms = file_write_ms,
+    write_log_ms = write_log_ms,
+    total_ms = total_ms,
+    log_size_bytes = log_size_bytes,
+  })
+  finalize_timing_summary(summary)
+  local diagnostic_render_start_ms = now_ms()
   print_run_summary(summary)
+  summary.diagnostic_render_ms = elapsed_ms(diagnostic_render_start_ms)
   return summary
 end
 
