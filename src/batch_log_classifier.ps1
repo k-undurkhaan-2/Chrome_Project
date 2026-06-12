@@ -4,6 +4,8 @@ param(
     [ValidateSet("all", "full", "quick")]
     [string]$Profile = "all",
     [switch]$OnlyBaselineEligible,
+    [string]$InspectBatch,
+    [switch]$ExplainFailures,
     [string]$CompareTo,
     [string]$OutFile
 )
@@ -690,12 +692,23 @@ function Parse-ModeLog {
         filtered_count = Get-KvValue $kv "filtered_count"
         prescored_count = Get-KvValue $kv "prescored_count"
         selected_count = Get-KvValue $kv "selected_count"
+        best_candidate = Get-KvValue $kv "best_candidate"
+        best_score = Get-KvValue $kv "best_score"
+        second_score = Get-KvValue $kv "second_score"
+        score_gap = Get-KvValue $kv "score_gap"
         true_in_raw = Get-KvValue $kv "true_in_raw"
         true_in_unique = Get-KvValue $kv "true_in_unique"
         true_in_filtered = Get-KvValue $kv "true_in_filtered"
         true_in_prescored = Get-KvValue $kv "true_in_prescored"
         true_in_selected = Get-KvValue $kv "true_in_selected"
         known_true_rank_position = Get-KvValue $kv "known_true_rank_position"
+        known_true_final_score = Get-KvValue $kv "known_true_final_score"
+        known_true_prescore_rank = Get-KvValue $kv "known_true_prescore_rank"
+        known_true_prescore_score = Get-KvValue $kv "known_true_prescore_score"
+        selected_cap = Get-KvValue $kv "selected_cap"
+        selected_drop_reason = Get-KvValue $kv "selected_drop_reason"
+        cutoff_score = Get-KvValue $kv "cutoff_score"
+        candidate_at_cutoff = Get-KvValue $kv "candidate_at_cutoff"
         known_true_addr = Get-KvValue $kv "known_true_addr"
         filter_known_true_present = [bool]$filterLine
         target_value_pattern = Get-LineField $filterLine "target_pattern"
@@ -739,6 +752,166 @@ function Test-RecordProfileFilter {
         return $false
     }
     return $true
+}
+
+function Get-DropStageDiagnosis {
+    param($Record)
+
+    if (-not $Record) {
+        return [pscustomobject][ordered]@{
+            drop_stage = "unknown"
+            likely_cause = "missing record"
+            algorithm_failure = "unknown"
+            replacement_sample_recommended = "no"
+            trace_rerun_recommended = "no"
+            code_change_recommended = "no"
+        }
+    }
+
+    switch ($Record.classification) {
+        "incomplete_output" {
+            return [pscustomobject][ordered]@{
+                drop_stage = "incomplete_output"
+                likely_cause = "missing expected output files"
+                algorithm_failure = "no"
+                replacement_sample_recommended = "yes"
+                trace_rerun_recommended = "no"
+                code_change_recommended = "no"
+            }
+        }
+        "collector_runtime_empty" {
+            return [pscustomobject][ordered]@{
+                drop_stage = "collector_runtime_empty"
+                likely_cause = "collector produced empty runtime sample"
+                algorithm_failure = "no"
+                replacement_sample_recommended = "yes"
+                trace_rerun_recommended = "no"
+                code_change_recommended = "no"
+            }
+        }
+        "quick_success" {
+            return [pscustomobject][ordered]@{
+                drop_stage = "quick_success"
+                likely_cause = "smoke_test_only"
+                algorithm_failure = "no"
+                replacement_sample_recommended = "no"
+                trace_rerun_recommended = "no"
+                code_change_recommended = "no"
+            }
+        }
+        "success" {
+            return [pscustomobject][ordered]@{
+                drop_stage = "success"
+                likely_cause = "known_true reached final best candidate"
+                algorithm_failure = "no"
+                replacement_sample_recommended = "no"
+                trace_rerun_recommended = "no"
+                code_change_recommended = "no"
+            }
+        }
+        "known_true_value_mismatch" {
+            return [pscustomobject][ordered]@{
+                drop_stage = "filter_target_match_failure"
+                likely_cause = "truth_value_mismatch"
+                algorithm_failure = "no"
+                replacement_sample_recommended = "no"
+                trace_rerun_recommended = "yes"
+                code_change_recommended = "no"
+            }
+        }
+        "suspected_filter_bug" {
+            return [pscustomobject][ordered]@{
+                drop_stage = "filter_target_match_failure"
+                likely_cause = "suspected_filter_bug"
+                algorithm_failure = "yes"
+                replacement_sample_recommended = "no"
+                trace_rerun_recommended = "yes"
+                code_change_recommended = "yes"
+            }
+        }
+        "selected_quota_issue" {
+            return [pscustomobject][ordered]@{
+                drop_stage = "selected_quota_issue"
+                likely_cause = "known_true reached filtered but did not enter selected"
+                algorithm_failure = "unknown"
+                replacement_sample_recommended = "no"
+                trace_rerun_recommended = "yes"
+                code_change_recommended = "no"
+            }
+        }
+        "ranking_issue" {
+            return [pscustomobject][ordered]@{
+                drop_stage = "ranking_issue"
+                likely_cause = "known_true selected but final best_candidate differs"
+                algorithm_failure = "yes"
+                replacement_sample_recommended = "no"
+                trace_rerun_recommended = "yes"
+                code_change_recommended = "yes"
+            }
+        }
+    }
+
+    return [pscustomobject][ordered]@{
+        drop_stage = "unknown"
+        likely_cause = "classification did not map to a known inspector path"
+        algorithm_failure = "unknown"
+        replacement_sample_recommended = "no"
+        trace_rerun_recommended = "yes"
+        code_change_recommended = "no"
+    }
+}
+
+function Get-FirstProblemMode {
+    param($Record)
+
+    if (-not $Record -or -not $Record.modes) {
+        return $null
+    }
+
+    foreach ($modeName in @("no_probe_A", "with_probe", "no_probe_B")) {
+        $mode = $Record.modes[$modeName]
+        if (-not $mode -or -not $mode.present) {
+            continue
+        }
+        if ($Record.classification -eq "known_true_value_mismatch" -or $Record.classification -eq "suspected_filter_bug") {
+            if ($mode.true_in_raw -eq "true" -and $mode.true_in_unique -eq "true" -and $mode.true_in_filtered -eq "false") {
+                return $mode
+            }
+        } elseif ($Record.classification -eq "selected_quota_issue") {
+            if ($mode.true_in_filtered -eq "true" -and $mode.true_in_selected -eq "false") {
+                return $mode
+            }
+        } elseif ($Record.classification -eq "ranking_issue") {
+            if ($mode.true_in_selected -eq "true") {
+                return $mode
+            }
+        }
+    }
+    return $Record.modes["no_probe_A"]
+}
+
+function Add-InspectorModeRows {
+    param([object[]]$Lines, $Record)
+
+    $Lines += "| mode | raw | unique | filtered | prescored | selected | rank | best_candidate |"
+    $Lines += "|---|---:|---:|---:|---:|---:|---:|---|"
+    foreach ($modeName in @("no_probe_A", "with_probe", "no_probe_B")) {
+        $mode = $Record.modes[$modeName]
+        if ($mode -and $mode.present) {
+            $Lines += ("| {0} | {1} | {2} | {3} | {4} | {5} | {6} | {7} |" -f `
+                (Format-Cell $modeName),
+                (Format-Cell $mode.true_in_raw),
+                (Format-Cell $mode.true_in_unique),
+                (Format-Cell $mode.true_in_filtered),
+                (Format-Cell $mode.true_in_prescored),
+                (Format-Cell $mode.true_in_selected),
+                (Format-Cell $mode.known_true_rank_position),
+                (Format-Cell $mode.best_candidate))
+        } else {
+            $Lines += ("| {0} | - | - | - | - | - | - | - |" -f (Format-Cell $modeName))
+        }
+    }
+    return $Lines
 }
 
 function Get-BatchRecord {
@@ -906,11 +1079,130 @@ function Get-BatchRecord {
         classification = $classification
         details = $details
         performance_metrics = $performanceMetrics
+        missing_files = $missing
+        log_paths = [ordered]@{
+            summary = $summaryPath
+            diagnostic_diff = $diagnosticPath
+            no_probe_A = $noProbeAPath
+            with_probe = $withProbePath
+            no_probe_B = $noProbeBPath
+            stable = $stablePath
+        }
+        modes = $modes
+        summary_map = $summary
+        stable_map = $stable
     }
 }
 
+function Get-InspectionLines {
+    param($Record)
+
+    $diagnosis = Get-DropStageDiagnosis -Record $Record
+    $problemMode = Get-FirstProblemMode -Record $Record
+    $lines = @()
+
+    $lines += "# Batch Failure / Anomaly Inspection"
+    $lines += ""
+    $lines += "| field | value |"
+    $lines += "|---|---|"
+    $lines += ("| batch_id | {0} |" -f (Format-Cell $Record.batch_id))
+    $lines += ("| known_true_addr | {0} |" -f (Format-Cell $Record.known_true_addr))
+    $lines += ("| diagnostic_level | {0} |" -f (Format-Cell $Record.diagnostic_level))
+    $lines += ("| validation_profile | {0} |" -f (Format-Cell $Record.validation_profile))
+    $lines += ("| classification | {0} |" -f (Format-Cell $Record.classification))
+    $lines += ("| run_valid | {0} |" -f (Format-Cell $Record.run_valid))
+    $lines += ("| collector_empty | {0} |" -f (Format-Cell $Record.collector_empty))
+    $lines += ("| baseline_eligible | {0} |" -f (Format-Cell $Record.baseline_eligible))
+    $lines += ""
+
+    $lines += "## Pipeline Path"
+    $lines += ""
+    $lines = Add-InspectorModeRows -Lines $lines -Record $Record
+    $lines += ""
+    $lines += ("- stable rank: {0}" -f (Format-Cell $Record.stable_intersection_known_true_rank_position))
+    $lines += ("- final best_candidate: {0}" -f (Format-Cell $Record.final_best_candidate))
+    $lines += ("- final hit true_addr: {0}" -f (Format-Cell $Record.final_hit_true_addr))
+    $lines += ""
+
+    $lines += "## Drop-Stage Diagnosis"
+    $lines += ""
+    $lines += ("- drop_stage: {0}" -f $diagnosis.drop_stage)
+    $lines += ("- likely_cause: {0}" -f $diagnosis.likely_cause)
+
+    if ($Record.classification -eq "collector_runtime_empty") {
+        $lines += ("- empty modes: {0}" -f (Format-Cell (Get-KvValue $Record.summary_map "empty_modes")))
+        foreach ($modeName in @("no_probe_A", "with_probe", "no_probe_B")) {
+            $mode = $Record.modes[$modeName]
+            $lines += ("- {0}: raw_count={1}, unique_count={2}, filtered_count={3}, selected_count={4}" -f `
+                $modeName,
+                (Format-Cell ($mode.raw_count)),
+                (Format-Cell ($mode.unique_count)),
+                (Format-Cell ($mode.filtered_count)),
+                (Format-Cell ($mode.selected_count)))
+        }
+        $lines += "- recommendation: rerun sample, do not count as algorithm failure"
+    } elseif ($Record.classification -eq "known_true_value_mismatch" -or $Record.classification -eq "suspected_filter_bug") {
+        if ($problemMode -and $problemMode.filter_known_true_present) {
+            $lines += ("- target_value_pattern: {0}" -f (Format-Cell $problemMode.target_value_pattern))
+            $lines += ("- target_value_float: {0}" -f (Format-Cell $problemMode.target_value_float))
+            $lines += ("- observed_pattern: {0}" -f (Format-Cell $problemMode.observed_pattern))
+            $lines += ("- observed_raw_bytes: {0}" -f (Format-Cell $problemMode.observed_raw_bytes))
+            $lines += ("- observed_float: {0}" -f (Format-Cell $problemMode.observed_float))
+            $lines += ("- delta: {0}" -f (Format-Cell $problemMode.delta))
+            $lines += ("- exact_pattern_match: {0}" -f (Format-Cell $problemMode.exact_pattern_match))
+            $lines += ("- tolerance_pass: {0}" -f (Format-Cell $problemMode.tolerance_pass))
+            $lines += ("- mismatch_reason: {0}" -f (Format-Cell $problemMode.mismatch_reason))
+            $lines += ("- final_filter_outcome: {0}" -f (Format-Cell $problemMode.final_filter_outcome))
+        } else {
+            $lines += "- filter_known_true detail: missing_diagnostic_detail"
+        }
+    } elseif ($Record.classification -eq "selected_quota_issue") {
+        $lines += ("- known_true_prescore_rank: {0}" -f (Format-Cell $problemMode.known_true_prescore_rank))
+        $lines += ("- known_true_prescore_score: {0}" -f (Format-Cell $problemMode.known_true_prescore_score))
+        $lines += ("- selected_cap: {0}" -f (Format-Cell $problemMode.selected_cap))
+        $lines += ("- selected_drop_reason: {0}" -f (Format-Cell $problemMode.selected_drop_reason))
+        $lines += ("- cutoff_score: {0}" -f (Format-Cell $problemMode.cutoff_score))
+        $lines += ("- candidate_at_cutoff: {0}" -f (Format-Cell $problemMode.candidate_at_cutoff))
+        if (-not $problemMode.known_true_prescore_rank) {
+            $lines += "- selected-stage outlier, insufficient rank diagnostics"
+            $lines += "- recommendation: rerun with current anomaly diagnostics or monitor if intermittent"
+        }
+    } elseif ($Record.classification -eq "ranking_issue") {
+        $lines += ("- known_true_rank_position: {0}" -f (Format-Cell $problemMode.known_true_rank_position))
+        $lines += ("- known_true_final_score: {0}" -f (Format-Cell $problemMode.known_true_final_score))
+        $lines += ("- best_candidate: {0}" -f (Format-Cell $problemMode.best_candidate))
+        $lines += ("- best_score: {0}" -f (Format-Cell $problemMode.best_score))
+        $lines += ("- second_score: {0}" -f (Format-Cell $problemMode.second_score))
+        $lines += ("- score_gap: {0}" -f (Format-Cell $problemMode.score_gap))
+    } elseif ($Record.classification -eq "incomplete_output") {
+        $missing = @($Record.missing_files)
+        $missingText = "none"
+        if ($missing.Count -gt 0) {
+            $missingText = $missing -join ", "
+        }
+        $lines += ("- missing files: {0}" -f $missingText)
+        $lines += "- recommendation: not an algorithm failure; rerun or inspect output persistence"
+    } elseif ($Record.classification -eq "quick_success") {
+        $lines += "- smoke_test_only"
+        $lines += ("- baseline_eligible: {0}" -f (Format-Cell $Record.baseline_eligible))
+        $lines += ("- skipped_modes: {0}" -f (Format-Cell (Get-KvValue $Record.summary_map "skipped_modes")))
+        $lines += "- recommendation: use full profile for formal baseline"
+    }
+
+    $lines += ""
+    $lines += "Diagnosis conclusion:"
+    $lines += ("- drop_stage: {0}" -f $diagnosis.drop_stage)
+    $lines += ("- likely_cause: {0}" -f $diagnosis.likely_cause)
+    $lines += ("- algorithm_failure: {0}" -f $diagnosis.algorithm_failure)
+    $lines += ("- replacement_sample_recommended: {0}" -f $diagnosis.replacement_sample_recommended)
+    $lines += ("- trace_rerun_recommended: {0}" -f $diagnosis.trace_rerun_recommended)
+    $lines += ("- code_change_recommended: {0}" -f $diagnosis.code_change_recommended)
+
+    return $lines
+}
+
 function Build-ReportLines {
-    param([object[]]$Records, [int]$RequestedLatest, [string]$Root, [string]$CompareTo, [string]$Profile, [bool]$OnlyBaselineEligible)
+    param([object[]]$Records, [int]$RequestedLatest, [string]$Root, [string]$CompareTo, [string]$Profile, [bool]$OnlyBaselineEligible, [bool]$ExplainFailures)
 
     $repoRoot = Get-RepoRoot -Root $Root
     $commitHash = "not_available"
@@ -1087,6 +1379,20 @@ function Build-ReportLines {
     }
     $lines += ""
 
+    if ($ExplainFailures) {
+        $lines += "## Failure / Anomaly Explanations"
+        $lines += ""
+        if ($nonSuccessRecords.Count -eq 0) {
+            $lines += "No failures/anomalies detected."
+        } else {
+            foreach ($record in $nonSuccessRecords) {
+                $lines += Get-InspectionLines -Record $record
+                $lines += ""
+            }
+        }
+        $lines += ""
+    }
+
     $codeChangeRecommendation = "no code changes recommended"
     $clearIssueClasses = @("suspected_filter_bug", "selected_quota_issue", "ranking_issue")
     foreach ($record in $nonSuccessRecords) {
@@ -1122,18 +1428,24 @@ function Build-ReportLines {
     return $lines
 }
 
-$records = @()
-foreach ($batchInfo in @(Get-BatchIdInfos -Root $LogRoot)) {
-    $record = Get-BatchRecord -Root $LogRoot -BatchId $batchInfo.BatchId
-    if (Test-RecordProfileFilter -Record $record -Profile $Profile -OnlyBaselineEligible ([bool]$OnlyBaselineEligible)) {
-        $records += $record
+$reportLines = @()
+if ($InspectBatch) {
+    $record = Get-BatchRecord -Root $LogRoot -BatchId $InspectBatch
+    $reportLines = @(Get-InspectionLines -Record $record)
+} else {
+    $records = @()
+    foreach ($batchInfo in @(Get-BatchIdInfos -Root $LogRoot)) {
+        $record = Get-BatchRecord -Root $LogRoot -BatchId $batchInfo.BatchId
+        if (Test-RecordProfileFilter -Record $record -Profile $Profile -OnlyBaselineEligible ([bool]$OnlyBaselineEligible)) {
+            $records += $record
+        }
+        if ($records.Count -ge $Latest) {
+            break
+        }
     }
-    if ($records.Count -ge $Latest) {
-        break
-    }
-}
 
-$reportLines = @(Build-ReportLines -Records $records -RequestedLatest $Latest -Root $LogRoot -CompareTo $CompareTo -Profile $Profile -OnlyBaselineEligible ([bool]$OnlyBaselineEligible))
+    $reportLines = @(Build-ReportLines -Records $records -RequestedLatest $Latest -Root $LogRoot -CompareTo $CompareTo -Profile $Profile -OnlyBaselineEligible ([bool]$OnlyBaselineEligible) -ExplainFailures ([bool]$ExplainFailures))
+}
 Write-Output $reportLines
 
 if ($OutFile) {
