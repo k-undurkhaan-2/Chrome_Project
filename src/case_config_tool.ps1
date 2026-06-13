@@ -164,6 +164,49 @@ function Test-NumberString {
     return [double]::TryParse("$Value", [System.Globalization.NumberStyles]::Float, [System.Globalization.CultureInfo]::InvariantCulture, [ref]$number)
 }
 
+function ConvertTo-NormalizedU32Pattern {
+    param($Value)
+
+    if ($null -eq $Value) {
+        return $null
+    }
+
+    $text = "$Value".Trim()
+    if ($text -match '^(?i)0x([0-9a-f]+)$') {
+        $text = $matches[1]
+    }
+    if ($text -notmatch '^[0-9A-Fa-f]{1,8}$') {
+        return $null
+    }
+
+    $u32 = [Convert]::ToUInt32($text, 16)
+    return ("0x{0:X8}" -f $u32)
+}
+
+function ConvertTo-FloatU32Pattern {
+    param($Value)
+
+    if ($null -eq $Value) {
+        return $null
+    }
+
+    $number = 0.0
+    if (-not [double]::TryParse("$Value", [System.Globalization.NumberStyles]::Float, [System.Globalization.CultureInfo]::InvariantCulture, [ref]$number)) {
+        return $null
+    }
+
+    $single = [single]$number
+    $bytes = [System.BitConverter]::GetBytes($single)
+    $u32 = [System.BitConverter]::ToUInt32($bytes, 0)
+    return ("0x{0:X8}" -f $u32)
+}
+
+function Test-U32PatternString {
+    param($Value)
+
+    return $null -ne (ConvertTo-NormalizedU32Pattern -Value $Value)
+}
+
 function Test-GitIgnored {
     param([string]$RelativePath)
 
@@ -575,6 +618,58 @@ function New-ValidationRow {
     }
 }
 
+function Add-PatternFloatConsistencyRows {
+    param(
+        [object[]]$Rows,
+        $Config,
+        [string]$PatternKey,
+        [string]$FloatKey,
+        [bool]$Required
+    )
+
+    $patternValue = Get-ConfigValue -Config $Config -Key $PatternKey
+    $floatValue = Get-ConfigValue -Config $Config -Key $FloatKey
+    $hasPattern = $null -ne $patternValue -and "$patternValue" -ne ""
+    $hasFloat = $null -ne $floatValue -and "$floatValue" -ne ""
+
+    if (-not $Required -and -not $hasPattern -and -not $hasFloat) {
+        return $Rows
+    }
+
+    $fieldPair = ("{0} / {1}" -f $PatternKey, $FloatKey)
+    if (-not $hasPattern -or -not $hasFloat) {
+        $Rows += New-ValidationRow `
+            -Status "FAIL" `
+            -Check ("{0} mismatch" -f $PatternKey) `
+            -Detail ("missing field for pair = {0}" -f $fieldPair)
+        return $Rows
+    }
+
+    $actualPattern = ConvertTo-NormalizedU32Pattern -Value $patternValue
+    $expectedPattern = ConvertTo-FloatU32Pattern -Value $floatValue
+    if ($null -eq $actualPattern -or $null -eq $expectedPattern) {
+        $Rows += New-ValidationRow `
+            -Status "FAIL" `
+            -Check ("{0} mismatch" -f $PatternKey) `
+            -Detail ("expected pattern from float = {0}; actual pattern = {1}; field pair = {2}" -f (Format-Cell $expectedPattern), (Format-Cell $patternValue), $fieldPair)
+        return $Rows
+    }
+
+    if ($actualPattern.ToUpperInvariant() -eq $expectedPattern.ToUpperInvariant()) {
+        $Rows += New-ValidationRow `
+            -Status "PASS" `
+            -Check ("{0} matches {1}" -f $PatternKey, $FloatKey) `
+            -Detail ("expected pattern from float = {0}; actual pattern = {1}; field pair = {2}" -f $expectedPattern, $actualPattern, $fieldPair)
+    } else {
+        $Rows += New-ValidationRow `
+            -Status "FAIL" `
+            -Check ("{0} mismatch" -f $PatternKey) `
+            -Detail ("expected pattern from float = {0}; actual pattern = {1}; field pair = {2}" -f $expectedPattern, $actualPattern, $fieldPair)
+    }
+
+    return $Rows
+}
+
 function Test-CaseConfig {
     param($Config)
 
@@ -596,7 +691,7 @@ function Test-CaseConfig {
     }
 
     $pattern = Get-ConfigValue -Config $Config -Key "target_value_pattern"
-    if (Test-HexString -Value $pattern) {
+    if (Test-U32PatternString -Value $pattern) {
         $rows += New-ValidationRow -Status "PASS" -Check "target_value_pattern hex" -Detail $pattern
     } else {
         $rows += New-ValidationRow -Status "FAIL" -Check "target_value_pattern hex" -Detail (Format-Cell $pattern)
@@ -622,6 +717,27 @@ function Test-CaseConfig {
     } else {
         $rows += New-ValidationRow -Status "FAIL" -Check "validation_profile allowed" -Detail (Format-Cell $validationProfile)
     }
+
+    $rows = Add-PatternFloatConsistencyRows `
+        -Rows $rows `
+        -Config $Config `
+        -PatternKey "target_value_pattern" `
+        -FloatKey "target_value_float" `
+        -Required $true
+
+    $rows = Add-PatternFloatConsistencyRows `
+        -Rows $rows `
+        -Config $Config `
+        -PatternKey "write_value_pattern" `
+        -FloatKey "write_value_float" `
+        -Required $false
+
+    $rows = Add-PatternFloatConsistencyRows `
+        -Rows $rows `
+        -Config $Config `
+        -PatternKey "rollback_value_pattern" `
+        -FloatKey "rollback_value_float" `
+        -Required $false
 
     if ($gitignored) {
         $rows += New-ValidationRow -Status "PASS" -Check "local config gitignored" -Detail $RelativeConfigPath
