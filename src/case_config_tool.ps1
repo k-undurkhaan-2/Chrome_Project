@@ -27,6 +27,18 @@ $ConfigPath = Join-Path $ScriptRoot "run_case_config.local.lua"
 $BackupPath = Join-Path $ScriptRoot "run_case_config.local.lua.bak"
 $ExamplePath = Join-Path $ScriptRoot "run_case_config.example.lua"
 $RelativeConfigPath = "src/run_case_config.local.lua"
+$PreservedConfigKeys = @(
+    "execution_mode",
+    "write_enabled",
+    "write_value_float",
+    "write_value_pattern",
+    "write_method",
+    "execution_addr_source",
+    "require_known_true_match",
+    "require_full_profile",
+    "require_old_value_match",
+    "readback_tolerance"
+)
 
 function Write-Help {
     Write-Output "Case config helper"
@@ -85,6 +97,29 @@ function ConvertTo-LuaString {
         return ""
     }
     return $Value -replace '\\', '\\' -replace '"', '\"'
+}
+
+function ConvertTo-LuaLiteral {
+    param([string]$Key, $Value)
+
+    if ($null -eq $Value) {
+        return 'nil'
+    }
+
+    $text = "$Value"
+    if ($Key -in @("write_enabled", "require_known_true_match", "require_full_profile", "require_old_value_match")) {
+        if ($text -match '^(?i:true|false)$') {
+            return $text.ToLowerInvariant()
+        }
+    }
+    if ($Key -in @("write_value_float", "readback_tolerance")) {
+        $number = 0.0
+        if ([double]::TryParse($text, [System.Globalization.NumberStyles]::Float, [System.Globalization.CultureInfo]::InvariantCulture, [ref]$number)) {
+            return $number.ToString("0.0###############", [System.Globalization.CultureInfo]::InvariantCulture)
+        }
+    }
+
+    return ('"{0}"' -f (ConvertTo-LuaString $text))
 }
 
 function Test-HexString {
@@ -160,7 +195,18 @@ function New-CompleteConfig {
     if (-not $config.diagnostic_level) { $config.diagnostic_level = "basic" }
     if (-not $config.validation_profile) { $config.validation_profile = "full" }
 
+    Add-PreservedConfigFields -Config $config -Base $Base
     return $config
+}
+
+function Add-PreservedConfigFields {
+    param($Config, $Base)
+
+    foreach ($key in $PreservedConfigKeys) {
+        if ($Base -and $Base.Contains($key) -and -not $Config.Contains($key)) {
+            $Config[$key] = $Base[$key]
+        }
+    }
 }
 
 function Write-CaseConfig {
@@ -178,9 +224,14 @@ function Write-CaseConfig {
         ('  target_value_pattern = "{0}",' -f (ConvertTo-LuaString $Config.target_value_pattern)),
         ('  target_value_float = {0},' -f $floatText),
         ('  diagnostic_level = "{0}",' -f (ConvertTo-LuaString $Config.diagnostic_level)),
-        ('  validation_profile = "{0}",' -f (ConvertTo-LuaString $Config.validation_profile)),
-        "}"
+        ('  validation_profile = "{0}",' -f (ConvertTo-LuaString $Config.validation_profile))
     )
+    foreach ($key in $PreservedConfigKeys) {
+        if ($Config.Contains($key)) {
+            $lines += ('  {0} = {1},' -f $key, (ConvertTo-LuaLiteral -Key $key -Value $Config[$key]))
+        }
+    }
+    $lines += "}"
 
     Set-Content -LiteralPath $ConfigPath -Value $lines -Encoding UTF8
 }
@@ -401,6 +452,7 @@ if ($Set) {
         diagnostic_level = $DiagnosticLevel
         validation_profile = $ValidationProfile
     }
+    Add-PreservedConfigFields -Config $newConfig -Base $currentConfig
     Write-CaseConfig -Config $newConfig
     Write-Output ("Updated local config: {0}" -f $ConfigPath)
     if ($generatedCaseId) {
