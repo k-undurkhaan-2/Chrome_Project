@@ -25,6 +25,7 @@ $ExpectedProjectRoot = "D:\armedforces.io-v2"
 $ProjectRootPath = [System.IO.Path]::GetFullPath($ProjectRoot).TrimEnd("\", "/")
 $CaseConfigToolPath = Join-Path (Join-Path $ProjectRootPath "src") "case_config_tool.ps1"
 $ClassifierPath = Join-Path (Join-Path $ProjectRootPath "src") "batch_log_classifier.ps1"
+$CaseConfigPath = Join-Path (Join-Path $ProjectRootPath "src") "run_case_config.local.lua"
 $BaselinePath = Join-Path (Join-Path $ProjectRootPath "log\baselines") "baseline_compact_basic_20260613_latest20.md"
 
 function Format-CommandPart {
@@ -59,6 +60,7 @@ function Write-CommandHelp {
     Write-Output "  inspect-latest Inspect the latest batch id from -LogRoot"
     Write-Output "  status         Show config, latest 5 classifier summary, registry summary, and git status"
     Write-Output "  disable-execution       Disable execution/write in local case config"
+    Write-Output "  safe-reset              Disable execution and optionally reset target float"
     Write-Output "  prepare-dry-run-write   Prepare full/basic dry-run write config"
     Write-Output "  prepare-guarded-write   Prepare full/basic guarded write config"
     Write-Output "  prepare-restore         Prepare dry-run or write-ready restore config from a batch"
@@ -69,6 +71,7 @@ function Write-CommandHelp {
     Write-Output "  prepare-dry-run-write -KnownTrueAddr <addr> -WriteValueFloat <float>"
     Write-Output "  prepare-guarded-write -KnownTrueAddr <addr> -WriteValueFloat <float> -ConfirmWrite"
     Write-Output "  prepare-restore -BatchId <batch> [-EnableWrite -ConfirmWrite]"
+    Write-Output "  safe-reset [-TargetValueFloat 100.0]"
     Write-Output ""
     Write-Output "Common options:"
     Write-Output "  -ProjectRoot D:\armedforces.io-v2"
@@ -137,6 +140,62 @@ function Assert-KnownTrueAddr {
     if (-not (Test-KnownTrueAddr -Value $Value)) {
         Write-Output ("ERROR: -KnownTrueAddr for {0} must match ^0x[0-9A-Fa-f]+$; rejected value: {1}" -f $CommandName, $(if ($Value) { $Value } else { "-" }))
         exit 1
+    }
+}
+
+function Normalize-ConfigValue {
+    param($Value)
+
+    if ($null -eq $Value) {
+        return $null
+    }
+    $text = "$Value".Trim()
+    if (($text.StartsWith('"') -and $text.EndsWith('"')) -or ($text.StartsWith("'") -and $text.EndsWith("'"))) {
+        return $text.Substring(1, $text.Length - 2)
+    }
+    return $text
+}
+
+function Read-CaseConfigMap {
+    param([string]$Path)
+
+    $config = [ordered]@{}
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return $config
+    }
+
+    foreach ($line in Get-Content -LiteralPath $Path) {
+        if ($line -match '^\s*([A-Za-z0-9_]+)\s*=\s*(.*?)\s*,?\s*(?:--.*)?$') {
+            $config[$matches[1]] = Normalize-ConfigValue -Value $matches[2]
+        }
+    }
+    return $config
+}
+
+function Get-ConfigField {
+    param($Config, [string]$Key)
+
+    if ($Config -and $Config.Contains($Key)) {
+        return $Config[$Key]
+    }
+    return $null
+}
+
+function Test-ExecutionConfigWriteCapable {
+    param($Config)
+
+    $executionMode = Get-ConfigField -Config $Config -Key "execution_mode"
+    $writeEnabled = Get-ConfigField -Config $Config -Key "write_enabled"
+    $executionConfirm = Get-ConfigField -Config $Config -Key "execution_confirm"
+
+    return $executionMode -eq "write" -or $writeEnabled -eq "true" -or ($null -ne $executionConfirm -and "$executionConfirm" -ne "")
+}
+
+function Write-ExecutionConfigSafetyWarning {
+    param($Config)
+
+    if (Test-ExecutionConfigWriteCapable -Config $Config) {
+        Write-Output "WARNING: execution config is write-capable. Run disable-execution or safe-reset before normal detection."
     }
 }
 
@@ -475,6 +534,7 @@ $availableCommands = @(
     "inspect-latest",
     "status",
     "disable-execution",
+    "safe-reset",
     "prepare-dry-run-write",
     "prepare-guarded-write",
     "prepare-restore",
@@ -540,6 +600,38 @@ switch ($Command) {
         Write-Output ""
         Write-Output "execution disabled"
         Write-Output "next step: normal detect/full test"
+        exit 0
+    }
+
+    "safe-reset" {
+        $targetRequested = $PSBoundParameters.ContainsKey("TargetValueFloat")
+        if ($targetRequested) {
+            $targetArgs = @("-SetTargetFloat", (Format-InvariantFloat -Value $TargetValueFloat))
+            $targetResult = Invoke-WorkflowCommand -FilePath $CaseConfigToolPath -Arguments $targetArgs -Capture
+            if ($targetResult.exit_code -ne 0) {
+                exit $targetResult.exit_code
+            }
+        }
+
+        $disableResult = Invoke-WorkflowCommand -FilePath $CaseConfigToolPath -Arguments @("-DisableExecution") -Capture
+        if ($disableResult.exit_code -ne 0) {
+            exit $disableResult.exit_code
+        }
+
+        $config = Read-CaseConfigMap -Path $CaseConfigPath
+        Write-Output ""
+        Write-WorkflowSummary -Title "Safe-Reset Summary" -Fields ([ordered]@{
+            "target reset requested" = $targetRequested
+            "target_value_float" = Get-ConfigField -Config $config -Key "target_value_float"
+            "target_value_pattern" = Get-ConfigField -Config $config -Key "target_value_pattern"
+            "execution_mode" = Get-ConfigField -Config $config -Key "execution_mode"
+            "write_enabled" = Get-ConfigField -Config $config -Key "write_enabled"
+            "execution_confirm_present" = [bool](Get-ConfigField -Config $config -Key "execution_confirm")
+            "write-capable" = Test-ExecutionConfigWriteCapable -Config $config
+            "config_path" = $CaseConfigPath
+        })
+        Write-Output "- safe-reset complete"
+        Write-Output "- next step: normal detect/full test"
         exit 0
     }
 
@@ -675,6 +767,16 @@ switch ($Command) {
             "rollback_available" = Get-LogField -Block $executionBlock -Key "rollback_available"
             "source_log" = $summaryPath
         })
+
+        $writeAttempted = Test-LogTrue (Get-LogField -Block $executionBlock -Key "write_attempted")
+        $writeOk = Test-LogTrue (Get-LogField -Block $executionBlock -Key "write_ok")
+        $readbackOk = Test-LogTrue (Get-LogField -Block $executionBlock -Key "readback_ok")
+        if ($writeAttempted -or $writeOk -or $readbackOk) {
+            Write-Output ""
+            Write-Output "- execution completed or attempted"
+            Write-Output "- recommended next step: test_session_tool.ps1 disable-execution"
+            Write-Output "- if restore completed, also reset target to normal expected value if needed"
+        }
         exit 0
     }
 
@@ -788,6 +890,8 @@ switch ($Command) {
         if ($caseResult.exit_code -ne 0) {
             exit $caseResult.exit_code
         }
+        $currentConfig = Read-CaseConfigMap -Path $CaseConfigPath
+        Write-ExecutionConfigSafetyWarning -Config $currentConfig
 
         Write-Output ""
         Write-Output "Latest 5 Classifier Summary"
