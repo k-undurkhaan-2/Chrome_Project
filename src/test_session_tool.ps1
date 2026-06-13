@@ -315,6 +315,61 @@ function Get-ExecutionOutcomeFromBlock {
     return "execution_unknown"
 }
 
+function Get-RestoreSourceBatchIdFromText {
+    param($Value)
+
+    if (-not (Test-LogPresent -Value $Value)) {
+        return $null
+    }
+    $text = "$Value"
+    if ($text -match 'restore_(\d{8})[_-](\d{6})(?:_|$)') {
+        return ("{0}-{1}" -f $matches[1], $matches[2])
+    }
+    return $null
+}
+
+function Get-RestoreSourceBatchIdFromBlock {
+    param($Block)
+
+    $source = Get-LogField -Block $Block -Key "restore_source_batch_id"
+    if (Test-LogPresent -Value $source) {
+        return $source
+    }
+    return Get-RestoreSourceBatchIdFromText -Value ($Block.Name)
+}
+
+function Get-TransactionTypeFromBlock {
+    param($Block)
+
+    $mode = Get-LogField -Block $Block -Key "execution_mode"
+    $outcome = Get-ExecutionOutcomeFromBlock -Block $Block
+    $restoreSource = Get-RestoreSourceBatchIdFromBlock -Block $Block
+    $failureClass = Get-LogField -Block $Block -Key "execution_failure_class"
+
+    if (-not (Test-LogPresent -Value $mode) -or $mode -eq "disabled") {
+        return "detect_only"
+    }
+    if ($mode -eq "dry_run") {
+        return "dry_run"
+    }
+    if ($outcome -eq "execution_write_ok" -and (Test-LogPresent -Value $restoreSource)) {
+        return "restore_success"
+    }
+    if ($outcome -eq "execution_write_ok") {
+        return "write_success"
+    }
+    if ($outcome -eq "execution_write_blocked" -and (Test-LogPresent -Value $restoreSource)) {
+        return "restore_blocked"
+    }
+    if ($outcome -eq "execution_write_blocked") {
+        return "write_blocked"
+    }
+    if (Test-LogPresent -Value $failureClass) {
+        return "execution_failed"
+    }
+    return "unknown"
+}
+
 function Read-BatchLogBlocks {
     param([string]$Path)
 
@@ -779,15 +834,20 @@ switch ($Command) {
             exit 1
         }
 
+        $executionOutcome = Get-ExecutionOutcomeFromBlock -Block $executionBlock
+        $transactionType = Get-TransactionTypeFromBlock -Block $executionBlock
+        $restoreSourceBatchId = Get-RestoreSourceBatchIdFromBlock -Block $executionBlock
+
         Write-WorkflowSummary -Title "Post-Execution Summary" -Fields ([ordered]@{
             "batch_id" = $latestBatchId
+            "transaction_type" = $transactionType
             "classification" = if ($record) { $record.classification } else { "not_available" }
             "final hit" = if ($record) { $record.final_hit } else { "not_available" }
-            "execution_outcome" = Get-ExecutionOutcomeFromBlock -Block $executionBlock
+            "execution_outcome" = $executionOutcome
             "execution_mode" = Get-LogField -Block $executionBlock -Key "execution_mode"
             "execution_addr" = Get-LogField -Block $executionBlock -Key "execution_addr"
             "execution_addr_source" = Get-LogField -Block $executionBlock -Key "execution_addr_source"
-            "restore_source_batch_id" = Get-LogField -Block $executionBlock -Key "restore_source_batch_id"
+            "restore_source_batch_id" = $restoreSourceBatchId
             "restore_execution_addr" = Get-LogField -Block $executionBlock -Key "restore_execution_addr"
             "restore_current_value_match" = Get-LogField -Block $executionBlock -Key "restore_current_value_match"
             "restore_current_float" = Get-LogField -Block $executionBlock -Key "restore_current_float"
@@ -805,6 +865,24 @@ switch ($Command) {
         $writeAttempted = Test-LogTrue (Get-LogField -Block $executionBlock -Key "write_attempted")
         $writeOk = Test-LogTrue (Get-LogField -Block $executionBlock -Key "write_ok")
         $readbackOk = Test-LogTrue (Get-LogField -Block $executionBlock -Key "readback_ok")
+        if ($transactionType -eq "write_success") {
+            Write-Output ""
+            Write-Output "write completed"
+            Write-Output "recommended next step:"
+            Write-Output ("test_session_tool.ps1 prepare-restore -BatchId `"{0}`" -EnableWrite -ConfirmWrite" -f $latestBatchId)
+            Write-Output "then run CE and post-execution"
+        } elseif ($transactionType -eq "restore_success") {
+            Write-Output ""
+            Write-Output "restore completed"
+            Write-Output ("restored source batch id = {0}" -f $(if (Test-LogPresent -Value $restoreSourceBatchId) { $restoreSourceBatchId } else { "-" }))
+            Write-Output "recommended next step:"
+            Write-Output "test_session_tool.ps1 safe-reset -TargetValueFloat 100.0"
+        } elseif ($transactionType -eq "restore_blocked") {
+            Write-Output ""
+            Write-Output "restore blocked safely"
+            Write-Output ("failure class = {0}" -f (Get-LogField -Block $executionBlock -Key "execution_failure_class"))
+            Write-Output "no write attempted"
+        }
         if ($writeAttempted -or $writeOk -or $readbackOk) {
             Write-Output ""
             Write-Output "- execution completed or attempted"

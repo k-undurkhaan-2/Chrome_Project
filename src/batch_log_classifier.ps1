@@ -317,6 +317,63 @@ function Get-ExecutionOutcome {
     return "execution_unknown"
 }
 
+function Get-RestoreSourceBatchIdFromCaseId {
+    param($CaseId)
+
+    if (-not (Test-TextPresent -Value $CaseId)) {
+        return $null
+    }
+
+    $text = "$CaseId".Trim()
+    if ($text -match '^restore_(\d{8})[_-](\d{6})(?:_|$)') {
+        return ("{0}-{1}" -f $matches[1], $matches[2])
+    }
+    return $null
+}
+
+function Get-TransactionType {
+    param(
+        [string]$ExecutionMode,
+        [string]$ExecutionOutcome,
+        $RestoreSourceBatchId,
+        $ExecutionFailureClass
+    )
+
+    if (-not (Test-TextPresent -Value $ExecutionMode) -or $ExecutionMode -eq "disabled") {
+        return "detect_only"
+    }
+    if ($ExecutionMode -eq "dry_run") {
+        return "dry_run"
+    }
+
+    $hasRestoreSource = Test-TextPresent -Value $RestoreSourceBatchId
+    if ($ExecutionOutcome -eq "execution_write_ok" -and $hasRestoreSource) {
+        return "restore_success"
+    }
+    if ($ExecutionOutcome -eq "execution_write_ok") {
+        return "write_success"
+    }
+    if ($ExecutionOutcome -eq "execution_write_blocked" -and $hasRestoreSource) {
+        return "restore_blocked"
+    }
+    if ($ExecutionOutcome -eq "execution_write_blocked") {
+        return "write_blocked"
+    }
+    if (Test-TextPresent -Value $ExecutionFailureClass) {
+        return "execution_failed"
+    }
+    return "unknown"
+}
+
+function Get-RecommendedRestoreCommand {
+    param([string]$BatchId)
+
+    if (-not (Test-TextPresent -Value $BatchId)) {
+        return $null
+    }
+    return ('test_session_tool.ps1 prepare-restore -BatchId "{0}" -EnableWrite -ConfirmWrite' -f $BatchId)
+}
+
 function Test-ExecutionBaselineEligible {
     param($Fields, [string]$Outcome)
 
@@ -1183,6 +1240,17 @@ function Get-DropStageDiagnosis {
         }
     }
 
+    if ($Record.transaction_type -eq "restore_blocked" -or $Record.transaction_type -eq "write_blocked") {
+        return [pscustomobject][ordered]@{
+            drop_stage = "execution_precondition"
+            likely_cause = $Record.execution_failure_class
+            algorithm_failure = "no"
+            replacement_sample_recommended = "no"
+            trace_rerun_recommended = "no"
+            code_change_recommended = "no"
+        }
+    }
+
     switch ($Record.classification) {
         "incomplete_output" {
             return [pscustomobject][ordered]@{
@@ -1366,6 +1434,10 @@ function Get-BatchRecord {
         $withProbe.known_true_addr,
         $noProbeB.known_true_addr
     )
+    $caseId = Select-FirstValue @(
+        (Get-KvValue $stable "case_id"),
+        (Get-KvValue $summary "case_id")
+    )
     $targetPattern = Select-FirstValue @(
         (Get-KvValue $stable "target_value_pattern"),
         (Get-KvValue $summary "target_value_pattern"),
@@ -1502,8 +1574,22 @@ function Get-BatchRecord {
         $recommendation = "fix target pattern/float consistency and rerun"
     }
 
+    $restoreSourceBatchId = Get-ExecutionFieldValue -Fields $executionFields -Name "restore_source_batch_id"
+    if (-not (Test-TextPresent -Value $restoreSourceBatchId)) {
+        $restoreSourceBatchId = Get-RestoreSourceBatchIdFromCaseId -CaseId $caseId
+    }
+    $executionFailureClass = Get-ExecutionFieldValue -Fields $executionFields -Name "execution_failure_class"
+    $transactionType = Get-TransactionType `
+        -ExecutionMode (Get-ExecutionFieldValue -Fields $executionFields -Name "execution_mode") `
+        -ExecutionOutcome $executionOutcome `
+        -RestoreSourceBatchId $restoreSourceBatchId `
+        -ExecutionFailureClass $executionFailureClass
+
     return [pscustomobject][ordered]@{
         batch_id = $BatchId
+        case_id = $caseId
+        transaction_batch_id = $BatchId
+        transaction_type = $transactionType
         known_true_addr = $knownTrue
         target_value_pattern = $targetPattern
         target_value_float = $targetFloat
@@ -1525,7 +1611,7 @@ function Get-BatchRecord {
         execution_arm_seconds_remaining = Get-ExecutionFieldValue -Fields $executionFields -Name "execution_arm_seconds_remaining"
         execution_addr = Get-ExecutionFieldValue -Fields $executionFields -Name "execution_addr"
         execution_addr_source = Get-ExecutionFieldValue -Fields $executionFields -Name "execution_addr_source"
-        restore_source_batch_id = Get-ExecutionFieldValue -Fields $executionFields -Name "restore_source_batch_id"
+        restore_source_batch_id = $restoreSourceBatchId
         restore_execution_addr = Get-ExecutionFieldValue -Fields $executionFields -Name "restore_execution_addr"
         restore_expected_current_float = Get-ExecutionFieldValue -Fields $executionFields -Name "restore_expected_current_float"
         restore_expected_current_pattern = Get-ExecutionFieldValue -Fields $executionFields -Name "restore_expected_current_pattern"
@@ -1536,7 +1622,7 @@ function Get-BatchRecord {
         restore_current_float = Get-ExecutionFieldValue -Fields $executionFields -Name "restore_current_float"
         restore_current_pattern = Get-ExecutionFieldValue -Fields $executionFields -Name "restore_current_pattern"
         execution_preconditions_ok = Get-ExecutionFieldValue -Fields $executionFields -Name "execution_preconditions_ok"
-        execution_failure_class = Get-ExecutionFieldValue -Fields $executionFields -Name "execution_failure_class"
+        execution_failure_class = $executionFailureClass
         known_true_match_ok = Get-ExecutionFieldValue -Fields $executionFields -Name "known_true_match_ok"
         old_value_read_ok = Get-ExecutionFieldValue -Fields $executionFields -Name "old_value_read_ok"
         old_value_pattern = Get-ExecutionFieldValue -Fields $executionFields -Name "old_value_pattern"
@@ -1554,6 +1640,7 @@ function Get-BatchRecord {
         rollback_value_pattern = Get-ExecutionFieldValue -Fields $executionFields -Name "rollback_value_pattern"
         rollback_value_float = Get-ExecutionFieldValue -Fields $executionFields -Name "rollback_value_float"
         executor_version = Get-ExecutionFieldValue -Fields $executionFields -Name "executor_version"
+        recommended_restore_command = if ($transactionType -eq "write_success") { Get-RecommendedRestoreCommand -BatchId $BatchId } else { $null }
         run_valid = $runValid
         failure_class = $failureClass
         collector_empty = $collectorEmpty
@@ -1615,6 +1702,8 @@ function Get-InspectionLines {
     $lines += ""
     $lines += "| field | value |"
     $lines += "|---|---|"
+    $lines += ("| transaction_type | {0} |" -f (Format-Cell $Record.transaction_type))
+    $lines += ("| transaction_batch_id | {0} |" -f (Format-Cell $Record.transaction_batch_id))
     $lines += ("| execution_outcome | {0} |" -f (Format-Cell $Record.execution_outcome))
     $lines += ("| execution_conclusion | {0} |" -f (Format-Cell (Get-ExecutionConclusion -Outcome $Record.execution_outcome)))
     $lines += ("| execution_baseline_eligible | {0} |" -f (Format-Cell $Record.execution_baseline_eligible))
@@ -1639,6 +1728,14 @@ function Get-InspectionLines {
     $lines += ("| restore_current_value_match | {0} |" -f (Format-Cell $Record.restore_current_value_match))
     $lines += ("| restore_current_float | {0} |" -f (Format-Cell $Record.restore_current_float))
     $lines += ("| restore_current_pattern | {0} |" -f (Format-Cell $Record.restore_current_pattern))
+    if ($Record.transaction_type -eq "write_success") {
+        $lines += ("| recommended_restore_command | {0} |" -f (Format-Cell $Record.recommended_restore_command))
+    } elseif ($Record.transaction_type -eq "restore_success") {
+        $lines += ("| restored_source_batch_id | {0} |" -f (Format-Cell $Record.restore_source_batch_id))
+    } elseif ($Record.transaction_type -eq "restore_blocked") {
+        $lines += ("| restore_failure_class | {0} |" -f (Format-Cell $Record.execution_failure_class))
+        $lines += ("| no_write_attempted | {0} |" -f (Format-Cell (-not (Test-TextTrue $Record.write_attempted))))
+    }
     $lines += ("| execution_preconditions_ok | {0} |" -f (Format-Cell $Record.execution_preconditions_ok))
     $lines += ("| execution_failure_class | {0} |" -f (Format-Cell $Record.execution_failure_class))
     $lines += ("| old_value_float | {0} |" -f (Format-Cell $Record.old_value_float))
@@ -1798,6 +1895,9 @@ function New-RegistryEntry {
     return [pscustomobject][ordered]@{
         recorded_at = (Get-Date -Format "o")
         batch_id = $Record.batch_id
+        case_id = $Record.case_id
+        transaction_batch_id = $Record.transaction_batch_id
+        transaction_type = $Record.transaction_type
         known_true_addr = $Record.known_true_addr
         target_value_pattern = $Record.target_value_pattern
         target_value_float = $Record.target_value_float
@@ -1844,6 +1944,7 @@ function New-RegistryEntry {
         execution_failure_class = $Record.execution_failure_class
         rollback_available = $Record.rollback_available
         execution_baseline_eligible = $Record.execution_baseline_eligible
+        recommended_restore_command = $Record.recommended_restore_command
         total_ms = Get-RegistryMetricTotal -Record $Record -Metric "total_ms"
         report_render_ms = Get-RegistryMetricTotal -Record $Record -Metric "report_render_ms"
         log_size_bytes = Get-RegistryMetricTotal -Record $Record -Metric "log_size_bytes"
@@ -1962,6 +2063,7 @@ function Get-ConsoleSummaryLines {
         $lines += "Batch Summary"
         $lines += "-------------"
         $lines = Add-ConsoleField -Lines $lines -Name "batch_id" -Value $record.batch_id
+        $lines = Add-ConsoleField -Lines $lines -Name "transaction_type" -Value $record.transaction_type
         $lines = Add-ConsoleField -Lines $lines -Name "classification" -Value $record.classification
         $lines = Add-ConsoleField -Lines $lines -Name "validation_profile" -Value $record.validation_profile
         $lines = Add-ConsoleField -Lines $lines -Name "baseline_eligible" -Value $record.baseline_eligible
@@ -2186,6 +2288,61 @@ function Get-RegistryExecutionOutcomeCount {
     return @($Records | Where-Object { (Get-RegistryText -Record $_ -Name "execution_outcome") -eq $Outcome }).Count
 }
 
+function Get-RegistryRestoreSourceBatchId {
+    param($Record)
+
+    $value = Get-RegistryText -Record $Record -Name "restore_source_batch_id"
+    if ($value) {
+        return $value
+    }
+    return Get-RestoreSourceBatchIdFromCaseId -CaseId (Get-RegistryText -Record $Record -Name "case_id")
+}
+
+function Get-RegistryTransactionType {
+    param($Record)
+
+    $existing = Get-RegistryText -Record $Record -Name "transaction_type"
+    if ($existing) {
+        return $existing
+    }
+
+    return Get-TransactionType `
+        -ExecutionMode (Get-RegistryText -Record $Record -Name "execution_mode") `
+        -ExecutionOutcome (Get-RegistryText -Record $Record -Name "execution_outcome") `
+        -RestoreSourceBatchId (Get-RegistryRestoreSourceBatchId -Record $Record) `
+        -ExecutionFailureClass (Get-RegistryText -Record $Record -Name "execution_failure_class")
+}
+
+function Get-RegistryTransactionCount {
+    param([object[]]$Records, [string]$TransactionType)
+
+    return @($Records | Where-Object { (Get-RegistryTransactionType -Record $_) -eq $TransactionType }).Count
+}
+
+function Get-UnpairedWriteSuccessRecords {
+    param([object[]]$Records)
+
+    $restoredSourceBatchIds = @($Records |
+        Where-Object { (Get-RegistryTransactionType -Record $_) -eq "restore_success" } |
+        ForEach-Object { Get-RegistryRestoreSourceBatchId -Record $_ } |
+        Where-Object { $_ } |
+        Select-Object -Unique)
+
+    $restoredLookup = @{}
+    foreach ($batchId in $restoredSourceBatchIds) {
+        $restoredLookup[$batchId] = $true
+    }
+
+    return @($Records | Where-Object {
+        $type = Get-RegistryTransactionType -Record $_
+        $batchId = Get-RegistryText -Record $_ -Name "transaction_batch_id"
+        if (-not $batchId) {
+            $batchId = Get-RegistryText -Record $_ -Name "batch_id"
+        }
+        $type -eq "write_success" -and $batchId -and -not $restoredLookup.ContainsKey($batchId)
+    })
+}
+
 function Get-RegistryLikelyReason {
     param($Record)
 
@@ -2276,6 +2433,11 @@ function Get-RegistryRecommendation {
 
 function Test-RegistryOutlier {
     param($Record)
+
+    $transactionType = Get-RegistryTransactionType -Record $Record
+    if ($transactionType -eq "write_success" -or $transactionType -eq "restore_success") {
+        return $false
+    }
 
     $profile = Get-RegistryText -Record $Record -Name "validation_profile"
     $classificationOk = Test-RegistrySuccessClass -Record $Record
@@ -2408,6 +2570,11 @@ function Add-RegistrySummaryLines {
     $Lines += ("| execution_write_blocked count | {0} |" -f (Get-RegistryExecutionOutcomeCount -Records $Records -Outcome "execution_write_blocked"))
     $Lines += ("| execution_readback_failed count | {0} |" -f (Get-RegistryExecutionOutcomeCount -Records $Records -Outcome "execution_readback_failed"))
     $Lines += ("| execution_failed count | {0} |" -f (Get-RegistryExecutionOutcomeCount -Records $Records -Outcome "execution_failed"))
+    $Lines += ("| write_success count | {0} |" -f (Get-RegistryTransactionCount -Records $Records -TransactionType "write_success"))
+    $Lines += ("| restore_success count | {0} |" -f (Get-RegistryTransactionCount -Records $Records -TransactionType "restore_success"))
+    $Lines += ("| write_blocked count | {0} |" -f (Get-RegistryTransactionCount -Records $Records -TransactionType "write_blocked"))
+    $Lines += ("| restore_blocked count | {0} |" -f (Get-RegistryTransactionCount -Records $Records -TransactionType "restore_blocked"))
+    $Lines += ("| unpaired_write_success count | {0} |" -f (@(Get-UnpairedWriteSuccessRecords -Records $Records).Count))
     $Lines += ("| latest recorded_at | {0} |" -f (Format-Cell (Get-RegistryText -Record $latestRecord -Name "recorded_at")))
     $Lines += ("| latest batch_id | {0} |" -f (Format-Cell (Get-RegistryText -Record $latestRecord -Name "batch_id")))
     $Lines += ""
@@ -2556,25 +2723,48 @@ function Add-RegistryOutlierLines {
     param([object[]]$Lines, [object[]]$Records)
 
     $outliers = @(Get-RegistryRecordsNewest -Records $Records | Where-Object { Test-RegistryOutlier -Record $_ })
+    $unpairedWrites = @(Get-RegistryRecordsNewest -Records (Get-UnpairedWriteSuccessRecords -Records $Records))
 
     $Lines += "## Registry Outliers"
     $Lines += ""
-    if ($outliers.Count -eq 0) {
+    if ($outliers.Count -eq 0 -and $unpairedWrites.Count -eq 0) {
         $Lines += "No registry outliers detected."
         $Lines += ""
         return $Lines
     }
 
-    $Lines += "| batch_id | known_true_addr | validation_profile | classification | likely reason | recommendation |"
-    $Lines += "|---|---|---|---|---|---|"
-    foreach ($record in $outliers) {
-        $Lines += ("| {0} | {1} | {2} | {3} | {4} | {5} |" -f `
-            (Format-Cell (Get-RegistryText -Record $record -Name "batch_id")),
-            (Format-Cell (Get-RegistryText -Record $record -Name "known_true_addr")),
-            (Format-Cell (Get-RegistryText -Record $record -Name "validation_profile")),
-            (Format-Cell (Get-RegistryText -Record $record -Name "classification")),
-            (Format-Cell (Get-RegistryOutlierReason -Record $record)),
-            (Format-Cell (Get-RegistryRecommendation -Record $record)))
+    if ($outliers.Count -gt 0) {
+        $Lines += "| batch_id | known_true_addr | validation_profile | classification | likely reason | recommendation |"
+        $Lines += "|---|---|---|---|---|---|"
+        foreach ($record in $outliers) {
+            $Lines += ("| {0} | {1} | {2} | {3} | {4} | {5} |" -f `
+                (Format-Cell (Get-RegistryText -Record $record -Name "batch_id")),
+                (Format-Cell (Get-RegistryText -Record $record -Name "known_true_addr")),
+                (Format-Cell (Get-RegistryText -Record $record -Name "validation_profile")),
+                (Format-Cell (Get-RegistryText -Record $record -Name "classification")),
+                (Format-Cell (Get-RegistryOutlierReason -Record $record)),
+                (Format-Cell (Get-RegistryRecommendation -Record $record)))
+        }
+        $Lines += ""
+    }
+
+    if ($unpairedWrites.Count -gt 0) {
+        $Lines += "### Unpaired Successful Writes"
+        $Lines += ""
+        $Lines += "| batch_id | execution_addr | requested_write_value_float | old_value_float | recommended restore command |"
+        $Lines += "|---|---|---:|---:|---|"
+        foreach ($record in $unpairedWrites) {
+            $batchId = Get-RegistryText -Record $record -Name "transaction_batch_id"
+            if (-not $batchId) {
+                $batchId = Get-RegistryText -Record $record -Name "batch_id"
+            }
+            $Lines += ("| {0} | {1} | {2} | {3} | {4} |" -f `
+                (Format-Cell $batchId),
+                (Format-Cell (Get-RegistryText -Record $record -Name "execution_addr")),
+                (Format-Cell (Get-RegistryText -Record $record -Name "requested_write_value_float")),
+                (Format-Cell (Get-RegistryText -Record $record -Name "old_value_float")),
+                (Format-Cell (Get-RecommendedRestoreCommand -BatchId $batchId)))
+        }
     }
     $Lines += ""
 
