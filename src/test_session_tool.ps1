@@ -170,6 +170,64 @@ function Get-LogField {
     return "not_available"
 }
 
+function Test-LogTrue {
+    param($Value)
+
+    if ($Value -is [bool]) {
+        return [bool]$Value
+    }
+    if ($null -eq $Value) {
+        return $false
+    }
+    return "$Value".Trim().ToLowerInvariant() -eq "true"
+}
+
+function Test-LogPresent {
+    param($Value)
+
+    if ($null -eq $Value) {
+        return $false
+    }
+    $text = "$Value".Trim()
+    return $text -ne "" -and $text -ne "nil" -and $text -ne "-" -and $text -ne "not_available"
+}
+
+function Get-ExecutionOutcomeFromBlock {
+    param($Block)
+
+    $mode = Get-LogField -Block $Block -Key "execution_mode"
+    if (-not (Test-LogPresent -Value $mode) -or $mode -eq "disabled") {
+        return "execution_disabled"
+    }
+
+    $writeAttempted = Test-LogTrue (Get-LogField -Block $Block -Key "write_attempted")
+    $writeOk = Test-LogTrue (Get-LogField -Block $Block -Key "write_ok")
+    $readbackOk = Test-LogTrue (Get-LogField -Block $Block -Key "readback_ok")
+    $preconditionsOk = Test-LogTrue (Get-LogField -Block $Block -Key "execution_preconditions_ok")
+    $failureClass = Get-LogField -Block $Block -Key "execution_failure_class"
+
+    if ($mode -eq "dry_run" -and $preconditionsOk -and -not $writeAttempted) {
+        return "execution_dry_run_ready"
+    }
+    if ($mode -eq "write" -and -not $writeAttempted) {
+        return "execution_write_blocked"
+    }
+    if ($mode -eq "write" -and $writeAttempted -and $writeOk -and $readbackOk) {
+        return "execution_write_ok"
+    }
+    if ($writeAttempted -and -not $readbackOk) {
+        return "execution_readback_failed"
+    }
+    if (Test-LogPresent -Value $failureClass) {
+        if (-not $writeAttempted) {
+            return "execution_write_blocked"
+        }
+        return "execution_failed"
+    }
+
+    return "execution_unknown"
+}
+
 function Read-BatchLogBlocks {
     param([string]$Path)
 
@@ -604,6 +662,7 @@ switch ($Command) {
             "batch_id" = $latestBatchId
             "classification" = if ($record) { $record.classification } else { "not_available" }
             "final hit" = if ($record) { $record.final_hit } else { "not_available" }
+            "execution_outcome" = Get-ExecutionOutcomeFromBlock -Block $executionBlock
             "execution_mode" = Get-LogField -Block $executionBlock -Key "execution_mode"
             "execution_addr" = Get-LogField -Block $executionBlock -Key "execution_addr"
             "old_value_float" = Get-LogField -Block $executionBlock -Key "old_value_float"

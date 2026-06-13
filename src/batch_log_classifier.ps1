@@ -45,6 +45,36 @@ $PerformanceMetricNames = @(
     "log_size_bytes"
 )
 
+$ExecutionFieldNames = @(
+    "execution_enabled",
+    "execution_mode",
+    "write_enabled",
+    "execution_confirm_ok",
+    "execution_addr",
+    "execution_addr_source",
+    "execution_preconditions_ok",
+    "execution_failure_class",
+    "known_true_match_ok",
+    "old_value_read_ok",
+    "old_value_pattern",
+    "old_value_float",
+    "target_value_pattern",
+    "target_value_float",
+    "requested_write_value_float",
+    "requested_write_value_pattern",
+    "write_method",
+    "write_attempted",
+    "write_ok",
+    "readback_ok",
+    "readback_pattern",
+    "readback_float",
+    "readback_delta",
+    "rollback_available",
+    "rollback_value_pattern",
+    "rollback_value_float",
+    "executor_version"
+)
+
 function Get-BatchIdInfos {
     param([string]$Root)
 
@@ -107,6 +137,194 @@ function Read-KvMap {
         }
     }
     return $map
+}
+
+function Read-KvBlocks {
+    param([string]$Path)
+
+    $blocks = @()
+    if (-not $Path -or -not (Test-Path -LiteralPath $Path)) {
+        return $blocks
+    }
+
+    $currentName = "batch_header"
+    $currentFields = [ordered]@{}
+    foreach ($line in Get-Content -LiteralPath $Path) {
+        if ($line -match '^\s*---\s+(.+?)\s+---\s*$') {
+            if ($currentFields.Count -gt 0) {
+                $blocks += [pscustomobject]@{ Name = $currentName; Fields = $currentFields }
+            }
+            $currentName = $matches[1]
+            $currentFields = [ordered]@{}
+            continue
+        }
+        if ($line -match "^\s*([A-Za-z0-9_]+)\s*=\s*(.*?)\s*$") {
+            $currentFields[$matches[1]] = $matches[2].Trim()
+        }
+    }
+
+    if ($currentFields.Count -gt 0) {
+        $blocks += [pscustomobject]@{ Name = $currentName; Fields = $currentFields }
+    }
+    return $blocks
+}
+
+function Select-ExecutionBlock {
+    param([string[]]$Paths)
+
+    $blocks = @()
+    foreach ($path in @($Paths)) {
+        $blocks += @(Read-KvBlocks -Path $path)
+    }
+
+    $stableBlocks = @($blocks | Where-Object {
+        $_.Name -like "*stable_no_probe_intersection*" -and
+        ($_.Fields.Contains("executor_version") -or $_.Fields.Contains("execution_mode"))
+    })
+    if ($stableBlocks.Count -gt 0) {
+        return $stableBlocks[$stableBlocks.Count - 1]
+    }
+
+    $executionBlocks = @($blocks | Where-Object {
+        $_.Fields.Contains("executor_version") -or $_.Fields.Contains("execution_mode")
+    })
+    if ($executionBlocks.Count -gt 0) {
+        return $executionBlocks[$executionBlocks.Count - 1]
+    }
+
+    return $null
+}
+
+function Test-TextTrue {
+    param($Value)
+
+    if ($Value -is [bool]) {
+        return [bool]$Value
+    }
+    if ($null -eq $Value) {
+        return $false
+    }
+    return "$Value".Trim().ToLowerInvariant() -eq "true"
+}
+
+function Test-TextFalse {
+    param($Value)
+
+    if ($Value -is [bool]) {
+        return -not [bool]$Value
+    }
+    if ($null -eq $Value) {
+        return $false
+    }
+    return "$Value".Trim().ToLowerInvariant() -eq "false"
+}
+
+function Test-TextPresent {
+    param($Value)
+
+    if ($null -eq $Value) {
+        return $false
+    }
+    $text = "$Value".Trim()
+    return $text -ne "" -and $text -ne "nil" -and $text -ne "-"
+}
+
+function Normalize-ExecutionFieldValue {
+    param($Value)
+
+    if (-not (Test-TextPresent -Value $Value)) {
+        return $null
+    }
+    return "$Value".Trim()
+}
+
+function Get-ExecutionFieldMap {
+    param($Block)
+
+    $fields = [ordered]@{}
+    foreach ($name in $ExecutionFieldNames) {
+        $value = $null
+        if ($Block -and $Block.Fields -and $Block.Fields.Contains($name)) {
+            $value = Normalize-ExecutionFieldValue -Value $Block.Fields[$name]
+        }
+        $fields[$name] = $value
+    }
+
+    if (-not (Test-TextPresent -Value $fields["execution_mode"])) {
+        $fields["execution_mode"] = "disabled"
+    }
+    return $fields
+}
+
+function Get-ExecutionFieldValue {
+    param($Fields, [string]$Name)
+
+    if ($Fields -and $Fields.Contains($Name)) {
+        return $Fields[$Name]
+    }
+    return $null
+}
+
+function Get-ExecutionOutcome {
+    param($Fields)
+
+    $mode = Get-ExecutionFieldValue -Fields $Fields -Name "execution_mode"
+    if (-not (Test-TextPresent -Value $mode) -or $mode -eq "disabled") {
+        return "execution_disabled"
+    }
+
+    $writeAttempted = Test-TextTrue (Get-ExecutionFieldValue -Fields $Fields -Name "write_attempted")
+    $writeOk = Test-TextTrue (Get-ExecutionFieldValue -Fields $Fields -Name "write_ok")
+    $readbackOk = Test-TextTrue (Get-ExecutionFieldValue -Fields $Fields -Name "readback_ok")
+    $preconditionsOk = Test-TextTrue (Get-ExecutionFieldValue -Fields $Fields -Name "execution_preconditions_ok")
+    $failureClass = Get-ExecutionFieldValue -Fields $Fields -Name "execution_failure_class"
+
+    if ($mode -eq "dry_run" -and $preconditionsOk -and -not $writeAttempted) {
+        return "execution_dry_run_ready"
+    }
+    if ($mode -eq "write" -and -not $writeAttempted) {
+        return "execution_write_blocked"
+    }
+    if ($mode -eq "write" -and $writeAttempted -and $writeOk -and $readbackOk) {
+        return "execution_write_ok"
+    }
+    if ($writeAttempted -and -not $readbackOk) {
+        return "execution_readback_failed"
+    }
+    if (Test-TextPresent -Value $failureClass) {
+        if (-not $writeAttempted) {
+            return "execution_write_blocked"
+        }
+        return "execution_failed"
+    }
+
+    return "execution_unknown"
+}
+
+function Test-ExecutionBaselineEligible {
+    param($Fields, [string]$Outcome)
+
+    $mode = Get-ExecutionFieldValue -Fields $Fields -Name "execution_mode"
+    if (-not (Test-TextPresent -Value $mode)) {
+        $mode = "disabled"
+    }
+    $writeAttempted = Test-TextTrue (Get-ExecutionFieldValue -Fields $Fields -Name "write_attempted")
+
+    return $mode -eq "disabled" -and -not $writeAttempted -and $Outcome -eq "execution_disabled"
+}
+
+function Get-ExecutionConclusion {
+    param([string]$Outcome)
+
+    switch ($Outcome) {
+        "execution_disabled" { return "disabled / detect-only" }
+        "execution_dry_run_ready" { return "dry-run ready" }
+        "execution_write_blocked" { return "write blocked" }
+        "execution_write_ok" { return "write succeeded" }
+        "execution_readback_failed" { return "readback failed" }
+        "execution_failed" { return "execution failed" }
+        default { return "execution unknown" }
+    }
 }
 
 function Get-KvValue {
@@ -832,6 +1050,9 @@ function Test-BaselineEligibleRecord {
     if (-not $Record) {
         return $false
     }
+    if ($Record.execution_baseline_eligible -eq "false") {
+        return $false
+    }
     if ($Record.baseline_eligible -eq "true") {
         return $true
     }
@@ -1028,6 +1249,10 @@ function Get-BatchRecord {
 
     $summary = Read-KvMap $summaryPath
     $stable = Read-KvMap $stablePath
+    $executionBlock = Select-ExecutionBlock -Paths @($summaryPath, $diagnosticPath, $stablePath)
+    $executionFields = Get-ExecutionFieldMap -Block $executionBlock
+    $executionOutcome = Get-ExecutionOutcome -Fields $executionFields
+    $executionBaselineEligible = if (Test-ExecutionBaselineEligible -Fields $executionFields -Outcome $executionOutcome) { "true" } else { "false" }
     $noProbeA = Parse-ModeLog $noProbeAPath
     $withProbe = Parse-ModeLog $withProbePath
     $noProbeB = Parse-ModeLog $noProbeBPath
@@ -1157,6 +1382,11 @@ function Get-BatchRecord {
         }
     }
 
+    $baselineEligible = Select-FirstValue @((Get-KvValue $stable "baseline_eligible"), (Get-KvValue $summary "baseline_eligible"))
+    if ($executionBaselineEligible -eq "false") {
+        $baselineEligible = "false"
+    }
+
     return [pscustomobject][ordered]@{
         batch_id = $BatchId
         known_true_addr = $knownTrue
@@ -1164,7 +1394,34 @@ function Get-BatchRecord {
         target_value_float = $targetFloat
         diagnostic_level = $diagnosticLevel
         validation_profile = $validationProfile
-        baseline_eligible = Select-FirstValue @((Get-KvValue $stable "baseline_eligible"), (Get-KvValue $summary "baseline_eligible"))
+        baseline_eligible = $baselineEligible
+        execution_baseline_eligible = $executionBaselineEligible
+        execution_outcome = $executionOutcome
+        execution_enabled = Get-ExecutionFieldValue -Fields $executionFields -Name "execution_enabled"
+        execution_mode = Get-ExecutionFieldValue -Fields $executionFields -Name "execution_mode"
+        write_enabled = Get-ExecutionFieldValue -Fields $executionFields -Name "write_enabled"
+        execution_confirm_ok = Get-ExecutionFieldValue -Fields $executionFields -Name "execution_confirm_ok"
+        execution_addr = Get-ExecutionFieldValue -Fields $executionFields -Name "execution_addr"
+        execution_addr_source = Get-ExecutionFieldValue -Fields $executionFields -Name "execution_addr_source"
+        execution_preconditions_ok = Get-ExecutionFieldValue -Fields $executionFields -Name "execution_preconditions_ok"
+        execution_failure_class = Get-ExecutionFieldValue -Fields $executionFields -Name "execution_failure_class"
+        known_true_match_ok = Get-ExecutionFieldValue -Fields $executionFields -Name "known_true_match_ok"
+        old_value_read_ok = Get-ExecutionFieldValue -Fields $executionFields -Name "old_value_read_ok"
+        old_value_pattern = Get-ExecutionFieldValue -Fields $executionFields -Name "old_value_pattern"
+        old_value_float = Get-ExecutionFieldValue -Fields $executionFields -Name "old_value_float"
+        requested_write_value_float = Get-ExecutionFieldValue -Fields $executionFields -Name "requested_write_value_float"
+        requested_write_value_pattern = Get-ExecutionFieldValue -Fields $executionFields -Name "requested_write_value_pattern"
+        write_method = Get-ExecutionFieldValue -Fields $executionFields -Name "write_method"
+        write_attempted = Get-ExecutionFieldValue -Fields $executionFields -Name "write_attempted"
+        write_ok = Get-ExecutionFieldValue -Fields $executionFields -Name "write_ok"
+        readback_ok = Get-ExecutionFieldValue -Fields $executionFields -Name "readback_ok"
+        readback_pattern = Get-ExecutionFieldValue -Fields $executionFields -Name "readback_pattern"
+        readback_float = Get-ExecutionFieldValue -Fields $executionFields -Name "readback_float"
+        readback_delta = Get-ExecutionFieldValue -Fields $executionFields -Name "readback_delta"
+        rollback_available = Get-ExecutionFieldValue -Fields $executionFields -Name "rollback_available"
+        rollback_value_pattern = Get-ExecutionFieldValue -Fields $executionFields -Name "rollback_value_pattern"
+        rollback_value_float = Get-ExecutionFieldValue -Fields $executionFields -Name "rollback_value_float"
+        executor_version = Get-ExecutionFieldValue -Fields $executionFields -Name "executor_version"
         run_valid = $runValid
         failure_class = $failureClass
         collector_empty = $collectorEmpty
@@ -1193,6 +1450,7 @@ function Get-BatchRecord {
         modes = $modes
         summary_map = $summary
         stable_map = $stable
+        execution_map = $executionFields
     }
 }
 
@@ -1215,6 +1473,35 @@ function Get-InspectionLines {
     $lines += ("| run_valid | {0} |" -f (Format-Cell $Record.run_valid))
     $lines += ("| collector_empty | {0} |" -f (Format-Cell $Record.collector_empty))
     $lines += ("| baseline_eligible | {0} |" -f (Format-Cell $Record.baseline_eligible))
+    $lines += ""
+
+    $lines += "## Execution"
+    $lines += ""
+    $lines += "| field | value |"
+    $lines += "|---|---|"
+    $lines += ("| execution_outcome | {0} |" -f (Format-Cell $Record.execution_outcome))
+    $lines += ("| execution_conclusion | {0} |" -f (Format-Cell (Get-ExecutionConclusion -Outcome $Record.execution_outcome)))
+    $lines += ("| execution_baseline_eligible | {0} |" -f (Format-Cell $Record.execution_baseline_eligible))
+    $lines += ("| execution_enabled | {0} |" -f (Format-Cell $Record.execution_enabled))
+    $lines += ("| execution_mode | {0} |" -f (Format-Cell $Record.execution_mode))
+    $lines += ("| write_enabled | {0} |" -f (Format-Cell $Record.write_enabled))
+    $lines += ("| execution_confirm_ok | {0} |" -f (Format-Cell $Record.execution_confirm_ok))
+    $lines += ("| execution_addr | {0} |" -f (Format-Cell $Record.execution_addr))
+    $lines += ("| execution_addr_source | {0} |" -f (Format-Cell $Record.execution_addr_source))
+    $lines += ("| execution_preconditions_ok | {0} |" -f (Format-Cell $Record.execution_preconditions_ok))
+    $lines += ("| execution_failure_class | {0} |" -f (Format-Cell $Record.execution_failure_class))
+    $lines += ("| old_value_float | {0} |" -f (Format-Cell $Record.old_value_float))
+    $lines += ("| old_value_pattern | {0} |" -f (Format-Cell $Record.old_value_pattern))
+    $lines += ("| requested_write_value_float | {0} |" -f (Format-Cell $Record.requested_write_value_float))
+    $lines += ("| requested_write_value_pattern | {0} |" -f (Format-Cell $Record.requested_write_value_pattern))
+    $lines += ("| write_attempted | {0} |" -f (Format-Cell $Record.write_attempted))
+    $lines += ("| write_ok | {0} |" -f (Format-Cell $Record.write_ok))
+    $lines += ("| readback_ok | {0} |" -f (Format-Cell $Record.readback_ok))
+    $lines += ("| readback_float | {0} |" -f (Format-Cell $Record.readback_float))
+    $lines += ("| readback_pattern | {0} |" -f (Format-Cell $Record.readback_pattern))
+    $lines += ("| readback_delta | {0} |" -f (Format-Cell $Record.readback_delta))
+    $lines += ("| rollback_available | {0} |" -f (Format-Cell $Record.rollback_available))
+    $lines += ("| executor_version | {0} |" -f (Format-Cell $Record.executor_version))
     $lines += ""
 
     $lines += "## Pipeline Path"
@@ -1361,6 +1648,19 @@ function New-RegistryEntry {
         rank_B = Get-TripletPart -Value $Record.known_true_rank_position -Index 2
         stable_rank = $Record.stable_intersection_known_true_rank_position
         best_candidate = $Record.final_best_candidate
+        execution_mode = $Record.execution_mode
+        execution_outcome = $Record.execution_outcome
+        execution_addr = $Record.execution_addr
+        execution_confirm_ok = $Record.execution_confirm_ok
+        old_value_float = $Record.old_value_float
+        requested_write_value_float = $Record.requested_write_value_float
+        write_attempted = $Record.write_attempted
+        write_ok = $Record.write_ok
+        readback_ok = $Record.readback_ok
+        readback_float = $Record.readback_float
+        execution_failure_class = $Record.execution_failure_class
+        rollback_available = $Record.rollback_available
+        execution_baseline_eligible = $Record.execution_baseline_eligible
         total_ms = Get-RegistryMetricTotal -Record $Record -Metric "total_ms"
         report_render_ms = Get-RegistryMetricTotal -Record $Record -Metric "report_render_ms"
         log_size_bytes = Get-RegistryMetricTotal -Record $Record -Metric "log_size_bytes"
@@ -1449,6 +1749,18 @@ function Get-ConsoleRecordConclusion {
     return "inspect recommended"
 }
 
+function Test-ShowExecutionSummary {
+    param($Record)
+
+    if (-not $Record) {
+        return $false
+    }
+    if ($Record.execution_outcome -and $Record.execution_outcome -ne "execution_disabled") {
+        return $true
+    }
+    return Test-TextPresent -Value $Record.execution_failure_class
+}
+
 function Get-ConsoleSummaryLines {
     param([object[]]$Records)
 
@@ -1479,6 +1791,19 @@ function Get-ConsoleSummaryLines {
         $lines = Add-ConsoleField -Lines $lines -Name "conclusion" -Value (Get-ConsoleRecordConclusion -Record $record)
         $lines = Add-ConsoleField -Lines $lines -Name "total_ms" -Value (Format-Number (Get-RegistryMetricTotal -Record $record -Metric "total_ms"))
         $lines = Add-ConsoleField -Lines $lines -Name "log_size_bytes" -Value (Format-Number (Get-RegistryMetricTotal -Record $record -Metric "log_size_bytes"))
+
+        if (Test-ShowExecutionSummary -Record $record) {
+            $lines += ""
+            $lines += "Execution"
+            $lines += "---------"
+            $lines = Add-ConsoleField -Lines $lines -Name "execution_mode" -Value $record.execution_mode
+            $lines = Add-ConsoleField -Lines $lines -Name "execution_outcome" -Value $record.execution_outcome
+            $lines = Add-ConsoleField -Lines $lines -Name "execution_addr" -Value $record.execution_addr
+            $lines = Add-ConsoleField -Lines $lines -Name "write_attempted" -Value $record.write_attempted
+            $lines = Add-ConsoleField -Lines $lines -Name "write_ok" -Value $record.write_ok
+            $lines = Add-ConsoleField -Lines $lines -Name "readback_ok" -Value $record.readback_ok
+            $lines = Add-ConsoleField -Lines $lines -Name "execution_failure" -Value $record.execution_failure_class
+        }
     }
 
     return $lines
@@ -1655,6 +1980,12 @@ function Get-RegistryClassificationCount {
     return @($Records | Where-Object { (Get-RegistryText -Record $_ -Name "classification") -eq $Classification }).Count
 }
 
+function Get-RegistryExecutionOutcomeCount {
+    param([object[]]$Records, [string]$Outcome)
+
+    return @($Records | Where-Object { (Get-RegistryText -Record $_ -Name "execution_outcome") -eq $Outcome }).Count
+}
+
 function Get-RegistryLikelyReason {
     param($Record)
 
@@ -1674,6 +2005,21 @@ function Get-RegistryLikelyReason {
         "selected_quota_issue" { return "known_true reached filtered but did not enter selected" }
         "ranking_issue" { return "known_true selected but final best_candidate differs" }
         "quick_failure" { return "quick profile did not meet smoke success criteria" }
+    }
+
+    $executionMode = Get-RegistryText -Record $Record -Name "execution_mode"
+    $executionFailure = Get-RegistryText -Record $Record -Name "execution_failure_class"
+    if ($executionMode -eq "write" -and $executionFailure) {
+        return "execution write guard/failure: $executionFailure"
+    }
+    if ((Test-RegistryTrue (Get-RegistryField -Record $Record -Name "write_attempted")) -and (Test-RegistryFalse (Get-RegistryField -Record $Record -Name "write_ok"))) {
+        return "execution write attempted but write_ok=false"
+    }
+    if ((Test-RegistryTrue (Get-RegistryField -Record $Record -Name "write_attempted")) -and (Test-RegistryFalse (Get-RegistryField -Record $Record -Name "readback_ok"))) {
+        return "execution write attempted but readback_ok=false"
+    }
+    if ($executionMode -eq "write" -and (Test-RegistryFalse (Get-RegistryField -Record $Record -Name "execution_confirm_ok"))) {
+        return "execution write missing confirmation"
     }
 
     return $null
@@ -1698,6 +2044,13 @@ function Get-RegistryRecommendation {
         "quick_failure" { return "rerun full profile or inspect quick smoke criteria" }
     }
 
+    $executionOutcome = Get-RegistryText -Record $Record -Name "execution_outcome"
+    switch ($executionOutcome) {
+        "execution_write_blocked" { return "inspect execution_failure_class and config guards" }
+        "execution_readback_failed" { return "inspect readback fields before retrying or restoring" }
+        "execution_failed" { return "inspect execution fields before retrying" }
+    }
+
     $profile = Get-RegistryText -Record $Record -Name "validation_profile"
     $baselineEligible = Get-RegistryField -Record $Record -Name "baseline_eligible"
     $finalHit = Get-RegistryField -Record $Record -Name "final_hit"
@@ -1720,6 +2073,12 @@ function Test-RegistryOutlier {
     $runValid = Get-RegistryField -Record $Record -Name "run_valid"
     $collectorEmpty = Get-RegistryField -Record $Record -Name "collector_empty"
     $baselineEligible = Get-RegistryField -Record $Record -Name "baseline_eligible"
+    $executionMode = Get-RegistryText -Record $Record -Name "execution_mode"
+    $executionFailure = Get-RegistryText -Record $Record -Name "execution_failure_class"
+    $writeAttempted = Get-RegistryField -Record $Record -Name "write_attempted"
+    $writeOk = Get-RegistryField -Record $Record -Name "write_ok"
+    $readbackOk = Get-RegistryField -Record $Record -Name "readback_ok"
+    $executionConfirmOk = Get-RegistryField -Record $Record -Name "execution_confirm_ok"
 
     if (-not $classificationOk) {
         return $true
@@ -1734,6 +2093,18 @@ function Test-RegistryOutlier {
         return $true
     }
     if ($profile -eq "full" -and (Test-RegistryFalse $baselineEligible)) {
+        return $true
+    }
+    if ((Test-RegistryTrue $writeAttempted) -and (Test-RegistryFalse $writeOk)) {
+        return $true
+    }
+    if ((Test-RegistryTrue $writeAttempted) -and (Test-RegistryFalse $readbackOk)) {
+        return $true
+    }
+    if ($executionMode -eq "write" -and $executionFailure) {
+        return $true
+    }
+    if ($executionMode -eq "write" -and (Test-RegistryFalse $executionConfirmOk)) {
         return $true
     }
     return $false
@@ -1762,6 +2133,18 @@ function Get-RegistryOutlierReason {
     }
     if ((Get-RegistryText -Record $Record -Name "validation_profile") -eq "full" -and (Test-RegistryFalse (Get-RegistryField -Record $Record -Name "baseline_eligible"))) {
         $reasons += "full profile marked baseline_eligible=false"
+    }
+    if ((Test-RegistryTrue (Get-RegistryField -Record $Record -Name "write_attempted")) -and (Test-RegistryFalse (Get-RegistryField -Record $Record -Name "write_ok"))) {
+        $reasons += "write_attempted=true and write_ok=false"
+    }
+    if ((Test-RegistryTrue (Get-RegistryField -Record $Record -Name "write_attempted")) -and (Test-RegistryFalse (Get-RegistryField -Record $Record -Name "readback_ok"))) {
+        $reasons += "write_attempted=true and readback_ok=false"
+    }
+    if ((Get-RegistryText -Record $Record -Name "execution_mode") -eq "write" -and (Get-RegistryText -Record $Record -Name "execution_failure_class")) {
+        $reasons += ("execution_failure_class={0}" -f (Get-RegistryText -Record $Record -Name "execution_failure_class"))
+    }
+    if ((Get-RegistryText -Record $Record -Name "execution_mode") -eq "write" -and (Test-RegistryFalse (Get-RegistryField -Record $Record -Name "execution_confirm_ok"))) {
+        $reasons += "execution_mode=write and execution_confirm_ok=false"
     }
 
     if ($reasons.Count -eq 0) {
@@ -1809,6 +2192,11 @@ function Add-RegistrySummaryLines {
     $Lines += ("| known_true_value_mismatch count | {0} |" -f (Get-RegistryClassificationCount -Records $Records -Classification "known_true_value_mismatch"))
     $Lines += ("| selected_quota_issue count | {0} |" -f (Get-RegistryClassificationCount -Records $Records -Classification "selected_quota_issue"))
     $Lines += ("| ranking_issue count | {0} |" -f (Get-RegistryClassificationCount -Records $Records -Classification "ranking_issue"))
+    $Lines += ("| execution_write_ok count | {0} |" -f (Get-RegistryExecutionOutcomeCount -Records $Records -Outcome "execution_write_ok"))
+    $Lines += ("| execution_dry_run_ready count | {0} |" -f (Get-RegistryExecutionOutcomeCount -Records $Records -Outcome "execution_dry_run_ready"))
+    $Lines += ("| execution_write_blocked count | {0} |" -f (Get-RegistryExecutionOutcomeCount -Records $Records -Outcome "execution_write_blocked"))
+    $Lines += ("| execution_readback_failed count | {0} |" -f (Get-RegistryExecutionOutcomeCount -Records $Records -Outcome "execution_readback_failed"))
+    $Lines += ("| execution_failed count | {0} |" -f (Get-RegistryExecutionOutcomeCount -Records $Records -Outcome "execution_failed"))
     $Lines += ("| latest recorded_at | {0} |" -f (Format-Cell (Get-RegistryText -Record $latestRecord -Name "recorded_at")))
     $Lines += ("| latest batch_id | {0} |" -f (Format-Cell (Get-RegistryText -Record $latestRecord -Name "batch_id")))
     $Lines += ""
@@ -2089,8 +2477,9 @@ function Build-ReportLines {
     $fullSuccessCount = @($Records | Where-Object { $_.validation_profile -eq "full" -and $_.classification -eq "success" }).Count
     $quickSuccessCount = @($Records | Where-Object { $_.classification -eq "quick_success" }).Count
     $nonSuccessRecords = @($Records | Where-Object { $_.classification -ne "success" -and $_.classification -ne "quick_success" })
+    $executionBaselineIneligibleRecords = @($Records | Where-Object { $_.execution_baseline_eligible -eq "false" })
     $cleanBaselineStatus = "CLEAN"
-    if ($quickRecords.Count -gt 0) {
+    if ($quickRecords.Count -gt 0 -or $executionBaselineIneligibleRecords.Count -gt 0) {
         $cleanBaselineStatus = "NOT_BASELINE_ELIGIBLE"
     } elseif ($nonSuccessRecords.Count -gt 0) {
         $cleanBaselineStatus = "CONTAINS_OUTLIERS"
@@ -2124,6 +2513,7 @@ function Build-ReportLines {
     $lines += ("| validation_profile | {0} |" -f (Format-Cell $validationProfile))
     $lines += ("| full_success count | {0} |" -f (Format-Cell $fullSuccessCount))
     $lines += ("| quick_success count | {0} |" -f (Format-Cell $quickSuccessCount))
+    $lines += ("| execution_baseline_ineligible count | {0} |" -f (Format-Cell $executionBaselineIneligibleRecords.Count))
     $lines += ""
 
     $lines += "## Classification Summary"
@@ -2140,6 +2530,7 @@ function Build-ReportLines {
     $lines += ("- unique known_true_addr count: {0}" -f $uniqueTrue.Count)
     $lines += ("- total batch count: {0}" -f $Records.Count)
     $lines += ("- clean baseline status: {0}" -f $cleanBaselineStatus)
+    $lines += ("- execution baseline ineligible count: {0}" -f $executionBaselineIneligibleRecords.Count)
     if ($repeatedKnownTrue.Count -eq 0) {
         $lines += "- repeated known_true_addr list: none"
     } else {
@@ -2157,15 +2548,17 @@ function Build-ReportLines {
 
     $lines += "## Correctness Table"
     $lines += ""
-    $lines += "| batch_id | known_true_addr | diagnostic_level | validation_profile | baseline_eligible | run_valid | collector_empty | classification | final hit | rank A/W/B | stable rank | best_candidate | selected A/W/B | recommendation |"
-    $lines += "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"
+    $lines += "| batch_id | known_true_addr | diagnostic_level | validation_profile | baseline_eligible | execution_outcome | execution_baseline_eligible | run_valid | collector_empty | classification | final hit | rank A/W/B | stable rank | best_candidate | selected A/W/B | recommendation |"
+    $lines += "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"
     foreach ($record in $Records) {
-        $lines += ("| {0} | {1} | {2} | {3} | {4} | {5} | {6} | {7} | {8} | {9} | {10} | {11} | {12} | {13} |" -f `
+        $lines += ("| {0} | {1} | {2} | {3} | {4} | {5} | {6} | {7} | {8} | {9} | {10} | {11} | {12} | {13} | {14} | {15} |" -f `
             (Format-Cell $record.batch_id),
             (Format-Cell $record.known_true_addr),
             (Format-Cell (Normalize-ReportValue $record.diagnostic_level)),
             (Format-Cell (Normalize-ReportValue $record.validation_profile)),
             (Format-Cell $record.baseline_eligible),
+            (Format-Cell $record.execution_outcome),
+            (Format-Cell $record.execution_baseline_eligible),
             (Format-Cell $record.run_valid),
             (Format-Cell $record.collector_empty),
             (Format-Cell $record.classification),
