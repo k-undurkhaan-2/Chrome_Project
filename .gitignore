@@ -1,1 +1,6 @@
 src/run_case_config.local.lua
+
+# Local runtime logs / generated reports
+log/
+*.log
+*.jsonl
