@@ -71,6 +71,7 @@ function Write-CommandHelp {
     Write-Output "  post-execution          Summarize latest full execution fields after manual CE run"
     Write-Output "  execution-status        Show write/restore transaction safety status"
     Write-Output "  mark-write-resolved     Mark a historical write_success as manually restored"
+    Write-Output "  doctor                  Run read-only preflight and safety checks"
     Write-Output ""
     Write-Output "Prepare options:"
     Write-Output "  -KnownTrueAddr <addr> [-CaseId <id>] [-Profile quick|full] [-DiagnosticLevel basic|debug|trace]"
@@ -84,6 +85,7 @@ function Write-CommandHelp {
     Write-Output "  -ProjectRoot D:\armedforces.io-v2"
     Write-Output "  -LogRoot D:\armedforces.io-v2\log\auto_output"
     Write-Output "  execution-status [-Latest 50] [-IncludeResolved]"
+    Write-Output "  doctor [-Latest 50]"
 }
 
 function Invoke-WorkflowCommand {
@@ -260,6 +262,114 @@ function Test-NormalTargetConfig {
     }
 
     return $normalizedPattern -eq "0X42C80000" -and ([math]::Abs($targetFloat - 100.0) -le 0.000001)
+}
+
+function Normalize-HexPattern {
+    param($Value)
+
+    if ($null -eq $Value) {
+        return $null
+    }
+    $text = "$Value".Trim()
+    if ($text.StartsWith("0x", [System.StringComparison]::OrdinalIgnoreCase)) {
+        $text = $text.Substring(2)
+    }
+    if ($text -notmatch '^[0-9A-Fa-f]{8}$') {
+        return $null
+    }
+    return ("0x{0}" -f $text.ToUpperInvariant())
+}
+
+function Convert-FloatToPattern {
+    param($Value)
+
+    if ($null -eq $Value) {
+        return $null
+    }
+    try {
+        $number = [double]::Parse("$Value", [System.Globalization.CultureInfo]::InvariantCulture)
+        $bytes = [System.BitConverter]::GetBytes([single]$number)
+        $u32 = [System.BitConverter]::ToUInt32($bytes, 0)
+        return ("0x{0:X8}" -f $u32)
+    } catch {
+        return $null
+    }
+}
+
+function Get-TargetConsistencyCheck {
+    param($Config)
+
+    $pattern = Normalize-HexPattern -Value (Get-ConfigField -Config $Config -Key "target_value_pattern")
+    $expected = Convert-FloatToPattern -Value (Get-ConfigField -Config $Config -Key "target_value_float")
+    $matches = $false
+    if ($pattern -and $expected) {
+        $matches = [string]::Equals($pattern, $expected, [System.StringComparison]::OrdinalIgnoreCase)
+    }
+
+    return [pscustomobject][ordered]@{
+        matches = $matches
+        actual_pattern = $(if ($pattern) { $pattern } else { "-" })
+        expected_pattern = $(if ($expected) { $expected } else { "-" })
+    }
+}
+
+function New-DoctorCheck {
+    param([string]$Check, [string]$Status, [string]$Details)
+
+    return [pscustomobject][ordered]@{
+        Check = $Check
+        Status = $Status
+        Details = $Details
+    }
+}
+
+function Write-DoctorReport {
+    param([object[]]$Checks, [string]$Conclusion)
+
+    $checkWidth = 42
+    $statusWidth = 9
+    Write-Output ""
+    Write-Output "Session Doctor"
+    Write-Output ("{0,-$checkWidth} {1,-$statusWidth} {2}" -f "Check", "Status", "Details")
+    Write-Output ("{0,-$checkWidth} {1,-$statusWidth} {2}" -f "-----", "------", "-------")
+    foreach ($item in @($Checks)) {
+        Write-Output ("{0,-$checkWidth} {1,-$statusWidth} {2}" -f $item.Check, $item.Status, $item.Details)
+    }
+    Write-Output ""
+    Write-Output ("conclusion = {0}" -f $Conclusion)
+}
+
+function Get-DoctorConclusion {
+    param([object[]]$Checks)
+
+    if (@($Checks | Where-Object { $_.Status -eq "FAIL" }).Count -gt 0) {
+        return "FAIL"
+    }
+    if (@($Checks | Where-Object { $_.Status -eq "WARN" }).Count -gt 0) {
+        return "ATTENTION"
+    }
+    return "SAFE"
+}
+
+function Invoke-DoctorPowerShellFile {
+    param([string]$FilePath, [string[]]$Arguments)
+
+    $output = @(& powershell -NoProfile -ExecutionPolicy Bypass -File $FilePath @Arguments 2>&1)
+    return [pscustomobject][ordered]@{
+        exit_code = $LASTEXITCODE
+        output = @($output | ForEach-Object { "$_" })
+    }
+}
+
+function Test-GitIgnoredPath {
+    param([string]$Path)
+
+    $null = @(& git -C $ProjectRootPath check-ignore -q -- $Path 2>&1)
+    return $LASTEXITCODE -eq 0
+}
+
+function Get-StagedLocalSafetyFiles {
+    return @(& git -C $ProjectRootPath diff --cached --name-only -- src/run_case_config.local.lua log 2>&1 | ForEach-Object { "$_" })
 }
 
 function Write-ExecutionConfigSafetyWarning {
@@ -820,7 +930,8 @@ $availableCommands = @(
     "prepare-restore",
     "post-execution",
     "execution-status",
-    "mark-write-resolved"
+    "mark-write-resolved",
+    "doctor"
 )
 if ($Help -or -not $Command) {
     Write-CommandHelp
@@ -1230,6 +1341,154 @@ switch ($Command) {
         exit 0
     }
 
+    "doctor" {
+        if ($Latest -lt 1) {
+            Write-Output "ERROR: -Latest must be greater than 0 for doctor"
+            exit 1
+        }
+
+        $checks = @()
+        $srcRoot = Join-Path $ProjectRootPath "src"
+        $requiredSourceFiles = @(
+            $CaseConfigToolPath,
+            $ClassifierPath,
+            (Join-Path $srcRoot "classifier_preset.ps1"),
+            (Join-Path $srcRoot "execute_module-v5.2.0_batch.lua"),
+            (Join-Path $srcRoot "mvp0_value_executor.lua"),
+            (Join-Path $srcRoot "mvp0_foundlist_collector.lua"),
+            (Join-Path $srcRoot "mvp0_candidate_report.lua")
+        )
+
+        if ([string]::Equals($ProjectRootPath, $ExpectedProjectRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+            $checks += New-DoctorCheck -Check "project path is v2 path" -Status "PASS" -Details $ProjectRootPath
+        } else {
+            $checks += New-DoctorCheck -Check "project path is v2 path" -Status "FAIL" -Details ("expected {0}; actual {1}" -f $ExpectedProjectRoot, $ProjectRootPath)
+        }
+
+        $missingSources = @($requiredSourceFiles | Where-Object { -not (Test-Path -LiteralPath $_) })
+        if ($missingSources.Count -eq 0) {
+            $checks += New-DoctorCheck -Check "required source files exist" -Status "PASS" -Details ("{0} files present" -f $requiredSourceFiles.Count)
+        } else {
+            $checks += New-DoctorCheck -Check "required source files exist" -Status "FAIL" -Details ($missingSources -join "; ")
+        }
+
+        $configExists = Test-Path -LiteralPath $CaseConfigPath
+        $checks += New-DoctorCheck `
+            -Check "run_case_config.local.lua exists" `
+            -Status $(if ($configExists) { "PASS" } else { "FAIL" }) `
+            -Details $CaseConfigPath
+
+        $configIgnored = Test-GitIgnoredPath -Path "src/run_case_config.local.lua"
+        $checks += New-DoctorCheck `
+            -Check "local config is gitignored" `
+            -Status $(if ($configIgnored) { "PASS" } else { "FAIL" }) `
+            -Details "src/run_case_config.local.lua"
+
+        $validateResult = Invoke-DoctorPowerShellFile -FilePath $CaseConfigToolPath -Arguments @("-Validate")
+        $checks += New-DoctorCheck `
+            -Check "config validation passes" `
+            -Status $(if ($validateResult.exit_code -eq 0) { "PASS" } else { "FAIL" }) `
+            -Details $(if ($validateResult.exit_code -eq 0) { "case_config_tool -Validate exit 0" } else { ($validateResult.output | Select-Object -First 1) })
+
+        $currentConfig = Read-CaseConfigMap -Path $CaseConfigPath
+        $writeCapable = Test-ExecutionConfigWriteCapable -Config $currentConfig
+        $armPresent = Test-ExecutionArmPresent -Config $currentConfig
+        $executionDetails = "execution_mode={0}; write_enabled={1}; confirm_present={2}; arm_present={3}" -f `
+            (Get-ConfigField -Config $currentConfig -Key "execution_mode"),
+            (Get-ConfigField -Config $currentConfig -Key "write_enabled"),
+            [bool](Get-ConfigField -Config $currentConfig -Key "execution_confirm"),
+            $armPresent
+        $checks += New-DoctorCheck `
+            -Check "execution config is safe" `
+            -Status $(if ($writeCapable -or $armPresent) { "WARN" } else { "PASS" }) `
+            -Details $executionDetails
+
+        $targetConsistency = Get-TargetConsistencyCheck -Config $currentConfig
+        $checks += New-DoctorCheck `
+            -Check "target pattern matches float" `
+            -Status $(if ($targetConsistency.matches) { "PASS" } else { "FAIL" }) `
+            -Details ("actual={0}; expected_from_float={1}" -f $targetConsistency.actual_pattern, $targetConsistency.expected_pattern)
+
+        $targetNormal = Test-NormalTargetConfig -Config $currentConfig
+        $checks += New-DoctorCheck `
+            -Check "current target is normal" `
+            -Status $(if ($targetNormal) { "PASS" } else { "WARN" }) `
+            -Details ("target_value_float={0}; target_value_pattern={1}" -f (Get-ConfigField -Config $currentConfig -Key "target_value_float"), (Get-ConfigField -Config $currentConfig -Key "target_value_pattern"))
+
+        $classifyResult = Invoke-DoctorPowerShellFile -FilePath $ClassifierPath -Arguments @("-Latest", "$Latest", "-LogRoot", $LogRoot, "-ConsoleSummary")
+        if ($classifyResult.exit_code -eq 0) {
+            $records = @(Get-ClassifierConsoleRecords -OutputLines $classifyResult.output)
+            $unpairedWrites = @(Get-UnpairedWriteRecords -Records $records)
+            $resolvedWrites = @(Read-ResolvedWriteRecords -Path $ResolvedWritesPath)
+            $resolvedBatchSet = New-ResolvedBatchSet -Records $resolvedWrites
+            $activeUnpairedWrites = @()
+            $manualUnpairedWrites = @()
+            foreach ($writeRecord in $unpairedWrites) {
+                $writeBatchId = Get-RecordField -Record $writeRecord -Key "batch_id"
+                if ($resolvedBatchSet.ContainsKey($writeBatchId)) {
+                    $manualUnpairedWrites += $writeRecord
+                } else {
+                    $activeUnpairedWrites += $writeRecord
+                }
+            }
+            $checks += New-DoctorCheck `
+                -Check "active unpaired writes" `
+                -Status $(if ($activeUnpairedWrites.Count -eq 0) { "PASS" } else { "WARN" }) `
+                -Details ("active={0}; manual_resolved={1}; raw={2}; latest={3}" -f $activeUnpairedWrites.Count, $manualUnpairedWrites.Count, $unpairedWrites.Count, $(if ($records.Count -gt 0) { Get-RecordField -Record $records[0] -Key "batch_id" } else { "-" }))
+        } else {
+            $checks += New-DoctorCheck -Check "active unpaired writes" -Status "FAIL" -Details "classifier console summary failed"
+        }
+
+        $checks += New-DoctorCheck -Check "compare-full baseline filter" -Status "PASS" -Details "compare command includes -OnlyBaselineEligible"
+        $compareArgs = @("-Latest", "20", "-Profile", "full", "-OnlyBaselineEligible", "-LogRoot", $LogRoot, "-CompareTo", $BaselinePath)
+        $compareResult = Invoke-DoctorPowerShellFile -FilePath $ClassifierPath -Arguments $compareArgs
+        if ($compareResult.exit_code -ne 0) {
+            $checks += New-DoctorCheck -Check "compare-full result" -Status "FAIL" -Details "classifier compare command failed"
+        } else {
+            $comparison = Get-ComparisonStatus -OutputLines $compareResult.output
+            $comparisonStatus = "$($comparison.status)"
+            if ($comparisonStatus -eq "PASS") {
+                $checks += New-DoctorCheck -Check "compare-full result" -Status "PASS" -Details "Regression Comparison = PASS"
+            } elseif ($comparisonStatus -eq "WARN") {
+                $checks += New-DoctorCheck -Check "compare-full result" -Status "WARN" -Details "Regression Comparison = WARN"
+            } elseif ($comparisonStatus -eq "FAIL") {
+                $checks += New-DoctorCheck -Check "compare-full result" -Status "FAIL" -Details "Regression Comparison = FAIL"
+            } else {
+                $checks += New-DoctorCheck -Check "compare-full result" -Status "WARN" -Details ("Regression Comparison = {0}" -f $comparisonStatus)
+            }
+        }
+
+        $logIgnored = Test-GitIgnoredPath -Path "log/doctor_probe.tmp"
+        $checks += New-DoctorCheck `
+            -Check "log directory is ignored" `
+            -Status $(if ($logIgnored) { "PASS" } else { "FAIL" }) `
+            -Details "log/"
+
+        if (Test-Path -LiteralPath $ResolvedWritesPath) {
+            $resolvedIgnored = Test-GitIgnoredPath -Path "log/execution_resolved_writes.local.jsonl"
+            $checks += New-DoctorCheck `
+                -Check "resolved writes file is ignored" `
+                -Status $(if ($resolvedIgnored) { "PASS" } else { "FAIL" }) `
+                -Details "log/execution_resolved_writes.local.jsonl"
+        } else {
+            $checks += New-DoctorCheck -Check "resolved writes file is ignored" -Status "PASS" -Details "file not present"
+        }
+
+        $stagedSafetyFiles = @(Get-StagedLocalSafetyFiles)
+        if ($stagedSafetyFiles.Count -eq 0) {
+            $checks += New-DoctorCheck -Check "no config/log files staged" -Status "PASS" -Details "none"
+        } else {
+            $checks += New-DoctorCheck -Check "no config/log files staged" -Status "FAIL" -Details ($stagedSafetyFiles -join "; ")
+        }
+
+        $conclusion = Get-DoctorConclusion -Checks $checks
+        Write-DoctorReport -Checks $checks -Conclusion $conclusion
+        if ($conclusion -eq "FAIL") {
+            exit 1
+        }
+        exit 0
+    }
+
     "post-quick" {
         $classify = Invoke-ClassifierLatest -ProfileName "quick"
         if ($classify.exit_code -ne 0) {
@@ -1368,6 +1627,7 @@ switch ($Command) {
         }
         Write-Output ""
         Write-Output "For transaction safety, run: test_session_tool.ps1 execution-status"
+        Write-Output "For full preflight, run: test_session_tool.ps1 doctor"
         exit 0
     }
 }
