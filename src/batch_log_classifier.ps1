@@ -28,6 +28,7 @@ $ClassificationOrder = @(
     "quick_failure",
     "collector_runtime_empty",
     "incomplete_output",
+    "invalid_config_mismatch",
     "known_true_value_mismatch",
     "suspected_filter_bug",
     "selected_quota_issue",
@@ -422,6 +423,63 @@ function Normalize-ReportValue {
         return "not_available"
     }
     return "$Value"
+}
+
+function Normalize-U32Pattern {
+    param($Value)
+
+    if (-not (Test-TextPresent -Value $Value)) {
+        return $null
+    }
+
+    $text = "$Value".Trim()
+    if ($text.StartsWith("0x", [System.StringComparison]::OrdinalIgnoreCase)) {
+        $text = $text.Substring(2)
+    }
+    if ($text -notmatch "^[0-9A-Fa-f]{1,8}$") {
+        return $null
+    }
+    return "0x" + $text.PadLeft(8, "0").ToUpperInvariant()
+}
+
+function Get-SingleFloatPattern {
+    param($Value)
+
+    if (-not (Test-TextPresent -Value $Value)) {
+        return $null
+    }
+
+    $number = 0.0
+    if (-not [double]::TryParse("$Value", [System.Globalization.NumberStyles]::Float, [System.Globalization.CultureInfo]::InvariantCulture, [ref]$number)) {
+        return $null
+    }
+
+    $singleValue = [single]$number
+    $bytes = [System.BitConverter]::GetBytes($singleValue)
+    $u32 = [System.BitConverter]::ToUInt32($bytes, 0)
+    return ("0x{0:X8}" -f $u32)
+}
+
+function Get-TargetConfigConsistency {
+    param($TargetPattern, $TargetFloat)
+
+    $normalizedPattern = Normalize-U32Pattern -Value $TargetPattern
+    $expectedPattern = Get-SingleFloatPattern -Value $TargetFloat
+    $hasPattern = Test-TextPresent -Value $TargetPattern
+    $hasFloat = Test-TextPresent -Value $TargetFloat
+    $configMismatch = $false
+
+    if ($hasPattern -and $hasFloat -and $expectedPattern) {
+        if (-not $normalizedPattern -or -not [string]::Equals($normalizedPattern, $expectedPattern, [System.StringComparison]::OrdinalIgnoreCase)) {
+            $configMismatch = $true
+        }
+    }
+
+    return [pscustomobject][ordered]@{
+        target_value_pattern_normalized = $normalizedPattern
+        expected_target_pattern_from_float = $expectedPattern
+        config_mismatch = $configMismatch
+    }
 }
 
 function Limit-Text {
@@ -1050,6 +1108,9 @@ function Test-BaselineEligibleRecord {
     if (-not $Record) {
         return $false
     }
+    if ($Record.classification -eq "invalid_config_mismatch" -or $Record.config_mismatch -eq "true") {
+        return $false
+    }
     if ($Record.execution_baseline_eligible -eq "false") {
         return $false
     }
@@ -1142,6 +1203,16 @@ function Get-DropStageDiagnosis {
                 code_change_recommended = "no"
             }
         }
+        "invalid_config_mismatch" {
+            return [pscustomobject][ordered]@{
+                drop_stage = "invalid_config_mismatch"
+                likely_cause = "target_value_pattern does not match target_value_float"
+                algorithm_failure = "no"
+                replacement_sample_recommended = "yes"
+                trace_rerun_recommended = "no"
+                code_change_recommended = "no"
+            }
+        }
         "suspected_filter_bug" {
             return [pscustomobject][ordered]@{
                 drop_stage = "filter_target_match_failure"
@@ -1196,7 +1267,7 @@ function Get-FirstProblemMode {
         if (-not $mode -or -not $mode.present) {
             continue
         }
-        if ($Record.classification -eq "known_true_value_mismatch" -or $Record.classification -eq "suspected_filter_bug") {
+        if ($Record.classification -eq "known_true_value_mismatch" -or $Record.classification -eq "invalid_config_mismatch" -or $Record.classification -eq "suspected_filter_bug") {
             if ($mode.true_in_raw -eq "true" -and $mode.true_in_unique -eq "true" -and $mode.true_in_filtered -eq "false") {
                 return $mode
             }
@@ -1278,6 +1349,7 @@ function Get-BatchRecord {
         $withProbe.target_value_float,
         $noProbeB.target_value_float
     )
+    $targetConfigConsistency = Get-TargetConfigConsistency -TargetPattern $targetPattern -TargetFloat $targetFloat
     $runValid = Select-FirstValue @((Get-KvValue $stable "run_valid"), (Get-KvValue $summary "run_valid"))
     $failureClass = Select-FirstValue @((Get-KvValue $stable "failure_class"), (Get-KvValue $summary "failure_class"))
     $collectorEmpty = Select-FirstValue @((Get-KvValue $stable "collector_empty"), (Get-KvValue $summary "collector_empty"))
@@ -1336,6 +1408,12 @@ function Get-BatchRecord {
     if ($missing.Count -gt 0) {
         $classification = "incomplete_output"
         $details += "missing: " + ($missing -join ", ")
+    } elseif ($targetConfigConsistency.config_mismatch) {
+        $classification = "invalid_config_mismatch"
+        $details += ("target_value_pattern does not match target_value_float: actual={0}, expected_from_float={1}, target_value_float={2}" -f `
+            (Format-Cell $targetPattern),
+            (Format-Cell $targetConfigConsistency.expected_target_pattern_from_float),
+            (Format-Cell $targetFloat))
     } elseif ($runValid -eq "false" -or $collectorEmpty -eq "true" -or $failureClass -eq "collector_runtime_empty") {
         $classification = "collector_runtime_empty"
     } else {
@@ -1383,8 +1461,14 @@ function Get-BatchRecord {
     }
 
     $baselineEligible = Select-FirstValue @((Get-KvValue $stable "baseline_eligible"), (Get-KvValue $summary "baseline_eligible"))
+    if ($targetConfigConsistency.config_mismatch) {
+        $baselineEligible = "false"
+    }
     if ($executionBaselineEligible -eq "false") {
         $baselineEligible = "false"
+    }
+    if ($targetConfigConsistency.config_mismatch) {
+        $recommendation = "fix target pattern/float consistency and rerun"
     }
 
     return [pscustomobject][ordered]@{
@@ -1392,6 +1476,8 @@ function Get-BatchRecord {
         known_true_addr = $knownTrue
         target_value_pattern = $targetPattern
         target_value_float = $targetFloat
+        expected_target_pattern_from_float = $targetConfigConsistency.expected_target_pattern_from_float
+        config_mismatch = if ($targetConfigConsistency.config_mismatch) { "true" } else { "false" }
         diagnostic_level = $diagnosticLevel
         validation_profile = $validationProfile
         baseline_eligible = $baselineEligible
@@ -1467,6 +1553,10 @@ function Get-InspectionLines {
     $lines += "|---|---|"
     $lines += ("| batch_id | {0} |" -f (Format-Cell $Record.batch_id))
     $lines += ("| known_true_addr | {0} |" -f (Format-Cell $Record.known_true_addr))
+    $lines += ("| target_value_pattern | {0} |" -f (Format-Cell $Record.target_value_pattern))
+    $lines += ("| target_value_float | {0} |" -f (Format-Cell $Record.target_value_float))
+    $lines += ("| expected_target_pattern_from_float | {0} |" -f (Format-Cell $Record.expected_target_pattern_from_float))
+    $lines += ("| config_mismatch | {0} |" -f (Format-Cell $Record.config_mismatch))
     $lines += ("| diagnostic_level | {0} |" -f (Format-Cell $Record.diagnostic_level))
     $lines += ("| validation_profile | {0} |" -f (Format-Cell $Record.validation_profile))
     $lines += ("| classification | {0} |" -f (Format-Cell $Record.classification))
@@ -1530,6 +1620,20 @@ function Get-InspectionLines {
                 (Format-Cell ($mode.selected_count)))
         }
         $lines += "- recommendation: rerun sample, do not count as algorithm failure"
+    } elseif ($Record.classification -eq "invalid_config_mismatch") {
+        $lines += ("- target_value_pattern: {0}" -f (Format-Cell $Record.target_value_pattern))
+        $lines += ("- target_value_float: {0}" -f (Format-Cell $Record.target_value_float))
+        $lines += ("- expected_target_pattern_from_float: {0}" -f (Format-Cell $Record.expected_target_pattern_from_float))
+        $lines += ("- config_mismatch: {0}" -f (Format-Cell $Record.config_mismatch))
+        if ($problemMode -and $problemMode.filter_known_true_present) {
+            $lines += ("- observed_pattern: {0}" -f (Format-Cell $problemMode.observed_pattern))
+            $lines += ("- observed_raw_bytes: {0}" -f (Format-Cell $problemMode.observed_raw_bytes))
+            $lines += ("- observed_float: {0}" -f (Format-Cell $problemMode.observed_float))
+            $lines += ("- exact_pattern_match: {0}" -f (Format-Cell $problemMode.exact_pattern_match))
+            $lines += ("- mismatch_reason: {0}" -f (Format-Cell $problemMode.mismatch_reason))
+            $lines += ("- final_filter_outcome: {0}" -f (Format-Cell $problemMode.final_filter_outcome))
+        }
+        $lines += "- recommendation: fix target pattern/float consistency and rerun"
     } elseif ($Record.classification -eq "known_true_value_mismatch" -or $Record.classification -eq "suspected_filter_bug") {
         if ($problemMode -and $problemMode.filter_known_true_present) {
             $lines += ("- target_value_pattern: {0}" -f (Format-Cell $problemMode.target_value_pattern))
@@ -1636,6 +1740,8 @@ function New-RegistryEntry {
         known_true_addr = $Record.known_true_addr
         target_value_pattern = $Record.target_value_pattern
         target_value_float = $Record.target_value_float
+        expected_target_pattern_from_float = $Record.expected_target_pattern_from_float
+        config_mismatch = $Record.config_mismatch
         diagnostic_level = $Record.diagnostic_level
         validation_profile = $Record.validation_profile
         baseline_eligible = $Record.baseline_eligible
@@ -1791,6 +1897,16 @@ function Get-ConsoleSummaryLines {
         $lines = Add-ConsoleField -Lines $lines -Name "conclusion" -Value (Get-ConsoleRecordConclusion -Record $record)
         $lines = Add-ConsoleField -Lines $lines -Name "total_ms" -Value (Format-Number (Get-RegistryMetricTotal -Record $record -Metric "total_ms"))
         $lines = Add-ConsoleField -Lines $lines -Name "log_size_bytes" -Value (Format-Number (Get-RegistryMetricTotal -Record $record -Metric "log_size_bytes"))
+
+        if ($record.config_mismatch -eq "true") {
+            $lines += ""
+            $lines += "Config"
+            $lines += "------"
+            $lines = Add-ConsoleField -Lines $lines -Name "target_pattern" -Value $record.target_value_pattern
+            $lines = Add-ConsoleField -Lines $lines -Name "target_float" -Value $record.target_value_float
+            $lines = Add-ConsoleField -Lines $lines -Name "expected_pattern" -Value $record.expected_target_pattern_from_float
+            $lines = Add-ConsoleField -Lines $lines -Name "config_mismatch" -Value $record.config_mismatch
+        }
 
         if (Test-ShowExecutionSummary -Record $record) {
             $lines += ""
@@ -2000,6 +2116,7 @@ function Get-RegistryLikelyReason {
     switch ($classification) {
         "incomplete_output" { return "missing expected output files" }
         "collector_runtime_empty" { return "collector produced empty runtime sample" }
+        "invalid_config_mismatch" { return "target_value_pattern does not match target_value_float" }
         "known_true_value_mismatch" { return "truth_value_mismatch" }
         "suspected_filter_bug" { return "suspected_filter_bug" }
         "selected_quota_issue" { return "known_true reached filtered but did not enter selected" }
@@ -2037,6 +2154,7 @@ function Get-RegistryRecommendation {
     switch ($classification) {
         "incomplete_output" { return "rerun or inspect output persistence" }
         "collector_runtime_empty" { return "rerun sample; do not count as algorithm failure" }
+        "invalid_config_mismatch" { return "fix target pattern/float consistency and rerun" }
         "known_true_value_mismatch" { return "trace rerun recommended; verify sampled known_true value" }
         "suspected_filter_bug" { return "trace rerun and code review recommended" }
         "selected_quota_issue" { return "trace rerun recommended; inspect selected cap and cutoff diagnostics" }
@@ -2189,6 +2307,7 @@ function Add-RegistrySummaryLines {
     $Lines += ("| non-success count | {0} |" -f $nonSuccessCount)
     $Lines += ("| collector_runtime_empty count | {0} |" -f (Get-RegistryClassificationCount -Records $Records -Classification "collector_runtime_empty"))
     $Lines += ("| incomplete_output count | {0} |" -f (Get-RegistryClassificationCount -Records $Records -Classification "incomplete_output"))
+    $Lines += ("| invalid_config_mismatch count | {0} |" -f (Get-RegistryClassificationCount -Records $Records -Classification "invalid_config_mismatch"))
     $Lines += ("| known_true_value_mismatch count | {0} |" -f (Get-RegistryClassificationCount -Records $Records -Classification "known_true_value_mismatch"))
     $Lines += ("| selected_quota_issue count | {0} |" -f (Get-RegistryClassificationCount -Records $Records -Classification "selected_quota_issue"))
     $Lines += ("| ranking_issue count | {0} |" -f (Get-RegistryClassificationCount -Records $Records -Classification "ranking_issue"))
@@ -2478,8 +2597,9 @@ function Build-ReportLines {
     $quickSuccessCount = @($Records | Where-Object { $_.classification -eq "quick_success" }).Count
     $nonSuccessRecords = @($Records | Where-Object { $_.classification -ne "success" -and $_.classification -ne "quick_success" })
     $executionBaselineIneligibleRecords = @($Records | Where-Object { $_.execution_baseline_eligible -eq "false" })
+    $configMismatchRecords = @($Records | Where-Object { $_.classification -eq "invalid_config_mismatch" -or $_.config_mismatch -eq "true" })
     $cleanBaselineStatus = "CLEAN"
-    if ($quickRecords.Count -gt 0 -or $executionBaselineIneligibleRecords.Count -gt 0) {
+    if ($quickRecords.Count -gt 0 -or $executionBaselineIneligibleRecords.Count -gt 0 -or $configMismatchRecords.Count -gt 0) {
         $cleanBaselineStatus = "NOT_BASELINE_ELIGIBLE"
     } elseif ($nonSuccessRecords.Count -gt 0) {
         $cleanBaselineStatus = "CONTAINS_OUTLIERS"
@@ -2514,6 +2634,7 @@ function Build-ReportLines {
     $lines += ("| full_success count | {0} |" -f (Format-Cell $fullSuccessCount))
     $lines += ("| quick_success count | {0} |" -f (Format-Cell $quickSuccessCount))
     $lines += ("| execution_baseline_ineligible count | {0} |" -f (Format-Cell $executionBaselineIneligibleRecords.Count))
+    $lines += ("| invalid_config_mismatch count | {0} |" -f (Format-Cell $configMismatchRecords.Count))
     $lines += ""
 
     $lines += "## Classification Summary"
@@ -2531,6 +2652,7 @@ function Build-ReportLines {
     $lines += ("- total batch count: {0}" -f $Records.Count)
     $lines += ("- clean baseline status: {0}" -f $cleanBaselineStatus)
     $lines += ("- execution baseline ineligible count: {0}" -f $executionBaselineIneligibleRecords.Count)
+    $lines += ("- invalid config mismatch count: {0}" -f $configMismatchRecords.Count)
     if ($repeatedKnownTrue.Count -eq 0) {
         $lines += "- repeated known_true_addr list: none"
     } else {
@@ -2548,12 +2670,16 @@ function Build-ReportLines {
 
     $lines += "## Correctness Table"
     $lines += ""
-    $lines += "| batch_id | known_true_addr | diagnostic_level | validation_profile | baseline_eligible | execution_outcome | execution_baseline_eligible | run_valid | collector_empty | classification | final hit | rank A/W/B | stable rank | best_candidate | selected A/W/B | recommendation |"
-    $lines += "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"
+    $lines += "| batch_id | known_true_addr | target_value_pattern | target_value_float | expected_target_pattern_from_float | config_mismatch | diagnostic_level | validation_profile | baseline_eligible | execution_outcome | execution_baseline_eligible | run_valid | collector_empty | classification | final hit | rank A/W/B | stable rank | best_candidate | selected A/W/B | recommendation |"
+    $lines += "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"
     foreach ($record in $Records) {
-        $lines += ("| {0} | {1} | {2} | {3} | {4} | {5} | {6} | {7} | {8} | {9} | {10} | {11} | {12} | {13} | {14} | {15} |" -f `
+        $lines += ("| {0} | {1} | {2} | {3} | {4} | {5} | {6} | {7} | {8} | {9} | {10} | {11} | {12} | {13} | {14} | {15} | {16} | {17} | {18} | {19} |" -f `
             (Format-Cell $record.batch_id),
             (Format-Cell $record.known_true_addr),
+            (Format-Cell $record.target_value_pattern),
+            (Format-Cell $record.target_value_float),
+            (Format-Cell $record.expected_target_pattern_from_float),
+            (Format-Cell $record.config_mismatch),
             (Format-Cell (Normalize-ReportValue $record.diagnostic_level)),
             (Format-Cell (Normalize-ReportValue $record.validation_profile)),
             (Format-Cell $record.baseline_eligible),
