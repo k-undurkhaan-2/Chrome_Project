@@ -1,6 +1,8 @@
 local Executor = {}
 
-Executor.VERSION = "dry_run_v1"
+Executor.VERSION = "guarded_write_v2"
+
+local REQUIRED_CONFIRM = "I_ACCEPT_WRITE_TO_LIVE_MEMORY"
 
 local DEFAULTS = {
   execution_mode = "disabled",
@@ -72,6 +74,7 @@ local function get_config(opts)
   return {
     execution_mode = text_default(cfg.execution_mode, DEFAULTS.execution_mode),
     write_enabled = bool_default(cfg.write_enabled, DEFAULTS.write_enabled),
+    execution_confirm = cfg.execution_confirm,
     write_value_float = cfg.write_value_float,
     write_value_pattern = cfg.write_value_pattern,
     write_method = text_default(cfg.write_method, DEFAULTS.write_method),
@@ -97,11 +100,14 @@ local function base_result(opts, cfg)
   return {
     execution_enabled = cfg.execution_mode ~= "disabled",
     execution_mode = cfg.execution_mode,
+    write_enabled = cfg.write_enabled,
+    execution_confirm_ok = cfg.execution_confirm == REQUIRED_CONFIRM,
     execution_addr = nil,
     execution_addr_source = cfg.execution_addr_source,
     execution_preconditions_ok = false,
     execution_failure_class = nil,
     known_true_match_ok = nil,
+    rank_guard_ok = false,
     old_value_read_ok = false,
     old_value_pattern = nil,
     old_value_float = nil,
@@ -114,8 +120,12 @@ local function base_result(opts, cfg)
     readback_ok = false,
     readback_pattern = nil,
     readback_float = nil,
+    readback_delta = nil,
     rollback_available = false,
+    rollback_value_pattern = nil,
+    rollback_value_float = nil,
     executor_version = Executor.VERSION,
+    write_method = cfg.write_method,
   }
 end
 
@@ -135,6 +145,36 @@ local function resolve_execution_addr(summary, source)
   return nil
 end
 
+local function write_float(addr, value)
+  if type(writeFloat) ~= "function" then
+    return false, "write_api_unavailable"
+  end
+  local ok, write_result = pcall(writeFloat, addr, value)
+  if not ok or write_result == false then
+    return false, "write_failed"
+  end
+  return true, nil
+end
+
+local function read_old_value(result, addr)
+  local read_ok, old_pattern = read_u32(addr)
+  result.old_value_read_ok = read_ok
+  result.old_value_pattern = old_pattern
+  local float_ok, old_float = read_f32(addr)
+  if float_ok then
+    result.old_value_float = old_float
+  end
+  return read_ok, old_pattern
+end
+
+local function old_value_matches_target(result, cfg, old_pattern)
+  local target_pattern = u32(result.target_value_pattern)
+  if cfg.require_old_value_match and target_pattern ~= nil and old_pattern ~= target_pattern then
+    return false
+  end
+  return true
+end
+
 function Executor.default_result(opts)
   return base_result(opts, get_config(opts))
 end
@@ -152,10 +192,6 @@ function Executor.evaluate(opts)
 
   if cfg.execution_mode ~= "dry_run" and cfg.execution_mode ~= "write" then
     return fail(result, "invalid_execution_mode")
-  end
-
-  if cfg.execution_mode == "write" and cfg.write_enabled == true then
-    return fail(result, "write_not_supported_in_v1")
   end
 
   if cfg.require_full_profile and summary.validation_profile ~= "full" then
@@ -181,6 +217,14 @@ function Executor.evaluate(opts)
     return fail(result, "stable_rank_not_1")
   end
 
+  local rank_guard = opts.rank_guard
+  if rank_guard ~= nil then
+    result.rank_guard_ok = rank_guard.ok == true
+  end
+  if cfg.execution_mode == "write" and result.rank_guard_ok ~= true then
+    return fail(result, "rank_guard_failed")
+  end
+
   local known_true_addr = opts.known_true_addr or summary.known_true_addr
   if type(known_true_addr) == "number" then
     result.known_true_match_ok = addr == known_true_addr
@@ -189,28 +233,62 @@ function Executor.evaluate(opts)
     end
   end
 
-  local read_ok, old_pattern = read_u32(addr)
-  result.old_value_read_ok = read_ok
-  result.old_value_pattern = old_pattern
-  local float_ok, old_float = read_f32(addr)
-  if float_ok then
-    result.old_value_float = old_float
+  if cfg.execution_mode == "write" then
+    if cfg.write_enabled ~= true then
+      return fail(result, "write_disabled")
+    end
+    if result.execution_confirm_ok ~= true then
+      return fail(result, "missing_execution_confirm")
+    end
+    if cfg.write_method ~= "float" then
+      return fail(result, "unsupported_write_method")
+    end
+    if tonumber(cfg.write_value_float) == nil then
+      return fail(result, "invalid_write_value_float")
+    end
   end
 
+  local read_ok, old_pattern = read_old_value(result, addr)
   if not read_ok then
     return fail(result, "old_value_read_failed")
   end
 
-  local target_pattern = u32(result.target_value_pattern)
-  if cfg.require_old_value_match and target_pattern ~= nil and old_pattern ~= target_pattern then
+  if not old_value_matches_target(result, cfg, old_pattern) then
     return fail(result, "old_value_mismatch")
   end
 
-  if cfg.execution_mode == "write" then
-    return fail(result, "write_disabled")
+  result.execution_preconditions_ok = true
+
+  if cfg.execution_mode == "dry_run" then
+    return result
   end
 
-  result.execution_preconditions_ok = true
+  local write_value_float = tonumber(cfg.write_value_float)
+  result.write_attempted = true
+  result.rollback_available = true
+  result.rollback_value_pattern = result.old_value_pattern
+  result.rollback_value_float = result.old_value_float
+  local write_ok, write_failure_class = write_float(addr, write_value_float)
+  result.write_ok = write_ok
+  if not result.write_ok then
+    result.execution_failure_class = write_failure_class or "write_failed"
+    return result
+  end
+
+  local readback_pattern_ok, readback_pattern = read_u32(addr)
+  if readback_pattern_ok then
+    result.readback_pattern = readback_pattern
+  end
+  local readback_float_ok, readback_float = read_f32(addr)
+  if readback_float_ok then
+    result.readback_float = readback_float
+    result.readback_delta = readback_float - write_value_float
+    result.readback_ok = math.abs(result.readback_delta) <= cfg.readback_tolerance
+  end
+
+  if result.readback_ok ~= true then
+    result.execution_failure_class = "readback_mismatch"
+  end
   return result
 end
 

@@ -30,6 +30,7 @@ $RelativeConfigPath = "src/run_case_config.local.lua"
 $PreservedConfigKeys = @(
     "execution_mode",
     "write_enabled",
+    "execution_confirm",
     "write_value_float",
     "write_value_pattern",
     "write_method",

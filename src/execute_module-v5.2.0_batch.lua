@@ -154,6 +154,7 @@ local function apply_local_case_config(run_cases, path)
     case_cfg.validation_profile = normalize_validation_profile(case_cfg.validation_profile)
     case_cfg.execution_mode = normalize_execution_mode(case_cfg.execution_mode)
     case_cfg.write_enabled = parse_case_bool(case_cfg.write_enabled, "write_enabled") or false
+    case_cfg.execution_confirm = nil
     case_cfg.write_method = normalize_write_method(case_cfg.write_method)
     case_cfg.execution_addr_source = normalize_execution_addr_source(case_cfg.execution_addr_source)
     case_cfg.require_known_true_match = true
@@ -208,6 +209,9 @@ local function apply_local_case_config(run_cases, path)
   if loaded.write_enabled ~= nil then
     case_cfg.write_enabled = parse_case_bool(loaded.write_enabled, "write_enabled")
   end
+  if loaded.execution_confirm ~= nil then
+    case_cfg.execution_confirm = tostring(loaded.execution_confirm)
+  end
   if loaded.write_value_float ~= nil then
     case_cfg.write_value_float = parse_case_float(loaded.write_value_float, "write_value_float")
   end
@@ -252,6 +256,7 @@ local RUN_CASES = {
     validation_profile = "full",
     execution_mode = "disabled",
     write_enabled = false,
+    execution_confirm = nil,
     write_method = "float",
     execution_addr_source = "stable_intersection_best_candidate",
     require_known_true_match = true,
@@ -969,11 +974,14 @@ local load_value_executor
 local EXECUTION_FIELD_NAMES = {
   "execution_enabled",
   "execution_mode",
+  "write_enabled",
+  "execution_confirm_ok",
   "execution_addr",
   "execution_addr_source",
   "execution_preconditions_ok",
   "execution_failure_class",
   "known_true_match_ok",
+  "rank_guard_ok",
   "old_value_read_ok",
   "old_value_pattern",
   "old_value_float",
@@ -981,12 +989,16 @@ local EXECUTION_FIELD_NAMES = {
   "target_value_float",
   "requested_write_value_float",
   "requested_write_value_pattern",
+  "write_method",
   "write_attempted",
   "write_ok",
   "readback_ok",
   "readback_pattern",
   "readback_float",
+  "readback_delta",
   "rollback_available",
+  "rollback_value_pattern",
+  "rollback_value_float",
   "executor_version",
 }
 
@@ -994,11 +1006,14 @@ local function build_default_execution_result(case_cfg, summary, failure_class)
   return {
     execution_enabled = case_cfg and case_cfg.execution_mode ~= "disabled" or false,
     execution_mode = case_cfg and case_cfg.execution_mode or "disabled",
+    write_enabled = case_cfg and case_cfg.write_enabled or false,
+    execution_confirm_ok = false,
     execution_addr = nil,
     execution_addr_source = case_cfg and case_cfg.execution_addr_source or "stable_intersection_best_candidate",
     execution_preconditions_ok = false,
     execution_failure_class = failure_class,
     known_true_match_ok = nil,
+    rank_guard_ok = false,
     old_value_read_ok = false,
     old_value_pattern = nil,
     old_value_float = nil,
@@ -1006,13 +1021,17 @@ local function build_default_execution_result(case_cfg, summary, failure_class)
     target_value_float = summary and summary.target_value_float or case_cfg and case_cfg.target_value_float or nil,
     requested_write_value_float = case_cfg and case_cfg.write_value_float or nil,
     requested_write_value_pattern = case_cfg and case_cfg.write_value_pattern or nil,
+    write_method = case_cfg and case_cfg.write_method or "float",
     write_attempted = false,
     write_ok = false,
     readback_ok = false,
     readback_pattern = nil,
     readback_float = nil,
+    readback_delta = nil,
     rollback_available = false,
-    executor_version = "dry_run_v1",
+    rollback_value_pattern = nil,
+    rollback_value_float = nil,
+    executor_version = "guarded_write_v2",
   }
 end
 
@@ -1033,7 +1052,26 @@ local function apply_default_execution_fields(summary, case_cfg, failure_class)
   apply_execution_fields(summary, build_default_execution_result(case_cfg, summary, failure_class))
 end
 
-local function evaluate_value_execution(case_cfg, summary)
+local function rank_position(summary)
+  if summary == nil then
+    return nil
+  end
+  return tonumber(summary.known_true_rank_position)
+end
+
+local function build_execution_rank_guard(no_probe_a, with_probe, no_probe_b)
+  local rank_a = rank_position(no_probe_a)
+  local rank_w = rank_position(with_probe)
+  local rank_b = rank_position(no_probe_b)
+  return {
+    rank_A = rank_a,
+    rank_W = rank_w,
+    rank_B = rank_b,
+    ok = rank_a == 1 and rank_w == 1 and rank_b == 1,
+  }
+end
+
+local function evaluate_value_execution(case_cfg, summary, rank_guard)
   local ok, executor_or_err = pcall(load_value_executor)
   if not ok then
     local result = build_default_execution_result(case_cfg, summary, "executor_load_failed")
@@ -1047,6 +1085,7 @@ local function evaluate_value_execution(case_cfg, summary)
     known_true_addr = case_cfg and case_cfg.known_true_addr or nil,
     target_value_pattern = case_cfg and case_cfg.target_value_pattern or nil,
     target_value_float = case_cfg and case_cfg.target_value_float or nil,
+    rank_guard = rank_guard,
   })
   if not ok_eval then
     local result = build_default_execution_result(case_cfg, summary, "executor_error")
@@ -1060,11 +1099,14 @@ local function print_execution_fields(source)
   print("=== value_execution ===")
   print_kv("execution_enabled", source and source.execution_enabled)
   print_kv("execution_mode", source and source.execution_mode)
+  print_kv("write_enabled", source and source.write_enabled)
+  print_kv("execution_confirm_ok", source and source.execution_confirm_ok)
   print_hex_kv("execution_addr", source and source.execution_addr)
   print_kv("execution_addr_source", source and source.execution_addr_source)
   print_kv("execution_preconditions_ok", source and source.execution_preconditions_ok)
   print_kv("execution_failure_class", source and source.execution_failure_class)
   print_kv("known_true_match_ok", source and source.known_true_match_ok)
+  print_kv("rank_guard_ok", source and source.rank_guard_ok)
   print_kv("old_value_read_ok", source and source.old_value_read_ok)
   print_hex_kv("old_value_pattern", source and source.old_value_pattern)
   print_kv("old_value_float", source and source.old_value_float)
@@ -1072,23 +1114,30 @@ local function print_execution_fields(source)
   print_kv("target_value_float", source and source.target_value_float)
   print_kv("requested_write_value_float", source and source.requested_write_value_float)
   print_hex_kv("requested_write_value_pattern", source and source.requested_write_value_pattern)
+  print_kv("write_method", source and source.write_method)
   print_kv("write_attempted", source and source.write_attempted)
   print_kv("write_ok", source and source.write_ok)
   print_kv("readback_ok", source and source.readback_ok)
   print_hex_kv("readback_pattern", source and source.readback_pattern)
   print_kv("readback_float", source and source.readback_float)
+  print_kv("readback_delta", source and source.readback_delta)
   print_kv("rollback_available", source and source.rollback_available)
+  print_hex_kv("rollback_value_pattern", source and source.rollback_value_pattern)
+  print_kv("rollback_value_float", source and source.rollback_value_float)
   print_kv("executor_version", source and source.executor_version)
 end
 
 local function append_execution_lines(lines, source)
   lines[#lines + 1] = "execution_enabled = " .. tostring(source and source.execution_enabled)
   lines[#lines + 1] = "execution_mode = " .. tostring(source and source.execution_mode)
+  lines[#lines + 1] = "write_enabled = " .. tostring(source and source.write_enabled)
+  lines[#lines + 1] = "execution_confirm_ok = " .. tostring(source and source.execution_confirm_ok)
   lines[#lines + 1] = "execution_addr = " .. tostring(hex_u64(source and source.execution_addr))
   lines[#lines + 1] = "execution_addr_source = " .. tostring(source and source.execution_addr_source)
   lines[#lines + 1] = "execution_preconditions_ok = " .. tostring(source and source.execution_preconditions_ok)
   lines[#lines + 1] = "execution_failure_class = " .. tostring(source and source.execution_failure_class)
   lines[#lines + 1] = "known_true_match_ok = " .. tostring(source and source.known_true_match_ok)
+  lines[#lines + 1] = "rank_guard_ok = " .. tostring(source and source.rank_guard_ok)
   lines[#lines + 1] = "old_value_read_ok = " .. tostring(source and source.old_value_read_ok)
   lines[#lines + 1] = "old_value_pattern = " .. tostring(hex_u64(source and source.old_value_pattern))
   lines[#lines + 1] = "old_value_float = " .. tostring(source and source.old_value_float)
@@ -1096,12 +1145,16 @@ local function append_execution_lines(lines, source)
   lines[#lines + 1] = "target_value_float = " .. tostring(source and source.target_value_float)
   lines[#lines + 1] = "requested_write_value_float = " .. tostring(source and source.requested_write_value_float)
   lines[#lines + 1] = "requested_write_value_pattern = " .. tostring(hex_u64(source and source.requested_write_value_pattern))
+  lines[#lines + 1] = "write_method = " .. tostring(source and source.write_method)
   lines[#lines + 1] = "write_attempted = " .. tostring(source and source.write_attempted)
   lines[#lines + 1] = "write_ok = " .. tostring(source and source.write_ok)
   lines[#lines + 1] = "readback_ok = " .. tostring(source and source.readback_ok)
   lines[#lines + 1] = "readback_pattern = " .. tostring(hex_u64(source and source.readback_pattern))
   lines[#lines + 1] = "readback_float = " .. tostring(source and source.readback_float)
+  lines[#lines + 1] = "readback_delta = " .. tostring(source and source.readback_delta)
   lines[#lines + 1] = "rollback_available = " .. tostring(source and source.rollback_available)
+  lines[#lines + 1] = "rollback_value_pattern = " .. tostring(hex_u64(source and source.rollback_value_pattern))
+  lines[#lines + 1] = "rollback_value_float = " .. tostring(source and source.rollback_value_float)
   lines[#lines + 1] = "executor_version = " .. tostring(source and source.executor_version)
 end
 
@@ -1958,7 +2011,7 @@ local function build_stable_intersection_summary(case_cfg, bundle, log_path, ana
   }
 end
 
-local function run_stable_intersection_mode(case_cfg, no_probe_a, no_probe_b, batch_id, runtime_diagnostics)
+local function run_stable_intersection_mode(case_cfg, no_probe_a, with_probe, no_probe_b, batch_id, runtime_diagnostics)
   local total_start_ms = now_ms()
   local stable_intersection_build_start_ms = now_ms()
   local analysis = build_no_probe_snapshot_intersection_analysis(no_probe_a, no_probe_b)
@@ -2037,7 +2090,8 @@ local function run_stable_intersection_mode(case_cfg, no_probe_a, no_probe_b, ba
     summary.compact_report_enabled = compact_report_enabled
     summary.skipped_verbose_report_sections = skipped_verbose_report_sections
     summary.verbose_report_section_count = verbose_report_section_count
-    local execution_result = evaluate_value_execution(case_cfg, summary)
+    local execution_rank_guard = build_execution_rank_guard(no_probe_a, with_probe, no_probe_b)
+    local execution_result = evaluate_value_execution(case_cfg, summary, execution_rank_guard)
     apply_execution_fields(summary, execution_result)
     print_execution_fields(summary)
     return {
@@ -2690,7 +2744,7 @@ local function main()
     end
 
     if case_cfg.validation_profile ~= "quick" then
-      local stable_summary = run_stable_intersection_mode(case_cfg, case_summaries.no_probe_A, case_summaries.no_probe_B, batch_id, runtime_empty_diagnostics)
+      local stable_summary = run_stable_intersection_mode(case_cfg, case_summaries.no_probe_A, case_summaries.with_probe, case_summaries.no_probe_B, batch_id, runtime_empty_diagnostics)
       apply_validation_profile_fields(stable_summary, case_cfg, skipped_modes)
       if stable_summary ~= nil then
         summaries[#summaries + 1] = stable_summary
