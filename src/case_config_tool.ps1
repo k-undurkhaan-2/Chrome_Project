@@ -15,7 +15,12 @@ param(
     [ValidateSet("full", "quick")]
     [string]$SetProfile,
     [ValidateSet("basic", "debug", "trace")]
-    [string]$SetDiagnosticLevel
+    [string]$SetDiagnosticLevel,
+    [string]$PrepareRestoreFromBatch,
+    [string]$LogRoot = "D:\armedforces.io-v2\log\auto_output",
+    [switch]$Apply,
+    [switch]$EnableWrite,
+    [switch]$ConfirmWrite
 )
 
 Set-StrictMode -Version 2.0
@@ -27,6 +32,7 @@ $ConfigPath = Join-Path $ScriptRoot "run_case_config.local.lua"
 $BackupPath = Join-Path $ScriptRoot "run_case_config.local.lua.bak"
 $ExamplePath = Join-Path $ScriptRoot "run_case_config.example.lua"
 $RelativeConfigPath = "src/run_case_config.local.lua"
+$ExecutionConfirmText = "I_ACCEPT_WRITE_TO_LIVE_MEMORY"
 $PreservedConfigKeys = @(
     "execution_mode",
     "write_enabled",
@@ -51,6 +57,7 @@ function Write-Help {
     Write-Output "  powershell -NoProfile -ExecutionPolicy Bypass -File `"D:\armedforces.io-v2\src\case_config_tool.ps1`" -Set -KnownTrueAddr 0x25A061C7D48 [-CaseId case_001]"
     Write-Output "  powershell -NoProfile -ExecutionPolicy Bypass -File `"D:\armedforces.io-v2\src\case_config_tool.ps1`" -SetProfile quick"
     Write-Output "  powershell -NoProfile -ExecutionPolicy Bypass -File `"D:\armedforces.io-v2\src\case_config_tool.ps1`" -SetDiagnosticLevel trace"
+    Write-Output "  powershell -NoProfile -ExecutionPolicy Bypass -File `"D:\armedforces.io-v2\src\case_config_tool.ps1`" -PrepareRestoreFromBatch 20260613-183041 [-Apply] [-EnableWrite -ConfirmWrite]"
 }
 
 function Format-Cell {
@@ -310,6 +317,254 @@ function Write-ConfigSummaryOutput {
     }
 }
 
+function Test-LogValuePresent {
+    param($Value)
+
+    return ($null -ne $Value -and "$Value" -ne "" -and "$Value" -ne "nil" -and "$Value" -ne "-")
+}
+
+function Test-LogBoolTrue {
+    param($Value)
+
+    return (Test-LogValuePresent -Value $Value) -and "$Value".ToLowerInvariant() -eq "true"
+}
+
+function Get-LogField {
+    param($Block, [string]$Key)
+
+    if ($Block -and $Block.Fields -and $Block.Fields.Contains($Key)) {
+        return $Block.Fields[$Key]
+    }
+    return $null
+}
+
+function Get-BatchLogPath {
+    param([string]$BatchId, [string]$Root)
+
+    if (-not (Test-Path -LiteralPath $Root)) {
+        throw ("Log root does not exist: {0}" -f $Root)
+    }
+
+    $summaryPath = Join-Path $Root ("{0}__summary.txt" -f $BatchId)
+    if (Test-Path -LiteralPath $summaryPath) {
+        return $summaryPath
+    }
+
+    $diagnosticPath = Join-Path $Root ("{0}__diagnostic_diff.txt" -f $BatchId)
+    if (Test-Path -LiteralPath $diagnosticPath) {
+        return $diagnosticPath
+    }
+
+    $candidates = @(Get-ChildItem -LiteralPath $Root -File -Filter ("{0}*" -f $BatchId) |
+        Where-Object { $_.Name -like "*summary.txt" -or $_.Name -like "*diagnostic_diff.txt" } |
+        Sort-Object Name)
+
+    if ($candidates.Count -gt 0) {
+        return $candidates[0].FullName
+    }
+
+    throw ("No summary or diagnostic log found for batch {0} in {1}" -f $BatchId, $Root)
+}
+
+function Read-BatchLogBlocks {
+    param([string]$Path)
+
+    $blocks = @()
+    $currentName = "batch_header"
+    $currentFields = [ordered]@{}
+
+    foreach ($line in Get-Content -LiteralPath $Path) {
+        if ($line -match '^\s*---\s+(.+?)\s+---\s*$') {
+            if ($currentFields.Count -gt 0) {
+                $blocks += [pscustomobject]@{
+                    Name = $currentName
+                    Fields = $currentFields
+                }
+            }
+            $currentName = $matches[1]
+            $currentFields = [ordered]@{}
+            continue
+        }
+
+        if ($line -match '^\s*([A-Za-z0-9_]+)\s*=\s*(.*?)\s*$') {
+            $currentFields[$matches[1]] = $matches[2].Trim()
+        }
+    }
+
+    if ($currentFields.Count -gt 0) {
+        $blocks += [pscustomobject]@{
+            Name = $currentName
+            Fields = $currentFields
+        }
+    }
+
+    return $blocks
+}
+
+function Select-RestoreSourceBlock {
+    param([object[]]$Blocks)
+
+    $eligible = @($Blocks | Where-Object {
+        Test-LogValuePresent -Value (Get-LogField -Block $_ -Key "execution_addr")
+    })
+
+    $rollbackBlocks = @($eligible | Where-Object {
+        Test-LogBoolTrue -Value (Get-LogField -Block $_ -Key "rollback_available")
+    })
+
+    if ($rollbackBlocks.Count -gt 0) {
+        return $rollbackBlocks[$rollbackBlocks.Count - 1]
+    }
+
+    if ($eligible.Count -gt 0) {
+        return $eligible[$eligible.Count - 1]
+    }
+
+    return $null
+}
+
+function Get-RequiredRestoreField {
+    param($Block, [string[]]$Keys, [string]$Label)
+
+    foreach ($key in $Keys) {
+        $value = Get-LogField -Block $Block -Key $key
+        if (Test-LogValuePresent -Value $value) {
+            return $value
+        }
+    }
+
+    throw ("Cannot prepare restore config because {0} is missing." -f $Label)
+}
+
+function New-RestoreCaseId {
+    param([string]$BatchId, [string]$Address)
+
+    $hex = "$Address" -replace '^0x', ''
+    $hex = $hex -replace '[^0-9A-Fa-f]', ''
+    if (-not $hex) {
+        $hex = "addr"
+    }
+    $suffixLength = [Math]::Min(5, $hex.Length)
+    $suffix = $hex.Substring($hex.Length - $suffixLength).ToUpperInvariant()
+    $safeBatch = "$BatchId" -replace '[^0-9A-Za-z_]', '_'
+    return ("restore_{0}_{1}" -f $safeBatch, $suffix)
+}
+
+function New-RestorePlan {
+    param(
+        [string]$BatchId,
+        [string]$Root,
+        [bool]$ApplyConfig,
+        [bool]$EnableWriteConfig,
+        [bool]$ConfirmWriteConfig
+    )
+
+    $logPath = Get-BatchLogPath -BatchId $BatchId -Root $Root
+    $blocks = @(Read-BatchLogBlocks -Path $logPath)
+    $sourceBlock = Select-RestoreSourceBlock -Blocks $blocks
+    if ($null -eq $sourceBlock) {
+        throw ("Cannot prepare restore config because no execution block was found in {0}" -f $logPath)
+    }
+
+    $executionAddr = Get-RequiredRestoreField -Block $sourceBlock -Keys @("execution_addr") -Label "execution_addr"
+    $currentPattern = Get-RequiredRestoreField -Block $sourceBlock -Keys @("readback_pattern") -Label "readback_pattern"
+    $currentFloat = Get-RequiredRestoreField -Block $sourceBlock -Keys @("readback_float") -Label "readback_float"
+    $restorePattern = Get-RequiredRestoreField -Block $sourceBlock -Keys @("rollback_value_pattern", "old_value_pattern") -Label "rollback or old value pattern"
+    $restoreFloat = Get-RequiredRestoreField -Block $sourceBlock -Keys @("rollback_value_float", "old_value_float") -Label "rollback or old value float"
+    $rollbackAvailable = Test-LogBoolTrue -Value (Get-LogField -Block $sourceBlock -Key "rollback_available")
+    $writeReady = $EnableWriteConfig -and $ConfirmWriteConfig
+
+    if (-not (Test-HexString -Value $executionAddr)) {
+        throw ("Cannot prepare restore config because execution_addr is not a hex address: {0}" -f $executionAddr)
+    }
+    if (-not (Test-HexString -Value $currentPattern)) {
+        throw ("Cannot prepare restore config because readback_pattern is not a hex pattern: {0}" -f $currentPattern)
+    }
+    if (-not (Test-HexString -Value $restorePattern)) {
+        throw ("Cannot prepare restore config because rollback/old pattern is not a hex pattern: {0}" -f $restorePattern)
+    }
+    if (-not (Test-NumberString -Value $currentFloat)) {
+        throw ("Cannot prepare restore config because readback_float is not numeric: {0}" -f $currentFloat)
+    }
+    if (-not (Test-NumberString -Value $restoreFloat)) {
+        throw ("Cannot prepare restore config because rollback/old float is not numeric: {0}" -f $restoreFloat)
+    }
+    if ($writeReady -and -not $rollbackAvailable) {
+        throw "Cannot prepare write-ready restore config because rollback_available is not true."
+    }
+
+    return [ordered]@{
+        source_batch = $BatchId
+        source_log_path = $logPath
+        source_block = $sourceBlock.Name
+        execution_addr = $executionAddr
+        restore_target_current_pattern = $currentPattern
+        restore_target_current_float = $currentFloat
+        restore_write_value_pattern = $restorePattern
+        restore_write_value_float = $restoreFloat
+        rollback_available = $rollbackAvailable
+        apply = $ApplyConfig
+        write_enabled = $writeReady
+        confirm_write = $ConfirmWriteConfig
+        config_path = $ConfigPath
+    }
+}
+
+function New-RestoreConfig {
+    param($Plan)
+
+    $writeReady = [bool]$Plan.write_enabled
+    $config = [ordered]@{
+        case_id = New-RestoreCaseId -BatchId $Plan.source_batch -Address $Plan.execution_addr
+        known_true_addr = $Plan.execution_addr
+        target_value_pattern = $Plan.restore_target_current_pattern
+        target_value_float = $Plan.restore_target_current_float
+        diagnostic_level = "basic"
+        validation_profile = "full"
+        execution_mode = $(if ($writeReady) { "write" } else { "dry_run" })
+        write_enabled = $(if ($writeReady) { "true" } else { "false" })
+        write_value_float = $Plan.restore_write_value_float
+        write_value_pattern = $Plan.restore_write_value_pattern
+        write_method = "float"
+        execution_addr_source = "stable_intersection_best_candidate"
+        require_known_true_match = "true"
+        require_full_profile = "true"
+        require_old_value_match = "true"
+        readback_tolerance = "0.0001"
+    }
+
+    if ($writeReady) {
+        $config.execution_confirm = $ExecutionConfirmText
+    }
+
+    return $config
+}
+
+function Write-RestorePlanConsole {
+    param($Plan)
+
+    $fieldWidth = 32
+    Write-Output "Restore Plan"
+    Write-Output ""
+    Write-Output ("{0,-$fieldWidth} {1}" -f "Field", "Value")
+    Write-Output ("{0,-$fieldWidth} {1}" -f "-----", "-----")
+    foreach ($key in @(
+        "source_batch",
+        "execution_addr",
+        "restore_target_current_pattern",
+        "restore_target_current_float",
+        "restore_write_value_pattern",
+        "restore_write_value_float",
+        "rollback_available",
+        "apply",
+        "write_enabled",
+        "confirm_write",
+        "config_path"
+    )) {
+        Write-Output ("{0,-$fieldWidth} {1}" -f $key, (Format-Cell $Plan[$key]))
+    }
+}
+
 function New-ValidationRow {
     param([string]$Status, [string]$Check, [string]$Detail)
 
@@ -400,6 +655,7 @@ if ($Set) { $actions += "Set" }
 if ($Validate) { $actions += "Validate" }
 if ($SetProfile) { $actions += "SetProfile" }
 if ($SetDiagnosticLevel) { $actions += "SetDiagnosticLevel" }
+if ($PrepareRestoreFromBatch) { $actions += "PrepareRestoreFromBatch" }
 
 if ($Help -or $actions.Count -eq 0) {
     Write-Help
@@ -463,6 +719,35 @@ if ($Set) {
         Write-Output ("Backup path: {0}" -f $BackupPath)
     }
     Write-ConfigSummaryOutput -Config (Read-CaseConfig -Path $ConfigPath) -UseMarkdown ([bool]$Markdown)
+    exit 0
+}
+
+if ($PrepareRestoreFromBatch) {
+    if ($EnableWrite -xor $ConfirmWrite) {
+        Write-Warning "Restore write-ready config requires both -EnableWrite and -ConfirmWrite; generating dry-run restore config."
+    }
+
+    $writeReady = [bool]($EnableWrite -and $ConfirmWrite)
+    $plan = New-RestorePlan `
+        -BatchId $PrepareRestoreFromBatch `
+        -Root $LogRoot `
+        -ApplyConfig ([bool]$Apply) `
+        -EnableWriteConfig $writeReady `
+        -ConfirmWriteConfig ([bool]$ConfirmWrite)
+
+    Write-RestorePlanConsole -Plan $plan
+
+    if ($Apply) {
+        $restoreConfig = New-RestoreConfig -Plan $plan
+        Write-CaseConfig -Config $restoreConfig
+        Write-Output ""
+        Write-Output ("Applied restore config: {0}" -f $ConfigPath)
+        if (Test-Path -LiteralPath $BackupPath) {
+            Write-Output ("Backup path: {0}" -f $BackupPath)
+        }
+        Write-Output ""
+        Write-ConfigSummaryOutput -Config (Read-CaseConfig -Path $ConfigPath) -UseMarkdown ([bool]$Markdown)
+    }
     exit 0
 }
 
