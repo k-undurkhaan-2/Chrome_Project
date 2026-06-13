@@ -232,6 +232,18 @@ function Write-ConfigSummaryConsole {
     }
 }
 
+function Write-ConfigSummaryOutput {
+    param($Config, [bool]$UseMarkdown)
+
+    if ($UseMarkdown) {
+        Write-Output "# Case Config"
+        Write-Output ""
+        Write-ConfigSummary -Config $Config
+    } else {
+        Write-ConfigSummaryConsole -Config $Config
+    }
+}
+
 function New-ValidationRow {
     param([string]$Status, [string]$Check, [string]$Detail)
 
@@ -336,13 +348,7 @@ if ($actions.Count -gt 1) {
 $currentConfig = Read-CaseConfig -Path $ConfigPath
 
 if ($Show) {
-    if ($Markdown) {
-        Write-Output "# Case Config"
-        Write-Output ""
-        Write-ConfigSummary -Config $currentConfig
-    } else {
-        Write-ConfigSummaryConsole -Config $currentConfig
-    }
+    Write-ConfigSummaryOutput -Config $currentConfig -UseMarkdown ([bool]$Markdown)
     exit 0
 }
 
@@ -384,7 +390,7 @@ if ($Set) {
     if (Test-Path -LiteralPath $BackupPath) {
         Write-Output ("Backup path: {0}" -f $BackupPath)
     }
-    Write-ConfigSummary -Config (Read-CaseConfig -Path $ConfigPath)
+    Write-ConfigSummaryOutput -Config (Read-CaseConfig -Path $ConfigPath) -UseMarkdown ([bool]$Markdown)
     exit 0
 }
 
@@ -402,7 +408,7 @@ if ($SetProfile) {
     Write-CaseConfig -Config $newConfig
     Write-Output ("Updated validation_profile to {0}" -f $SetProfile)
     Write-Output ("Backup path: {0}" -f $BackupPath)
-    Write-ConfigSummary -Config (Read-CaseConfig -Path $ConfigPath)
+    Write-ConfigSummaryOutput -Config (Read-CaseConfig -Path $ConfigPath) -UseMarkdown ([bool]$Markdown)
     exit 0
 }
 
@@ -420,6 +426,6 @@ if ($SetDiagnosticLevel) {
     Write-CaseConfig -Config $newConfig
     Write-Output ("Updated diagnostic_level to {0}" -f $SetDiagnosticLevel)
     Write-Output ("Backup path: {0}" -f $BackupPath)
-    Write-ConfigSummary -Config (Read-CaseConfig -Path $ConfigPath)
+    Write-ConfigSummaryOutput -Config (Read-CaseConfig -Path $ConfigPath) -UseMarkdown ([bool]$Markdown)
     exit 0
 }
