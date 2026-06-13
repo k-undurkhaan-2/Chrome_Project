@@ -1,4 +1,5 @@
 src/run_case_config.local.lua
+src/run_case_config.local.lua.bak
 
 # Local runtime logs / generated reports
 log/
