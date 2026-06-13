@@ -1,10 +1,11 @@
 -- execute_module-v5.2.0
 -- Batch no-probe / with-probe runner with automatic log persistence.
 
-local REPORT_MODULE_PATH = [[D:\Lua Developer\mvp0_candidate_report.lua]]
-local COLLECTOR_MODULE_PATH = [[D:\Lua Developer\mvp0_foundlist_collector.lua]]
+local ACTIVE_PROJECT_ROOT = [[D:\armedforces.io-v2]]
+local REPORT_MODULE_PATH = [[D:\armedforces.io-v2\src\mvp0_candidate_report.lua]]
+local COLLECTOR_MODULE_PATH = [[D:\armedforces.io-v2\src\mvp0_foundlist_collector.lua]]
 local OUTPUT_DIR = [[D:\armedforces.io-v2\log\auto_output]]
-local LOCAL_CASE_CONFIG_PATH = [[D:\Lua Developer\src\run_case_config.local.lua]]
+local LOCAL_CASE_CONFIG_PATH = [[D:\armedforces.io-v2\src\run_case_config.local.lua]]
 
 local MODE_PRESETS = {
   no_probe = {
@@ -817,6 +818,13 @@ local function print_kv(label, value)
   print(string.format("%-30s = %s", label, tostring(value)))
 end
 
+local function print_runtime_paths()
+  print_kv("active_project_root", ACTIVE_PROJECT_ROOT)
+  print_kv("report_module_path", REPORT_MODULE_PATH)
+  print_kv("collector_module_path", COLLECTOR_MODULE_PATH)
+  print_kv("local_case_config_path", LOCAL_CASE_CONFIG_PATH)
+end
+
 local function print_hex_kv(label, value)
   if value == nil then
     print_kv(label, nil)
@@ -982,6 +990,7 @@ local function emit_compact_bundle_report(case_cfg, mode_cfg, bundle, policy)
   print_kv("case_id", case_cfg.case_id)
   print_kv("case_config_loaded", case_cfg.case_config_loaded)
   print_kv("case_config_path", case_cfg.case_config_path)
+  print_runtime_paths()
   print_kv("known_true_addr_source", case_cfg.known_true_addr_source)
   print_kv("target_value_source", case_cfg.target_value_source)
   print_kv("diagnostic_level", case_cfg.diagnostic_level)
@@ -1026,6 +1035,7 @@ local function emit_bundle_report(case_cfg, mode_cfg, bundle, policy)
   print_kv("case_id", case_cfg.case_id)
   print_kv("case_config_loaded", case_cfg.case_config_loaded)
   print_kv("case_config_path", case_cfg.case_config_path)
+  print_runtime_paths()
   print_kv("known_true_addr_source", case_cfg.known_true_addr_source)
   print_kv("target_value_source", case_cfg.target_value_source)
   print_kv("diagnostic_level", case_cfg.diagnostic_level)
@@ -1194,6 +1204,7 @@ local function print_run_summary(summary)
   print_kv("case_id", summary.case_id)
   print_kv("case_config_loaded", summary.case_config_loaded)
   print_kv("case_config_path", summary.case_config_path)
+  print_runtime_paths()
   print_kv("known_true_addr_source", summary.known_true_addr_source)
   print_kv("target_value_source", summary.target_value_source)
   print_kv("diagnostic_level", summary.diagnostic_level)
@@ -1299,6 +1310,10 @@ local function render_summary_file(batch_id, summaries)
   lines[#lines + 1] = "=== Batch Summary ==="
   lines[#lines + 1] = "batch_id = " .. tostring(batch_id)
   lines[#lines + 1] = "output_dir = " .. tostring(OUTPUT_DIR)
+  lines[#lines + 1] = "active_project_root = " .. tostring(ACTIVE_PROJECT_ROOT)
+  lines[#lines + 1] = "report_module_path = " .. tostring(REPORT_MODULE_PATH)
+  lines[#lines + 1] = "collector_module_path = " .. tostring(COLLECTOR_MODULE_PATH)
+  lines[#lines + 1] = "local_case_config_path = " .. tostring(LOCAL_CASE_CONFIG_PATH)
   lines[#lines + 1] = ""
 
   for _, summary in ipairs(summaries) do
@@ -1451,6 +1466,7 @@ local function emit_compact_stable_intersection_report(case_cfg, summary, policy
   print_kv("case_id", case_cfg.case_id)
   print_kv("case_config_loaded", case_cfg.case_config_loaded)
   print_kv("case_config_path", case_cfg.case_config_path)
+  print_runtime_paths()
   print_kv("known_true_addr_source", case_cfg.known_true_addr_source)
   print_kv("target_value_source", case_cfg.target_value_source)
   print_kv("diagnostic_level", case_cfg.diagnostic_level)
@@ -1489,6 +1505,7 @@ local function emit_stable_intersection_report(case_cfg, bundle, summary, policy
   print_kv("case_id", case_cfg.case_id)
   print_kv("case_config_loaded", case_cfg.case_config_loaded)
   print_kv("case_config_path", case_cfg.case_config_path)
+  print_runtime_paths()
   print_kv("known_true_addr_source", case_cfg.known_true_addr_source)
   print_kv("target_value_source", case_cfg.target_value_source)
   print_kv("diagnostic_level", case_cfg.diagnostic_level)
@@ -1888,6 +1905,10 @@ local function render_diagnostic_diff_file(batch_id, summaries)
   lines[#lines + 1] = "=== Diagnostic Sandwich Diff ==="
   lines[#lines + 1] = "batch_id = " .. tostring(batch_id)
   lines[#lines + 1] = "output_dir = " .. tostring(OUTPUT_DIR)
+  lines[#lines + 1] = "active_project_root = " .. tostring(ACTIVE_PROJECT_ROOT)
+  lines[#lines + 1] = "report_module_path = " .. tostring(REPORT_MODULE_PATH)
+  lines[#lines + 1] = "collector_module_path = " .. tostring(COLLECTOR_MODULE_PATH)
+  lines[#lines + 1] = "local_case_config_path = " .. tostring(LOCAL_CASE_CONFIG_PATH)
   lines[#lines + 1] = ""
 
   for key, group in pairs(groups) do
