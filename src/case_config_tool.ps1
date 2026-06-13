@@ -150,6 +150,15 @@ function Test-HexString {
     return "$Value" -match '^0x[0-9A-Fa-f]+$'
 }
 
+function Assert-KnownTrueAddr {
+    param($Value)
+
+    if (-not (Test-HexString -Value $Value)) {
+        Write-Output ("ERROR: -KnownTrueAddr must match ^0x[0-9A-Fa-f]+$; rejected value: {0}" -f (Format-Cell $Value))
+        exit 1
+    }
+}
+
 function New-GeneratedCaseId {
     param([string]$Address)
 
@@ -945,9 +954,10 @@ if ($Validate) {
 
 if ($Set) {
     if (-not $KnownTrueAddr) {
-        Write-Error "-KnownTrueAddr is required with -Set"
+        Write-Output "ERROR: -KnownTrueAddr is required with -Set"
         exit 1
     }
+    Assert-KnownTrueAddr -Value $KnownTrueAddr
 
     $generatedCaseId = $false
     if (-not $CaseId) {

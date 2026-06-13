@@ -122,6 +122,24 @@ function Test-DoubleParameterProvided {
     return -not [double]::IsNaN($Value)
 }
 
+function Test-KnownTrueAddr {
+    param($Value)
+
+    if ($null -eq $Value) {
+        return $false
+    }
+    return "$Value" -match '^0x[0-9A-Fa-f]+$'
+}
+
+function Assert-KnownTrueAddr {
+    param([string]$Value, [string]$CommandName)
+
+    if (-not (Test-KnownTrueAddr -Value $Value)) {
+        Write-Output ("ERROR: -KnownTrueAddr for {0} must match ^0x[0-9A-Fa-f]+$; rejected value: {1}" -f $CommandName, $(if ($Value) { $Value } else { "-" }))
+        exit 1
+    }
+}
+
 function New-SetCaseArguments {
     param(
         [string]$Address,
@@ -425,9 +443,10 @@ if (-not [string]::Equals($ProjectRootPath, $ExpectedProjectRoot, [System.String
 switch ($Command) {
     "prepare" {
         if (-not $KnownTrueAddr) {
-            Write-Error "-KnownTrueAddr is required for prepare"
+            Write-Output "ERROR: -KnownTrueAddr is required for prepare"
             exit 1
         }
+        Assert-KnownTrueAddr -Value $KnownTrueAddr -CommandName "prepare"
 
         $args = @(
             "-Set",
@@ -471,6 +490,7 @@ switch ($Command) {
             Write-Output "ERROR: -KnownTrueAddr is required for prepare-dry-run-write"
             exit 1
         }
+        Assert-KnownTrueAddr -Value $KnownTrueAddr -CommandName "prepare-dry-run-write"
         if (-not (Test-DoubleParameterProvided -Value $WriteValueFloat)) {
             Write-Output "ERROR: -WriteValueFloat is required for prepare-dry-run-write"
             exit 1
@@ -503,6 +523,7 @@ switch ($Command) {
             Write-Output "ERROR: -KnownTrueAddr is required for prepare-guarded-write"
             exit 1
         }
+        Assert-KnownTrueAddr -Value $KnownTrueAddr -CommandName "prepare-guarded-write"
         if (-not (Test-DoubleParameterProvided -Value $WriteValueFloat)) {
             Write-Output "ERROR: -WriteValueFloat is required for prepare-guarded-write"
             exit 1
