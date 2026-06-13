@@ -62,16 +62,16 @@ $presets = [ordered]@{
         args = @("-Latest", "20", "-Profile", "full")
     }
     "compare-full" = [pscustomobject]@{
-        description = "Compare latest 20 full-profile records to compact baseline"
-        args = @("-Latest", "20", "-Profile", "full", "-CompareTo", $baselinePath)
+        description = "Compare latest 20 baseline-eligible full-profile records to compact baseline"
+        args = @("-Latest", "20", "-Profile", "full", "-OnlyBaselineEligible", "-CompareTo", $baselinePath)
     }
     "save-full-baseline" = [pscustomobject]@{
         description = "Save latest 20 full-profile baseline report"
         args = @("-Latest", "20", "-Profile", "full", "-OutFile", $baselineOutPath)
     }
     "compare-full-save" = [pscustomobject]@{
-        description = "Compare latest 20 full-profile records and save report"
-        args = @("-Latest", "20", "-Profile", "full", "-CompareTo", $baselinePath, "-OutFile", $compareOutPath)
+        description = "Compare latest 20 baseline-eligible full-profile records and save report"
+        args = @("-Latest", "20", "-Profile", "full", "-OnlyBaselineEligible", "-CompareTo", $baselinePath, "-OutFile", $compareOutPath)
     }
     "registry-summary" = [pscustomobject]@{
         description = "Show registry summary"

@@ -55,7 +55,7 @@ function Write-CommandHelp {
     Write-Output "  prepare        Set run_case_config.local.lua for the next manual CE/Lua run"
     Write-Output "  post-quick     Classify latest quick batch and append registry"
     Write-Output "  post-full      Classify latest full batch and append registry"
-    Write-Output "  compare-full   Compare latest 20 full batches to the compact baseline"
+    Write-Output "  compare-full   Compare latest 20 baseline-eligible full batches to compact baseline"
     Write-Output "  inspect-latest Inspect the latest batch id from -LogRoot"
     Write-Output "  status         Show config, latest 5 classifier summary, registry summary, and git status"
     Write-Output "  disable-execution       Disable execution/write in local case config"
@@ -752,7 +752,7 @@ switch ($Command) {
     }
 
     "compare-full" {
-        $args = @("-Latest", "20", "-Profile", "full", "-LogRoot", $LogRoot, "-CompareTo", $BaselinePath)
+        $args = @("-Latest", "20", "-Profile", "full", "-OnlyBaselineEligible", "-LogRoot", $LogRoot, "-CompareTo", $BaselinePath)
         $result = Invoke-WorkflowCommand -FilePath $ClassifierPath -Arguments $args -Capture -Quiet
         if ($result.exit_code -ne 0) {
             $result.output | ForEach-Object { Write-Output $_ }
@@ -761,9 +761,11 @@ switch ($Command) {
 
         $comparison = Get-ComparisonStatus -OutputLines $result.output
         Write-WorkflowSummary -Title "Compare-Full Summary" -Fields ([ordered]@{
+            "batch selection" = "baseline-eligible full batches only"
             "regression status" = $comparison.status
             "code changes recommended" = $comparison.code_changes_recommended
         })
+        Write-Output "- compare-full uses baseline-eligible full batches only"
         if ($comparison.status -eq "PASS" -and $comparison.code_changes_recommended -eq "no") {
             Write-Output "- no code changes recommended"
         } elseif ($comparison.status -eq "FAIL" -or $comparison.status -eq "WARN") {
