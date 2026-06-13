@@ -3,6 +3,7 @@ param(
     [switch]$Set,
     [switch]$Validate,
     [switch]$Help,
+    [switch]$Markdown,
     [string]$CaseId,
     [string]$KnownTrueAddr,
     [string]$TargetValuePattern = "0x42C80000",
@@ -32,6 +33,7 @@ function Write-Help {
     Write-Output ""
     Write-Output "Usage:"
     Write-Output "  powershell -NoProfile -ExecutionPolicy Bypass -File `"D:\armedforces.io-v2\src\case_config_tool.ps1`" -Show"
+    Write-Output "  powershell -NoProfile -ExecutionPolicy Bypass -File `"D:\armedforces.io-v2\src\case_config_tool.ps1`" -Show -Markdown"
     Write-Output "  powershell -NoProfile -ExecutionPolicy Bypass -File `"D:\armedforces.io-v2\src\case_config_tool.ps1`" -Validate"
     Write-Output "  powershell -NoProfile -ExecutionPolicy Bypass -File `"D:\armedforces.io-v2\src\case_config_tool.ps1`" -Set -CaseId case_001 -KnownTrueAddr 0x25A061C7D48"
     Write-Output "  powershell -NoProfile -ExecutionPolicy Bypass -File `"D:\armedforces.io-v2\src\case_config_tool.ps1`" -SetProfile quick"
@@ -192,6 +194,44 @@ function Write-ConfigSummary {
     }
 }
 
+function Get-ConfigSummaryRows {
+    param($Config)
+
+    $exists = Test-Path -LiteralPath $ConfigPath
+    $gitignored = Test-GitIgnored -RelativePath $RelativeConfigPath
+
+    return @(
+        [pscustomobject]@{ Field = "case_id"; Value = Format-Cell (Get-ConfigValue -Config $Config -Key "case_id") },
+        [pscustomobject]@{ Field = "known_true_addr"; Value = Format-Cell (Get-ConfigValue -Config $Config -Key "known_true_addr") },
+        [pscustomobject]@{ Field = "target_value_pattern"; Value = Format-Cell (Get-ConfigValue -Config $Config -Key "target_value_pattern") },
+        [pscustomobject]@{ Field = "target_value_float"; Value = Format-Cell (Get-ConfigValue -Config $Config -Key "target_value_float") },
+        [pscustomobject]@{ Field = "diagnostic_level"; Value = Format-Cell (Get-ConfigValue -Config $Config -Key "diagnostic_level") },
+        [pscustomobject]@{ Field = "validation_profile"; Value = Format-Cell (Get-ConfigValue -Config $Config -Key "validation_profile") },
+        [pscustomobject]@{ Field = "config path"; Value = Format-Cell $ConfigPath },
+        [pscustomobject]@{ Field = "config exists"; Value = Format-Cell $exists },
+        [pscustomobject]@{ Field = "config is gitignored"; Value = Format-Cell $gitignored }
+    )
+}
+
+function Write-ConfigSummaryConsole {
+    param($Config)
+
+    $gitignored = Test-GitIgnored -RelativePath $RelativeConfigPath
+    $fieldWidth = 24
+
+    Write-Output "Case Config"
+    Write-Output ""
+    Write-Output ("{0,-$fieldWidth} {1}" -f "Field", "Value")
+    Write-Output ("{0,-$fieldWidth} {1}" -f "-----", "-----")
+    foreach ($row in @(Get-ConfigSummaryRows -Config $Config)) {
+        Write-Output ("{0,-$fieldWidth} {1}" -f $row.Field, $row.Value)
+    }
+
+    if (-not $gitignored) {
+        Write-Warning ("Local config is not ignored by git: {0}" -f $RelativeConfigPath)
+    }
+}
+
 function New-ValidationRow {
     param([string]$Status, [string]$Check, [string]$Detail)
 
@@ -296,9 +336,13 @@ if ($actions.Count -gt 1) {
 $currentConfig = Read-CaseConfig -Path $ConfigPath
 
 if ($Show) {
-    Write-Output "# Case Config"
-    Write-Output ""
-    Write-ConfigSummary -Config $currentConfig
+    if ($Markdown) {
+        Write-Output "# Case Config"
+        Write-Output ""
+        Write-ConfigSummary -Config $currentConfig
+    } else {
+        Write-ConfigSummaryConsole -Config $currentConfig
+    }
     exit 0
 }
 
