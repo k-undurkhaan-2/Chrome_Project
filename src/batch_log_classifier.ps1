@@ -14,6 +14,8 @@ param(
     [int]$RegistryRecent = 20,
     [string]$RegistryAddr,
     [switch]$RegistryOutliers,
+    [string]$ResolvedWritesPath = "D:\armedforces.io-v2\log\execution_resolved_writes.local.jsonl",
+    [switch]$IncludeResolved,
     [string]$ExpectedRepoRoot = "D:\armedforces.io-v2",
     [switch]$ConsoleSummary,
     [switch]$Markdown
@@ -2199,15 +2201,20 @@ function Get-RegistryDate {
 function Get-RegistryRecordsNewest {
     param([object[]]$Records)
 
+    if ($null -eq $Records) {
+        return @()
+    }
+
+    $recordItems = @($Records | Where-Object { $null -ne $_ })
     $indexed = @()
-    for ($i = 0; $i -lt $Records.Count; $i++) {
-        $date = Get-RegistryDate -Record $Records[$i]
+    for ($i = 0; $i -lt $recordItems.Count; $i++) {
+        $date = Get-RegistryDate -Record $recordItems[$i]
         $sortDate = [datetime]::MinValue
         if ($date) {
             $sortDate = $date
         }
         $indexed += [pscustomobject][ordered]@{
-            record = $Records[$i]
+            record = $recordItems[$i]
             index = $i
             sort_date = $sortDate
         }
@@ -2261,6 +2268,70 @@ function Read-RegistryJsonl {
     }
 
     return [pscustomobject]$result
+}
+
+function Read-ResolvedWriteJsonl {
+    param([string]$Path)
+
+    $result = [ordered]@{
+        path = $Path
+        exists = $false
+        batch_ids = @()
+        warnings = @()
+    }
+
+    try {
+        $resolvedPath = [System.IO.Path]::GetFullPath($Path)
+        $result.path = $resolvedPath
+    } catch {
+        $result.warnings += "Could not resolve resolved writes path '$Path': $($_.Exception.Message)"
+        return [pscustomobject]$result
+    }
+
+    if (-not (Test-Path -LiteralPath $result.path)) {
+        return [pscustomobject]$result
+    }
+
+    $result.exists = $true
+    $lineNumber = 0
+    foreach ($line in Get-Content -LiteralPath $result.path) {
+        $lineNumber += 1
+        if (-not $line -or $line.Trim() -eq "") {
+            continue
+        }
+
+        try {
+            $record = $line | ConvertFrom-Json
+            if ($null -eq $record) {
+                $result.warnings += "Skipping resolved writes line ${lineNumber}: empty JSON value"
+                continue
+            }
+
+            $batchId = Get-RegistryText -Record $record -Name "batch_id"
+            if ($batchId -and $batchId -match '^\d{8}-\d{6}$') {
+                $result.batch_ids += $batchId
+            } else {
+                $result.warnings += "Skipping resolved writes line ${lineNumber}: invalid batch_id"
+            }
+        } catch {
+            $result.warnings += "Skipping resolved writes line ${lineNumber}: $($_.Exception.Message)"
+        }
+    }
+
+    $result.batch_ids = @($result.batch_ids | Select-Object -Unique)
+    return [pscustomobject]$result
+}
+
+function New-ResolvedWriteBatchLookup {
+    param([string[]]$BatchIds)
+
+    $lookup = @{}
+    foreach ($batchId in @($BatchIds)) {
+        if ($batchId -and $batchId -match '^\d{8}-\d{6}$') {
+            $lookup[$batchId] = $true
+        }
+    }
+    return $lookup
 }
 
 function Get-RegistryMetricStats {
@@ -2319,6 +2390,16 @@ function Get-RegistryTransactionCount {
     return @($Records | Where-Object { (Get-RegistryTransactionType -Record $_) -eq $TransactionType }).Count
 }
 
+function Get-RegistryTransactionBatchId {
+    param($Record)
+
+    $batchId = Get-RegistryText -Record $Record -Name "transaction_batch_id"
+    if ($batchId) {
+        return $batchId
+    }
+    return Get-RegistryText -Record $Record -Name "batch_id"
+}
+
 function Get-UnpairedWriteSuccessRecords {
     param([object[]]$Records)
 
@@ -2335,11 +2416,34 @@ function Get-UnpairedWriteSuccessRecords {
 
     return @($Records | Where-Object {
         $type = Get-RegistryTransactionType -Record $_
-        $batchId = Get-RegistryText -Record $_ -Name "transaction_batch_id"
-        if (-not $batchId) {
-            $batchId = Get-RegistryText -Record $_ -Name "batch_id"
-        }
+        $batchId = Get-RegistryTransactionBatchId -Record $_
         $type -eq "write_success" -and $batchId -and -not $restoredLookup.ContainsKey($batchId)
+    })
+}
+
+function Get-ManuallyResolvedUnpairedWriteSuccessRecords {
+    param([object[]]$Records, $ResolvedBatchLookup)
+
+    if ($null -eq $ResolvedBatchLookup) {
+        $ResolvedBatchLookup = @{}
+    }
+
+    return @(Get-UnpairedWriteSuccessRecords -Records $Records | Where-Object {
+        $batchId = Get-RegistryTransactionBatchId -Record $_
+        $batchId -and $ResolvedBatchLookup.ContainsKey($batchId)
+    })
+}
+
+function Get-ActiveUnpairedWriteSuccessRecords {
+    param([object[]]$Records, $ResolvedBatchLookup)
+
+    if ($null -eq $ResolvedBatchLookup) {
+        $ResolvedBatchLookup = @{}
+    }
+
+    return @(Get-UnpairedWriteSuccessRecords -Records $Records | Where-Object {
+        $batchId = Get-RegistryTransactionBatchId -Record $_
+        $batchId -and -not $ResolvedBatchLookup.ContainsKey($batchId)
     })
 }
 
@@ -2526,7 +2630,7 @@ function Get-RegistryOutlierReason {
 }
 
 function Add-RegistrySummaryLines {
-    param([object[]]$Lines, [object[]]$Records)
+    param([object[]]$Lines, [object[]]$Records, $ResolvedBatchLookup)
 
     $newest = @(Get-RegistryRecordsNewest -Records $Records | Select-Object -First 1)
     $latestRecord = $null
@@ -2548,6 +2652,9 @@ function Add-RegistrySummaryLines {
     }).Count
     $quickSuccessCount = Get-RegistryClassificationCount -Records $Records -Classification "quick_success"
     $nonSuccessCount = @($Records | Where-Object { -not (Test-RegistrySuccessClass -Record $_) }).Count
+    $rawUnpairedWrites = @(Get-UnpairedWriteSuccessRecords -Records $Records)
+    $manuallyResolvedUnpairedWrites = @(Get-ManuallyResolvedUnpairedWriteSuccessRecords -Records $Records -ResolvedBatchLookup $ResolvedBatchLookup)
+    $activeUnpairedWrites = @(Get-ActiveUnpairedWriteSuccessRecords -Records $Records -ResolvedBatchLookup $ResolvedBatchLookup)
 
     $Lines += "## Registry Summary"
     $Lines += ""
@@ -2574,7 +2681,10 @@ function Add-RegistrySummaryLines {
     $Lines += ("| restore_success count | {0} |" -f (Get-RegistryTransactionCount -Records $Records -TransactionType "restore_success"))
     $Lines += ("| write_blocked count | {0} |" -f (Get-RegistryTransactionCount -Records $Records -TransactionType "write_blocked"))
     $Lines += ("| restore_blocked count | {0} |" -f (Get-RegistryTransactionCount -Records $Records -TransactionType "restore_blocked"))
-    $Lines += ("| unpaired_write_success count | {0} |" -f (@(Get-UnpairedWriteSuccessRecords -Records $Records).Count))
+    $Lines += ("| raw_unpaired_write_success count | {0} |" -f $rawUnpairedWrites.Count)
+    $Lines += ("| manually_resolved_unpaired_write count | {0} |" -f $manuallyResolvedUnpairedWrites.Count)
+    $Lines += ("| active_unpaired_write_success count | {0} |" -f $activeUnpairedWrites.Count)
+    $Lines += ("| unpaired_write_success count | {0} |" -f $rawUnpairedWrites.Count)
     $Lines += ("| latest recorded_at | {0} |" -f (Format-Cell (Get-RegistryText -Record $latestRecord -Name "recorded_at")))
     $Lines += ("| latest batch_id | {0} |" -f (Format-Cell (Get-RegistryText -Record $latestRecord -Name "batch_id")))
     $Lines += ""
@@ -2720,14 +2830,15 @@ function Add-RegistryAddrLines {
 }
 
 function Add-RegistryOutlierLines {
-    param([object[]]$Lines, [object[]]$Records)
+    param([object[]]$Lines, [object[]]$Records, $ResolvedBatchLookup, [bool]$IncludeResolvedWrites)
 
     $outliers = @(Get-RegistryRecordsNewest -Records $Records | Where-Object { Test-RegistryOutlier -Record $_ })
-    $unpairedWrites = @(Get-RegistryRecordsNewest -Records (Get-UnpairedWriteSuccessRecords -Records $Records))
+    $unpairedWrites = @(Get-RegistryRecordsNewest -Records (Get-ActiveUnpairedWriteSuccessRecords -Records $Records -ResolvedBatchLookup $ResolvedBatchLookup))
+    $resolvedUnpairedWrites = @(Get-RegistryRecordsNewest -Records (Get-ManuallyResolvedUnpairedWriteSuccessRecords -Records $Records -ResolvedBatchLookup $ResolvedBatchLookup))
 
     $Lines += "## Registry Outliers"
     $Lines += ""
-    if ($outliers.Count -eq 0 -and $unpairedWrites.Count -eq 0) {
+    if ($outliers.Count -eq 0 -and $unpairedWrites.Count -eq 0 -and (-not $IncludeResolvedWrites -or $resolvedUnpairedWrites.Count -eq 0)) {
         $Lines += "No registry outliers detected."
         $Lines += ""
         return $Lines
@@ -2749,15 +2860,12 @@ function Add-RegistryOutlierLines {
     }
 
     if ($unpairedWrites.Count -gt 0) {
-        $Lines += "### Unpaired Successful Writes"
+        $Lines += "### Active Unpaired Successful Writes"
         $Lines += ""
         $Lines += "| batch_id | execution_addr | requested_write_value_float | old_value_float | recommended restore command |"
         $Lines += "|---|---|---:|---:|---|"
         foreach ($record in $unpairedWrites) {
-            $batchId = Get-RegistryText -Record $record -Name "transaction_batch_id"
-            if (-not $batchId) {
-                $batchId = Get-RegistryText -Record $record -Name "batch_id"
-            }
+            $batchId = Get-RegistryTransactionBatchId -Record $record
             $Lines += ("| {0} | {1} | {2} | {3} | {4} |" -f `
                 (Format-Cell $batchId),
                 (Format-Cell (Get-RegistryText -Record $record -Name "execution_addr")),
@@ -2765,6 +2873,25 @@ function Add-RegistryOutlierLines {
                 (Format-Cell (Get-RegistryText -Record $record -Name "old_value_float")),
                 (Format-Cell (Get-RecommendedRestoreCommand -BatchId $batchId)))
         }
+        $Lines += ""
+    }
+
+    if ($IncludeResolvedWrites -and $resolvedUnpairedWrites.Count -gt 0) {
+        $Lines += "### Manually Resolved Historical Writes"
+        $Lines += ""
+        $Lines += "| batch_id | status | execution_addr | requested_write_value_float | old_value_float | note |"
+        $Lines += "|---|---|---|---:|---:|---|"
+        foreach ($record in $resolvedUnpairedWrites) {
+            $batchId = Get-RegistryTransactionBatchId -Record $record
+            $Lines += ("| {0} | {1} | {2} | {3} | {4} | {5} |" -f `
+                (Format-Cell $batchId),
+                "resolved/manual",
+                (Format-Cell (Get-RegistryText -Record $record -Name "execution_addr")),
+                (Format-Cell (Get-RegistryText -Record $record -Name "requested_write_value_float")),
+                (Format-Cell (Get-RegistryText -Record $record -Name "old_value_float")),
+                "not an active outlier")
+        }
+        $Lines += ""
     }
     $Lines += ""
 
@@ -2774,11 +2901,13 @@ function Add-RegistryOutlierLines {
 function Build-RegistryQueryReport {
     param(
         [string]$Path,
+        [string]$ResolvedPath,
         [bool]$IncludeSummary,
         [bool]$IncludeRecent,
         [int]$RecentCount,
         [string]$Address,
         [bool]$IncludeOutliers,
+        [bool]$IncludeResolvedWrites,
         $Environment
     )
 
@@ -2786,6 +2915,11 @@ function Build-RegistryQueryReport {
     foreach ($warning in @($registry.warnings)) {
         Write-Warning $warning
     }
+    $resolvedWrites = Read-ResolvedWriteJsonl -Path $ResolvedPath
+    foreach ($warning in @($resolvedWrites.warnings)) {
+        Write-Warning $warning
+    }
+    $resolvedBatchLookup = New-ResolvedWriteBatchLookup -BatchIds @($resolvedWrites.batch_ids)
 
     $records = @($registry.records)
     $lines = @()
@@ -2799,6 +2933,9 @@ function Build-RegistryQueryReport {
     $lines += ("| registry exists | {0} |" -f (Format-Cell $registry.exists))
     $lines += ("| readable records | {0} |" -f $records.Count)
     $lines += ("| skipped bad lines | {0} |" -f @($registry.warnings).Count)
+    $lines += ("| resolved writes path | {0} |" -f (Format-Cell $resolvedWrites.path))
+    $lines += ("| resolved writes exists | {0} |" -f (Format-Cell $resolvedWrites.exists))
+    $lines += ("| readable resolved write ids | {0} |" -f @($resolvedWrites.batch_ids).Count)
     $lines += ""
 
     if (-not $registry.exists) {
@@ -2815,9 +2952,17 @@ function Build-RegistryQueryReport {
         }
         $lines += ""
     }
+    if (@($resolvedWrites.warnings).Count -gt 0) {
+        $lines += "## Resolved Writes Warnings"
+        $lines += ""
+        foreach ($warning in @($resolvedWrites.warnings)) {
+            $lines += ("- {0}" -f $warning)
+        }
+        $lines += ""
+    }
 
     if ($IncludeSummary) {
-        $lines = Add-RegistrySummaryLines -Lines $lines -Records $records
+        $lines = Add-RegistrySummaryLines -Lines $lines -Records $records -ResolvedBatchLookup $resolvedBatchLookup
     }
     if ($IncludeRecent) {
         $lines = Add-RegistryRecentLines -Lines $lines -Records $records -Count $RecentCount
@@ -2826,7 +2971,7 @@ function Build-RegistryQueryReport {
         $lines = Add-RegistryAddrLines -Lines $lines -Records $records -Address $Address
     }
     if ($IncludeOutliers) {
-        $lines = Add-RegistryOutlierLines -Lines $lines -Records $records
+        $lines = Add-RegistryOutlierLines -Lines $lines -Records $records -ResolvedBatchLookup $resolvedBatchLookup -IncludeResolvedWrites $IncludeResolvedWrites
     }
 
     return $lines
@@ -3080,11 +3225,13 @@ $registryQueryRequested = ([bool]$RegistrySummary) -or $registryRecentRequested 
 if ($registryQueryRequested) {
     $reportLines = @(Build-RegistryQueryReport `
         -Path $RegistryPath `
+        -ResolvedPath $ResolvedWritesPath `
         -IncludeSummary ([bool]$RegistrySummary) `
         -IncludeRecent $registryRecentRequested `
         -RecentCount $RegistryRecent `
         -Address $RegistryAddr `
         -IncludeOutliers ([bool]$RegistryOutliers) `
+        -IncludeResolvedWrites ([bool]$IncludeResolved) `
         -Environment $scriptEnvironment)
     Write-Output $reportLines
 
