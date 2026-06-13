@@ -757,6 +757,11 @@ switch ($Command) {
             "execution_outcome" = Get-ExecutionOutcomeFromBlock -Block $executionBlock
             "execution_mode" = Get-LogField -Block $executionBlock -Key "execution_mode"
             "execution_addr" = Get-LogField -Block $executionBlock -Key "execution_addr"
+            "execution_addr_source" = Get-LogField -Block $executionBlock -Key "execution_addr_source"
+            "restore_source_batch_id" = Get-LogField -Block $executionBlock -Key "restore_source_batch_id"
+            "restore_execution_addr" = Get-LogField -Block $executionBlock -Key "restore_execution_addr"
+            "restore_current_value_match" = Get-LogField -Block $executionBlock -Key "restore_current_value_match"
+            "restore_current_float" = Get-LogField -Block $executionBlock -Key "restore_current_float"
             "old_value_float" = Get-LogField -Block $executionBlock -Key "old_value_float"
             "requested_write_value_float" = Get-LogField -Block $executionBlock -Key "requested_write_value_float"
             "write_attempted" = Get-LogField -Block $executionBlock -Key "write_attempted"

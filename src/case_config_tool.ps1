@@ -25,6 +25,7 @@ param(
     [switch]$SetExecutionDryRun,
     [switch]$SetExecutionWrite,
     [double]$WriteValueFloat = [double]::NaN,
+    [int]$ArmMinutes = 10,
     [ValidateSet("full", "quick")]
     [string]$Profile,
     [double]$SetTargetFloat = [double]::NaN
@@ -44,10 +45,19 @@ $PreservedConfigKeys = @(
     "execution_mode",
     "write_enabled",
     "execution_confirm",
+    "execution_write_request_id",
+    "execution_armed_at_utc",
+    "execution_arm_expires_at_utc",
     "write_value_float",
     "write_value_pattern",
     "write_method",
     "execution_addr_source",
+    "restore_source_batch_id",
+    "restore_execution_addr",
+    "restore_expected_current_float",
+    "restore_expected_current_pattern",
+    "restore_write_value_float",
+    "restore_write_value_pattern",
     "require_known_true_match",
     "require_full_profile",
     "require_old_value_match",
@@ -67,7 +77,7 @@ function Write-Help {
     Write-Output "  powershell -NoProfile -ExecutionPolicy Bypass -File `"D:\armedforces.io-v2\src\case_config_tool.ps1`" -PrepareRestoreFromBatch 20260613-183041 [-Apply] [-EnableWrite -ConfirmWrite]"
     Write-Output "  powershell -NoProfile -ExecutionPolicy Bypass -File `"D:\armedforces.io-v2\src\case_config_tool.ps1`" -DisableExecution"
     Write-Output "  powershell -NoProfile -ExecutionPolicy Bypass -File `"D:\armedforces.io-v2\src\case_config_tool.ps1`" -SetExecutionDryRun -WriteValueFloat 999.0 [-Profile full]"
-    Write-Output "  powershell -NoProfile -ExecutionPolicy Bypass -File `"D:\armedforces.io-v2\src\case_config_tool.ps1`" -SetExecutionWrite -WriteValueFloat 999.0 -ConfirmWrite"
+    Write-Output "  powershell -NoProfile -ExecutionPolicy Bypass -File `"D:\armedforces.io-v2\src\case_config_tool.ps1`" -SetExecutionWrite -WriteValueFloat 999.0 -ConfirmWrite [-ArmMinutes 10]"
     Write-Output "  powershell -NoProfile -ExecutionPolicy Bypass -File `"D:\armedforces.io-v2\src\case_config_tool.ps1`" -SetTargetFloat 100.0"
 }
 
@@ -131,7 +141,7 @@ function ConvertTo-LuaLiteral {
             return $text.ToLowerInvariant()
         }
     }
-    if ($Key -in @("write_value_float", "readback_tolerance")) {
+    if ($Key -in @("write_value_float", "restore_expected_current_float", "restore_write_value_float", "readback_tolerance")) {
         $number = 0.0
         if ([double]::TryParse($text, [System.Globalization.NumberStyles]::Float, [System.Globalization.CultureInfo]::InvariantCulture, [ref]$number)) {
             return $number.ToString("0.0###############", [System.Globalization.CultureInfo]::InvariantCulture)
@@ -416,12 +426,65 @@ function Remove-ConfigKeyIfPresent {
     }
 }
 
+function Clear-ExecutionWriteArmFields {
+    param($Config)
+
+    foreach ($key in @(
+        "execution_confirm",
+        "execution_write_request_id",
+        "execution_armed_at_utc",
+        "execution_arm_expires_at_utc"
+    )) {
+        Remove-ConfigKeyIfPresent -Config $Config -Key $key
+    }
+}
+
+function Clear-RestoreExecutionFields {
+    param($Config)
+
+    foreach ($key in @(
+        "restore_source_batch_id",
+        "restore_execution_addr",
+        "restore_expected_current_float",
+        "restore_expected_current_pattern",
+        "restore_write_value_float",
+        "restore_write_value_pattern"
+    )) {
+        Remove-ConfigKeyIfPresent -Config $Config -Key $key
+    }
+}
+
 function Set-ExecutionDisabledFields {
     param($Config)
 
     $Config.execution_mode = "disabled"
     $Config.write_enabled = "false"
-    Remove-ConfigKeyIfPresent -Config $Config -Key "execution_confirm"
+    $Config.execution_addr_source = "stable_intersection_best_candidate"
+    Clear-ExecutionWriteArmFields -Config $Config
+    Clear-RestoreExecutionFields -Config $Config
+}
+
+function Set-ExecutionArmFields {
+    param($Config, [int]$Minutes)
+
+    if ($Minutes -lt 1) {
+        throw "ArmMinutes must be greater than 0."
+    }
+
+    $armedAt = (Get-Date).ToUniversalTime()
+    $expiresAt = $armedAt.AddMinutes($Minutes)
+    $requestId = "write_{0}_{1}" -f $armedAt.ToString("yyyyMMddTHHmmssZ", [System.Globalization.CultureInfo]::InvariantCulture), ([guid]::NewGuid().ToString("N").Substring(0, 8))
+    $Config.execution_write_request_id = $requestId
+    $Config.execution_armed_at_utc = $armedAt.ToString("yyyy-MM-ddTHH:mm:ssZ", [System.Globalization.CultureInfo]::InvariantCulture)
+    $Config.execution_arm_expires_at_utc = $expiresAt.ToString("yyyy-MM-ddTHH:mm:ssZ", [System.Globalization.CultureInfo]::InvariantCulture)
+
+    return [ordered]@{
+        execution_write_request_id = $Config.execution_write_request_id
+        execution_armed_at_utc = $Config.execution_armed_at_utc
+        execution_arm_expires_at_utc = $Config.execution_arm_expires_at_utc
+        arm_minutes = $Minutes
+        warning = "run CE before expiry"
+    }
 }
 
 function Set-WriteFloatFields {
@@ -450,7 +513,7 @@ function Get-ExecutionConfirmPresent {
 }
 
 function Write-ActionSummaryConsole {
-    param([string]$Action, $Config, [string[]]$ExtraKeys)
+    param([string]$Action, $Config, [string[]]$ExtraKeys, $ExtraValues)
 
     $fieldWidth = 30
     $rows = [ordered]@{
@@ -471,6 +534,10 @@ function Write-ActionSummaryConsole {
             $rows[$key] = Get-ConfigValue -Config $Config -Key "target_value_pattern"
         } elseif ($key -eq "backup_path") {
             $rows[$key] = $BackupPath
+        } elseif ($ExtraValues -and $ExtraValues.Contains($key)) {
+            $rows[$key] = $ExtraValues[$key]
+        } else {
+            $rows[$key] = Get-ConfigValue -Config $Config -Key $key
         }
     }
 
@@ -633,11 +700,13 @@ function New-RestorePlan {
     }
 
     $executionAddr = Get-RequiredRestoreField -Block $sourceBlock -Keys @("execution_addr") -Label "execution_addr"
-    $currentPattern = Get-RequiredRestoreField -Block $sourceBlock -Keys @("readback_pattern") -Label "readback_pattern"
-    $currentFloat = Get-RequiredRestoreField -Block $sourceBlock -Keys @("readback_float") -Label "readback_float"
+    $currentPattern = Get-RequiredRestoreField -Block $sourceBlock -Keys @("readback_pattern", "requested_write_value_pattern") -Label "readback or requested write pattern"
+    $currentFloat = Get-RequiredRestoreField -Block $sourceBlock -Keys @("readback_float", "requested_write_value_float") -Label "readback or requested write float"
     $restorePattern = Get-RequiredRestoreField -Block $sourceBlock -Keys @("rollback_value_pattern", "old_value_pattern") -Label "rollback or old value pattern"
     $restoreFloat = Get-RequiredRestoreField -Block $sourceBlock -Keys @("rollback_value_float", "old_value_float") -Label "rollback or old value float"
     $rollbackAvailable = Test-LogBoolTrue -Value (Get-LogField -Block $sourceBlock -Key "rollback_available")
+    $writeOk = Test-LogBoolTrue -Value (Get-LogField -Block $sourceBlock -Key "write_ok")
+    $readbackOk = Test-LogBoolTrue -Value (Get-LogField -Block $sourceBlock -Key "readback_ok")
     $writeReady = $EnableWriteConfig -and $ConfirmWriteConfig
 
     if (-not (Test-HexString -Value $executionAddr)) {
@@ -655,19 +724,31 @@ function New-RestorePlan {
     if (-not (Test-NumberString -Value $restoreFloat)) {
         throw ("Cannot prepare restore config because rollback/old float is not numeric: {0}" -f $restoreFloat)
     }
-    if ($writeReady -and -not $rollbackAvailable) {
-        throw "Cannot prepare write-ready restore config because rollback_available is not true."
+    if (-not $writeOk) {
+        throw "Cannot prepare restore config because source batch write_ok is not true."
+    }
+    if (-not $readbackOk) {
+        throw "Cannot prepare restore config because source batch readback_ok is not true."
+    }
+    if (-not $rollbackAvailable) {
+        throw "Cannot prepare restore config because rollback_available is not true."
     }
 
     return [ordered]@{
         source_batch = $BatchId
+        restore_source_batch_id = $BatchId
         source_log_path = $logPath
         source_block = $sourceBlock.Name
         execution_addr = $executionAddr
+        restore_execution_addr = $executionAddr
         restore_target_current_pattern = $currentPattern
         restore_target_current_float = $currentFloat
+        restore_expected_current_pattern = $currentPattern
+        restore_expected_current_float = $currentFloat
         restore_write_value_pattern = $restorePattern
         restore_write_value_float = $restoreFloat
+        source_write_ok = $writeOk
+        source_readback_ok = $readbackOk
         rollback_available = $rollbackAvailable
         apply = $ApplyConfig
         write_enabled = $writeReady
@@ -692,7 +773,13 @@ function New-RestoreConfig {
         write_value_float = $Plan.restore_write_value_float
         write_value_pattern = $Plan.restore_write_value_pattern
         write_method = "float"
-        execution_addr_source = "stable_intersection_best_candidate"
+        execution_addr_source = "restore_source_batch_execution_addr"
+        restore_source_batch_id = $Plan.restore_source_batch_id
+        restore_execution_addr = $Plan.restore_execution_addr
+        restore_expected_current_float = $Plan.restore_expected_current_float
+        restore_expected_current_pattern = $Plan.restore_expected_current_pattern
+        restore_write_value_float = $Plan.restore_write_value_float
+        restore_write_value_pattern = $Plan.restore_write_value_pattern
         require_known_true_match = "true"
         require_full_profile = "true"
         require_old_value_match = "true"
@@ -701,6 +788,7 @@ function New-RestoreConfig {
 
     if ($writeReady) {
         $config.execution_confirm = $ExecutionConfirmText
+        [void](Set-ExecutionArmFields -Config $config -Minutes $ArmMinutes)
     }
 
     return $config
@@ -716,11 +804,17 @@ function Write-RestorePlanConsole {
     Write-Output ("{0,-$fieldWidth} {1}" -f "-----", "-----")
     foreach ($key in @(
         "source_batch",
+        "restore_source_batch_id",
         "execution_addr",
+        "restore_execution_addr",
         "restore_target_current_pattern",
         "restore_target_current_float",
+        "restore_expected_current_pattern",
+        "restore_expected_current_float",
         "restore_write_value_pattern",
         "restore_write_value_float",
+        "source_write_ok",
+        "source_readback_ok",
         "rollback_available",
         "apply",
         "write_enabled",
@@ -992,7 +1086,7 @@ if ($setTargetRequested -and $DisableExecution) {
     Set-ExecutionDisabledFields -Config $newConfig
     Write-CaseConfig -Config $newConfig
     $updatedConfig = Read-CaseConfig -Path $ConfigPath
-    Write-ActionSummaryConsole -Action "SetTargetFloat+DisableExecution" -Config $updatedConfig -ExtraKeys @("target_value_float", "target_value_pattern", "backup_path")
+    Write-ActionSummaryConsole -Action "SetTargetFloat+DisableExecution" -Config $updatedConfig -ExtraKeys @("target_value_float", "target_value_pattern", "execution_write_request_id", "execution_armed_at_utc", "execution_arm_expires_at_utc", "backup_path")
     exit 0
 }
 
@@ -1001,7 +1095,7 @@ if ($DisableExecution) {
     Set-ExecutionDisabledFields -Config $newConfig
     Write-CaseConfig -Config $newConfig
     $updatedConfig = Read-CaseConfig -Path $ConfigPath
-    Write-ActionSummaryConsole -Action "DisableExecution" -Config $updatedConfig -ExtraKeys @("backup_path")
+    Write-ActionSummaryConsole -Action "DisableExecution" -Config $updatedConfig -ExtraKeys @("execution_write_request_id", "execution_armed_at_utc", "execution_arm_expires_at_utc", "backup_path")
     exit 0
 }
 
@@ -1014,14 +1108,16 @@ if ($SetExecutionDryRun) {
     $newConfig = Get-EditableConfig -Current $currentConfig
     $newConfig.execution_mode = "dry_run"
     $newConfig.write_enabled = "false"
-    Remove-ConfigKeyIfPresent -Config $newConfig -Key "execution_confirm"
+    $newConfig.execution_addr_source = "stable_intersection_best_candidate"
+    Clear-ExecutionWriteArmFields -Config $newConfig
+    Clear-RestoreExecutionFields -Config $newConfig
     Set-WriteFloatFields -Config $newConfig -Value $WriteValueFloat
     if ($Profile) {
         $newConfig.validation_profile = $Profile
     }
     Write-CaseConfig -Config $newConfig
     $updatedConfig = Read-CaseConfig -Path $ConfigPath
-    Write-ActionSummaryConsole -Action "SetExecutionDryRun" -Config $updatedConfig -ExtraKeys @("backup_path")
+    Write-ActionSummaryConsole -Action "SetExecutionDryRun" -Config $updatedConfig -ExtraKeys @("execution_write_request_id", "execution_armed_at_utc", "execution_arm_expires_at_utc", "backup_path")
     if ((Get-ConfigValue -Config $updatedConfig -Key "validation_profile") -ne "full") {
         Write-Warning "dry-run execution requires full profile for stable execution"
     }
@@ -1044,13 +1140,20 @@ if ($SetExecutionWrite) {
     $newConfig.execution_confirm = $ExecutionConfirmText
     $newConfig.validation_profile = "full"
     $newConfig.write_method = "float"
+    $newConfig.execution_addr_source = "stable_intersection_best_candidate"
     $newConfig.require_known_true_match = "true"
     $newConfig.require_full_profile = "true"
     $newConfig.require_old_value_match = "true"
+    Clear-RestoreExecutionFields -Config $newConfig
+    $armDetails = Set-ExecutionArmFields -Config $newConfig -Minutes $ArmMinutes
     Set-WriteFloatFields -Config $newConfig -Value $WriteValueFloat
     Write-CaseConfig -Config $newConfig
     $updatedConfig = Read-CaseConfig -Path $ConfigPath
-    Write-ActionSummaryConsole -Action "SetExecutionWrite" -Config $updatedConfig -ExtraKeys @("backup_path")
+    Write-ActionSummaryConsole `
+        -Action "SetExecutionWrite" `
+        -Config $updatedConfig `
+        -ExtraKeys @("execution_write_request_id", "execution_armed_at_utc", "execution_arm_expires_at_utc", "arm_minutes", "warning", "backup_path") `
+        -ExtraValues $armDetails
     exit 0
 }
 

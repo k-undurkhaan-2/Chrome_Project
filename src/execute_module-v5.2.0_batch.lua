@@ -116,7 +116,8 @@ local function normalize_execution_addr_source(value)
   local source = tostring(value or "stable_intersection_best_candidate")
   if source == "stable_intersection_best_candidate"
       or source == "best_candidate"
-      or source == "final_best_candidate" then
+      or source == "final_best_candidate"
+      or source == "restore_source_batch_execution_addr" then
     return source
   end
   error("invalid execution_addr_source: " .. tostring(value))
@@ -155,8 +156,17 @@ local function apply_local_case_config(run_cases, path)
     case_cfg.execution_mode = normalize_execution_mode(case_cfg.execution_mode)
     case_cfg.write_enabled = parse_case_bool(case_cfg.write_enabled, "write_enabled") or false
     case_cfg.execution_confirm = nil
+    case_cfg.execution_write_request_id = nil
+    case_cfg.execution_armed_at_utc = nil
+    case_cfg.execution_arm_expires_at_utc = nil
     case_cfg.write_method = normalize_write_method(case_cfg.write_method)
     case_cfg.execution_addr_source = normalize_execution_addr_source(case_cfg.execution_addr_source)
+    case_cfg.restore_source_batch_id = nil
+    case_cfg.restore_execution_addr = nil
+    case_cfg.restore_expected_current_float = nil
+    case_cfg.restore_expected_current_pattern = nil
+    case_cfg.restore_write_value_float = nil
+    case_cfg.restore_write_value_pattern = nil
     case_cfg.require_known_true_match = true
     case_cfg.require_full_profile = true
     case_cfg.require_old_value_match = true
@@ -212,6 +222,15 @@ local function apply_local_case_config(run_cases, path)
   if loaded.execution_confirm ~= nil then
     case_cfg.execution_confirm = tostring(loaded.execution_confirm)
   end
+  if loaded.execution_write_request_id ~= nil then
+    case_cfg.execution_write_request_id = tostring(loaded.execution_write_request_id)
+  end
+  if loaded.execution_armed_at_utc ~= nil then
+    case_cfg.execution_armed_at_utc = tostring(loaded.execution_armed_at_utc)
+  end
+  if loaded.execution_arm_expires_at_utc ~= nil then
+    case_cfg.execution_arm_expires_at_utc = tostring(loaded.execution_arm_expires_at_utc)
+  end
   if loaded.write_value_float ~= nil then
     case_cfg.write_value_float = parse_case_float(loaded.write_value_float, "write_value_float")
   end
@@ -223,6 +242,24 @@ local function apply_local_case_config(run_cases, path)
   end
   if loaded.execution_addr_source ~= nil then
     case_cfg.execution_addr_source = normalize_execution_addr_source(loaded.execution_addr_source)
+  end
+  if loaded.restore_source_batch_id ~= nil then
+    case_cfg.restore_source_batch_id = tostring(loaded.restore_source_batch_id)
+  end
+  if loaded.restore_execution_addr ~= nil then
+    case_cfg.restore_execution_addr = parse_case_number(loaded.restore_execution_addr, "restore_execution_addr")
+  end
+  if loaded.restore_expected_current_float ~= nil then
+    case_cfg.restore_expected_current_float = parse_case_float(loaded.restore_expected_current_float, "restore_expected_current_float")
+  end
+  if loaded.restore_expected_current_pattern ~= nil then
+    case_cfg.restore_expected_current_pattern = parse_case_number(loaded.restore_expected_current_pattern, "restore_expected_current_pattern")
+  end
+  if loaded.restore_write_value_float ~= nil then
+    case_cfg.restore_write_value_float = parse_case_float(loaded.restore_write_value_float, "restore_write_value_float")
+  end
+  if loaded.restore_write_value_pattern ~= nil then
+    case_cfg.restore_write_value_pattern = parse_case_number(loaded.restore_write_value_pattern, "restore_write_value_pattern")
   end
   if loaded.require_known_true_match ~= nil then
     case_cfg.require_known_true_match = parse_case_bool(loaded.require_known_true_match, "require_known_true_match")
@@ -257,8 +294,17 @@ local RUN_CASES = {
     execution_mode = "disabled",
     write_enabled = false,
     execution_confirm = nil,
+    execution_write_request_id = nil,
+    execution_armed_at_utc = nil,
+    execution_arm_expires_at_utc = nil,
     write_method = "float",
     execution_addr_source = "stable_intersection_best_candidate",
+    restore_source_batch_id = nil,
+    restore_execution_addr = nil,
+    restore_expected_current_float = nil,
+    restore_expected_current_pattern = nil,
+    restore_write_value_float = nil,
+    restore_write_value_pattern = nil,
     require_known_true_match = true,
     require_full_profile = true,
     require_old_value_match = true,
@@ -976,8 +1022,23 @@ local EXECUTION_FIELD_NAMES = {
   "execution_mode",
   "write_enabled",
   "execution_confirm_ok",
+  "execution_write_request_id",
+  "execution_armed_at_utc",
+  "execution_arm_expires_at_utc",
+  "execution_arm_valid",
+  "execution_arm_seconds_remaining",
   "execution_addr",
   "execution_addr_source",
+  "restore_source_batch_id",
+  "restore_execution_addr",
+  "restore_expected_current_float",
+  "restore_expected_current_pattern",
+  "restore_write_value_float",
+  "restore_write_value_pattern",
+  "restore_old_value_match",
+  "restore_current_value_match",
+  "restore_current_float",
+  "restore_current_pattern",
   "execution_preconditions_ok",
   "execution_failure_class",
   "known_true_match_ok",
@@ -1008,8 +1069,23 @@ local function build_default_execution_result(case_cfg, summary, failure_class)
     execution_mode = case_cfg and case_cfg.execution_mode or "disabled",
     write_enabled = case_cfg and case_cfg.write_enabled or false,
     execution_confirm_ok = false,
+    execution_write_request_id = case_cfg and case_cfg.execution_write_request_id or nil,
+    execution_armed_at_utc = case_cfg and case_cfg.execution_armed_at_utc or nil,
+    execution_arm_expires_at_utc = case_cfg and case_cfg.execution_arm_expires_at_utc or nil,
+    execution_arm_valid = false,
+    execution_arm_seconds_remaining = nil,
     execution_addr = nil,
     execution_addr_source = case_cfg and case_cfg.execution_addr_source or "stable_intersection_best_candidate",
+    restore_source_batch_id = case_cfg and case_cfg.restore_source_batch_id or nil,
+    restore_execution_addr = case_cfg and case_cfg.restore_execution_addr or nil,
+    restore_expected_current_float = case_cfg and case_cfg.restore_expected_current_float or nil,
+    restore_expected_current_pattern = case_cfg and case_cfg.restore_expected_current_pattern or nil,
+    restore_write_value_float = case_cfg and case_cfg.restore_write_value_float or nil,
+    restore_write_value_pattern = case_cfg and case_cfg.restore_write_value_pattern or nil,
+    restore_old_value_match = nil,
+    restore_current_value_match = nil,
+    restore_current_float = nil,
+    restore_current_pattern = nil,
     execution_preconditions_ok = false,
     execution_failure_class = failure_class,
     known_true_match_ok = nil,
@@ -1101,8 +1177,23 @@ local function print_execution_fields(source)
   print_kv("execution_mode", source and source.execution_mode)
   print_kv("write_enabled", source and source.write_enabled)
   print_kv("execution_confirm_ok", source and source.execution_confirm_ok)
+  print_kv("execution_write_request_id", source and source.execution_write_request_id)
+  print_kv("execution_armed_at_utc", source and source.execution_armed_at_utc)
+  print_kv("execution_arm_expires_at_utc", source and source.execution_arm_expires_at_utc)
+  print_kv("execution_arm_valid", source and source.execution_arm_valid)
+  print_kv("execution_arm_seconds_remaining", source and source.execution_arm_seconds_remaining)
   print_hex_kv("execution_addr", source and source.execution_addr)
   print_kv("execution_addr_source", source and source.execution_addr_source)
+  print_kv("restore_source_batch_id", source and source.restore_source_batch_id)
+  print_hex_kv("restore_execution_addr", source and source.restore_execution_addr)
+  print_kv("restore_expected_current_float", source and source.restore_expected_current_float)
+  print_hex_kv("restore_expected_current_pattern", source and source.restore_expected_current_pattern)
+  print_kv("restore_write_value_float", source and source.restore_write_value_float)
+  print_hex_kv("restore_write_value_pattern", source and source.restore_write_value_pattern)
+  print_kv("restore_old_value_match", source and source.restore_old_value_match)
+  print_kv("restore_current_value_match", source and source.restore_current_value_match)
+  print_kv("restore_current_float", source and source.restore_current_float)
+  print_hex_kv("restore_current_pattern", source and source.restore_current_pattern)
   print_kv("execution_preconditions_ok", source and source.execution_preconditions_ok)
   print_kv("execution_failure_class", source and source.execution_failure_class)
   print_kv("known_true_match_ok", source and source.known_true_match_ok)
@@ -1132,8 +1223,23 @@ local function append_execution_lines(lines, source)
   lines[#lines + 1] = "execution_mode = " .. tostring(source and source.execution_mode)
   lines[#lines + 1] = "write_enabled = " .. tostring(source and source.write_enabled)
   lines[#lines + 1] = "execution_confirm_ok = " .. tostring(source and source.execution_confirm_ok)
+  lines[#lines + 1] = "execution_write_request_id = " .. tostring(source and source.execution_write_request_id)
+  lines[#lines + 1] = "execution_armed_at_utc = " .. tostring(source and source.execution_armed_at_utc)
+  lines[#lines + 1] = "execution_arm_expires_at_utc = " .. tostring(source and source.execution_arm_expires_at_utc)
+  lines[#lines + 1] = "execution_arm_valid = " .. tostring(source and source.execution_arm_valid)
+  lines[#lines + 1] = "execution_arm_seconds_remaining = " .. tostring(source and source.execution_arm_seconds_remaining)
   lines[#lines + 1] = "execution_addr = " .. tostring(hex_u64(source and source.execution_addr))
   lines[#lines + 1] = "execution_addr_source = " .. tostring(source and source.execution_addr_source)
+  lines[#lines + 1] = "restore_source_batch_id = " .. tostring(source and source.restore_source_batch_id)
+  lines[#lines + 1] = "restore_execution_addr = " .. tostring(hex_u64(source and source.restore_execution_addr))
+  lines[#lines + 1] = "restore_expected_current_float = " .. tostring(source and source.restore_expected_current_float)
+  lines[#lines + 1] = "restore_expected_current_pattern = " .. tostring(hex_u64(source and source.restore_expected_current_pattern))
+  lines[#lines + 1] = "restore_write_value_float = " .. tostring(source and source.restore_write_value_float)
+  lines[#lines + 1] = "restore_write_value_pattern = " .. tostring(hex_u64(source and source.restore_write_value_pattern))
+  lines[#lines + 1] = "restore_old_value_match = " .. tostring(source and source.restore_old_value_match)
+  lines[#lines + 1] = "restore_current_value_match = " .. tostring(source and source.restore_current_value_match)
+  lines[#lines + 1] = "restore_current_float = " .. tostring(source and source.restore_current_float)
+  lines[#lines + 1] = "restore_current_pattern = " .. tostring(hex_u64(source and source.restore_current_pattern))
   lines[#lines + 1] = "execution_preconditions_ok = " .. tostring(source and source.execution_preconditions_ok)
   lines[#lines + 1] = "execution_failure_class = " .. tostring(source and source.execution_failure_class)
   lines[#lines + 1] = "known_true_match_ok = " .. tostring(source and source.known_true_match_ok)

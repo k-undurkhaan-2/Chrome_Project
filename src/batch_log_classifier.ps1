@@ -51,8 +51,23 @@ $ExecutionFieldNames = @(
     "execution_mode",
     "write_enabled",
     "execution_confirm_ok",
+    "execution_write_request_id",
+    "execution_armed_at_utc",
+    "execution_arm_expires_at_utc",
+    "execution_arm_valid",
+    "execution_arm_seconds_remaining",
     "execution_addr",
     "execution_addr_source",
+    "restore_source_batch_id",
+    "restore_execution_addr",
+    "restore_expected_current_float",
+    "restore_expected_current_pattern",
+    "restore_write_value_float",
+    "restore_write_value_pattern",
+    "restore_old_value_match",
+    "restore_current_value_match",
+    "restore_current_float",
+    "restore_current_pattern",
     "execution_preconditions_ok",
     "execution_failure_class",
     "known_true_match_ok",
@@ -1152,6 +1167,22 @@ function Get-DropStageDiagnosis {
         }
     }
 
+    if ($Record.execution_failure_class -in @(
+        "missing_restore_execution_addr",
+        "missing_restore_expected_current",
+        "missing_restore_write_value",
+        "restore_old_value_mismatch"
+    )) {
+        return [pscustomobject][ordered]@{
+            drop_stage = "execution_restore_precondition"
+            likely_cause = $Record.execution_failure_class
+            algorithm_failure = "no"
+            replacement_sample_recommended = "no"
+            trace_rerun_recommended = "no"
+            code_change_recommended = "no"
+        }
+    }
+
     switch ($Record.classification) {
         "incomplete_output" {
             return [pscustomobject][ordered]@{
@@ -1487,8 +1518,23 @@ function Get-BatchRecord {
         execution_mode = Get-ExecutionFieldValue -Fields $executionFields -Name "execution_mode"
         write_enabled = Get-ExecutionFieldValue -Fields $executionFields -Name "write_enabled"
         execution_confirm_ok = Get-ExecutionFieldValue -Fields $executionFields -Name "execution_confirm_ok"
+        execution_write_request_id = Get-ExecutionFieldValue -Fields $executionFields -Name "execution_write_request_id"
+        execution_armed_at_utc = Get-ExecutionFieldValue -Fields $executionFields -Name "execution_armed_at_utc"
+        execution_arm_expires_at_utc = Get-ExecutionFieldValue -Fields $executionFields -Name "execution_arm_expires_at_utc"
+        execution_arm_valid = Get-ExecutionFieldValue -Fields $executionFields -Name "execution_arm_valid"
+        execution_arm_seconds_remaining = Get-ExecutionFieldValue -Fields $executionFields -Name "execution_arm_seconds_remaining"
         execution_addr = Get-ExecutionFieldValue -Fields $executionFields -Name "execution_addr"
         execution_addr_source = Get-ExecutionFieldValue -Fields $executionFields -Name "execution_addr_source"
+        restore_source_batch_id = Get-ExecutionFieldValue -Fields $executionFields -Name "restore_source_batch_id"
+        restore_execution_addr = Get-ExecutionFieldValue -Fields $executionFields -Name "restore_execution_addr"
+        restore_expected_current_float = Get-ExecutionFieldValue -Fields $executionFields -Name "restore_expected_current_float"
+        restore_expected_current_pattern = Get-ExecutionFieldValue -Fields $executionFields -Name "restore_expected_current_pattern"
+        restore_write_value_float = Get-ExecutionFieldValue -Fields $executionFields -Name "restore_write_value_float"
+        restore_write_value_pattern = Get-ExecutionFieldValue -Fields $executionFields -Name "restore_write_value_pattern"
+        restore_old_value_match = Get-ExecutionFieldValue -Fields $executionFields -Name "restore_old_value_match"
+        restore_current_value_match = Get-ExecutionFieldValue -Fields $executionFields -Name "restore_current_value_match"
+        restore_current_float = Get-ExecutionFieldValue -Fields $executionFields -Name "restore_current_float"
+        restore_current_pattern = Get-ExecutionFieldValue -Fields $executionFields -Name "restore_current_pattern"
         execution_preconditions_ok = Get-ExecutionFieldValue -Fields $executionFields -Name "execution_preconditions_ok"
         execution_failure_class = Get-ExecutionFieldValue -Fields $executionFields -Name "execution_failure_class"
         known_true_match_ok = Get-ExecutionFieldValue -Fields $executionFields -Name "known_true_match_ok"
@@ -1576,8 +1622,23 @@ function Get-InspectionLines {
     $lines += ("| execution_mode | {0} |" -f (Format-Cell $Record.execution_mode))
     $lines += ("| write_enabled | {0} |" -f (Format-Cell $Record.write_enabled))
     $lines += ("| execution_confirm_ok | {0} |" -f (Format-Cell $Record.execution_confirm_ok))
+    $lines += ("| execution_write_request_id | {0} |" -f (Format-Cell $Record.execution_write_request_id))
+    $lines += ("| execution_armed_at_utc | {0} |" -f (Format-Cell $Record.execution_armed_at_utc))
+    $lines += ("| execution_arm_expires_at_utc | {0} |" -f (Format-Cell $Record.execution_arm_expires_at_utc))
+    $lines += ("| execution_arm_valid | {0} |" -f (Format-Cell $Record.execution_arm_valid))
+    $lines += ("| execution_arm_seconds_remaining | {0} |" -f (Format-Cell $Record.execution_arm_seconds_remaining))
     $lines += ("| execution_addr | {0} |" -f (Format-Cell $Record.execution_addr))
     $lines += ("| execution_addr_source | {0} |" -f (Format-Cell $Record.execution_addr_source))
+    $lines += ("| restore_source_batch_id | {0} |" -f (Format-Cell $Record.restore_source_batch_id))
+    $lines += ("| restore_execution_addr | {0} |" -f (Format-Cell $Record.restore_execution_addr))
+    $lines += ("| restore_expected_current_float | {0} |" -f (Format-Cell $Record.restore_expected_current_float))
+    $lines += ("| restore_expected_current_pattern | {0} |" -f (Format-Cell $Record.restore_expected_current_pattern))
+    $lines += ("| restore_write_value_float | {0} |" -f (Format-Cell $Record.restore_write_value_float))
+    $lines += ("| restore_write_value_pattern | {0} |" -f (Format-Cell $Record.restore_write_value_pattern))
+    $lines += ("| restore_old_value_match | {0} |" -f (Format-Cell $Record.restore_old_value_match))
+    $lines += ("| restore_current_value_match | {0} |" -f (Format-Cell $Record.restore_current_value_match))
+    $lines += ("| restore_current_float | {0} |" -f (Format-Cell $Record.restore_current_float))
+    $lines += ("| restore_current_pattern | {0} |" -f (Format-Cell $Record.restore_current_pattern))
     $lines += ("| execution_preconditions_ok | {0} |" -f (Format-Cell $Record.execution_preconditions_ok))
     $lines += ("| execution_failure_class | {0} |" -f (Format-Cell $Record.execution_failure_class))
     $lines += ("| old_value_float | {0} |" -f (Format-Cell $Record.old_value_float))
@@ -1758,6 +1819,22 @@ function New-RegistryEntry {
         execution_outcome = $Record.execution_outcome
         execution_addr = $Record.execution_addr
         execution_confirm_ok = $Record.execution_confirm_ok
+        execution_write_request_id = $Record.execution_write_request_id
+        execution_armed_at_utc = $Record.execution_armed_at_utc
+        execution_arm_expires_at_utc = $Record.execution_arm_expires_at_utc
+        execution_arm_valid = $Record.execution_arm_valid
+        execution_arm_seconds_remaining = $Record.execution_arm_seconds_remaining
+        execution_addr_source = $Record.execution_addr_source
+        restore_source_batch_id = $Record.restore_source_batch_id
+        restore_execution_addr = $Record.restore_execution_addr
+        restore_expected_current_float = $Record.restore_expected_current_float
+        restore_expected_current_pattern = $Record.restore_expected_current_pattern
+        restore_write_value_float = $Record.restore_write_value_float
+        restore_write_value_pattern = $Record.restore_write_value_pattern
+        restore_old_value_match = $Record.restore_old_value_match
+        restore_current_value_match = $Record.restore_current_value_match
+        restore_current_float = $Record.restore_current_float
+        restore_current_pattern = $Record.restore_current_pattern
         old_value_float = $Record.old_value_float
         requested_write_value_float = $Record.requested_write_value_float
         write_attempted = $Record.write_attempted
@@ -1915,6 +1992,13 @@ function Get-ConsoleSummaryLines {
             $lines = Add-ConsoleField -Lines $lines -Name "execution_mode" -Value $record.execution_mode
             $lines = Add-ConsoleField -Lines $lines -Name "execution_outcome" -Value $record.execution_outcome
             $lines = Add-ConsoleField -Lines $lines -Name "execution_addr" -Value $record.execution_addr
+            $lines = Add-ConsoleField -Lines $lines -Name "execution_addr_source" -Value $record.execution_addr_source
+            $lines = Add-ConsoleField -Lines $lines -Name "execution_arm_valid" -Value $record.execution_arm_valid
+            $lines = Add-ConsoleField -Lines $lines -Name "arm_seconds_remaining" -Value $record.execution_arm_seconds_remaining
+            $lines = Add-ConsoleField -Lines $lines -Name "restore_source_batch" -Value $record.restore_source_batch_id
+            $lines = Add-ConsoleField -Lines $lines -Name "restore_execution_addr" -Value $record.restore_execution_addr
+            $lines = Add-ConsoleField -Lines $lines -Name "restore_current_match" -Value $record.restore_current_value_match
+            $lines = Add-ConsoleField -Lines $lines -Name "restore_current_float" -Value $record.restore_current_float
             $lines = Add-ConsoleField -Lines $lines -Name "write_attempted" -Value $record.write_attempted
             $lines = Add-ConsoleField -Lines $lines -Name "write_ok" -Value $record.write_ok
             $lines = Add-ConsoleField -Lines $lines -Name "readback_ok" -Value $record.readback_ok
@@ -2163,6 +2247,14 @@ function Get-RegistryRecommendation {
     }
 
     $executionOutcome = Get-RegistryText -Record $Record -Name "execution_outcome"
+    $executionFailure = Get-RegistryText -Record $Record -Name "execution_failure_class"
+    switch ($executionFailure) {
+        "missing_restore_execution_addr" { return "restore config is missing source execution address; regenerate restore config from a successful write batch" }
+        "missing_restore_expected_current" { return "restore config is missing expected current value; regenerate restore config from a successful write batch" }
+        "missing_restore_write_value" { return "restore config is missing rollback write value; regenerate restore config from a successful write batch" }
+        "restore_old_value_mismatch" { return "restore blocked because current memory no longer matches source write value; verify target state before retrying" }
+    }
+
     switch ($executionOutcome) {
         "execution_write_blocked" { return "inspect execution_failure_class and config guards" }
         "execution_readback_failed" { return "inspect readback fields before retrying or restoring" }
