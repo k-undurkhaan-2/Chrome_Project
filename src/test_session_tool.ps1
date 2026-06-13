@@ -16,7 +16,9 @@ param(
     [string]$BatchId,
     [switch]$EnableWrite,
     [switch]$ConfirmWrite,
-    [int]$Latest = 50
+    [int]$Latest = 50,
+    [switch]$IncludeResolved,
+    [string]$Reason
 )
 
 Set-StrictMode -Version 2.0
@@ -28,6 +30,7 @@ $CaseConfigToolPath = Join-Path (Join-Path $ProjectRootPath "src") "case_config_
 $ClassifierPath = Join-Path (Join-Path $ProjectRootPath "src") "batch_log_classifier.ps1"
 $CaseConfigPath = Join-Path (Join-Path $ProjectRootPath "src") "run_case_config.local.lua"
 $BaselinePath = Join-Path (Join-Path $ProjectRootPath "log\baselines") "baseline_compact_basic_20260613_latest20.md"
+$ResolvedWritesPath = Join-Path (Join-Path $ProjectRootPath "log") "execution_resolved_writes.local.jsonl"
 
 function Format-CommandPart {
     param([string]$Value)
@@ -67,18 +70,20 @@ function Write-CommandHelp {
     Write-Output "  prepare-restore         Prepare dry-run or write-ready restore config from a batch"
     Write-Output "  post-execution          Summarize latest full execution fields after manual CE run"
     Write-Output "  execution-status        Show write/restore transaction safety status"
+    Write-Output "  mark-write-resolved     Mark a historical write_success as manually restored"
     Write-Output ""
     Write-Output "Prepare options:"
     Write-Output "  -KnownTrueAddr <addr> [-CaseId <id>] [-Profile quick|full] [-DiagnosticLevel basic|debug|trace]"
     Write-Output "  prepare-dry-run-write -KnownTrueAddr <addr> -WriteValueFloat <float>"
     Write-Output "  prepare-guarded-write -KnownTrueAddr <addr> -WriteValueFloat <float> -ConfirmWrite"
     Write-Output "  prepare-restore -BatchId <batch> [-EnableWrite -ConfirmWrite]"
+    Write-Output "  mark-write-resolved -BatchId <batch> -Reason <text>"
     Write-Output "  safe-reset [-TargetValueFloat 100.0]"
     Write-Output ""
     Write-Output "Common options:"
     Write-Output "  -ProjectRoot D:\armedforces.io-v2"
     Write-Output "  -LogRoot D:\armedforces.io-v2\log\auto_output"
-    Write-Output "  execution-status [-Latest 50]"
+    Write-Output "  execution-status [-Latest 50] [-IncludeResolved]"
 }
 
 function Invoke-WorkflowCommand {
@@ -614,6 +619,82 @@ function Get-UnpairedWriteRecords {
     return $unpaired
 }
 
+function Read-ResolvedWriteRecords {
+    param([string]$Path)
+
+    $records = @()
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return $records
+    }
+
+    $lineNumber = 0
+    foreach ($line in Get-Content -LiteralPath $Path) {
+        $lineNumber += 1
+        if ([string]::IsNullOrWhiteSpace($line)) {
+            continue
+        }
+
+        try {
+            $record = $line | ConvertFrom-Json
+        } catch {
+            Write-Warning ("Skipping invalid resolved write JSONL line {0}: {1}" -f $lineNumber, $Path)
+            continue
+        }
+
+        $batchId = Get-RecordField -Record $record -Key "batch_id"
+        if (Test-RestoreBatchId -Value $batchId) {
+            $records += $record
+        } else {
+            Write-Warning ("Skipping resolved write record with invalid batch_id on line {0}: {1}" -f $lineNumber, $Path)
+        }
+    }
+    return $records
+}
+
+function New-ResolvedBatchSet {
+    param([object[]]$Records)
+
+    $set = @{}
+    foreach ($record in @($Records)) {
+        $batchId = Get-RecordField -Record $record -Key "batch_id"
+        if (Test-RestoreBatchId -Value $batchId) {
+            $set[$batchId] = $true
+        }
+    }
+    return $set
+}
+
+function Get-ResolvedWriteRecord {
+    param([object[]]$Records, [string]$Batch)
+
+    foreach ($record in @($Records)) {
+        if ((Get-RecordField -Record $record -Key "batch_id") -eq $Batch) {
+            return $record
+        }
+    }
+    return $null
+}
+
+function Add-ResolvedWriteRecord {
+    param([string]$Path, [string]$Batch, [string]$ResolutionReason)
+
+    $parent = Split-Path -Parent $Path
+    if (-not (Test-Path -LiteralPath $parent)) {
+        New-Item -ItemType Directory -Path $parent | Out-Null
+    }
+
+    $record = [pscustomobject][ordered]@{
+        batch_id = $Batch
+        resolved_at_utc = [System.DateTime]::UtcNow.ToString("o", [System.Globalization.CultureInfo]::InvariantCulture)
+        reason = $ResolutionReason
+        source = "manual"
+        tool = "test_session_tool.ps1"
+    }
+    $json = $record | ConvertTo-Json -Compress
+    Add-Content -LiteralPath $Path -Value $json -Encoding UTF8
+    return $record
+}
+
 function New-RestoreCommand {
     param([string]$Batch)
 
@@ -701,12 +782,13 @@ function Get-RegistrySummaryFields {
 function Write-WorkflowSummary {
     param([string]$Title, $Fields)
 
+    $fieldWidth = 40
     Write-Output ""
     Write-Output $Title
-    Write-Output ("{0,-32} {1}" -f "Field", "Value")
-    Write-Output ("{0,-32} {1}" -f "-----", "-----")
+    Write-Output ("{0,-$fieldWidth} {1}" -f "Field", "Value")
+    Write-Output ("{0,-$fieldWidth} {1}" -f "-----", "-----")
     foreach ($key in $Fields.Keys) {
-        Write-Output ("{0,-32} {1}" -f $key, $Fields[$key])
+        Write-Output ("{0,-$fieldWidth} {1}" -f $key, $Fields[$key])
     }
 }
 
@@ -737,7 +819,8 @@ $availableCommands = @(
     "prepare-guarded-write",
     "prepare-restore",
     "post-execution",
-    "execution-status"
+    "execution-status",
+    "mark-write-resolved"
 )
 if ($Help -or -not $Command) {
     Write-CommandHelp
@@ -1029,23 +1112,38 @@ switch ($Command) {
 
         $latestRecord = $records[0]
         $unpairedWrites = @(Get-UnpairedWriteRecords -Records $records)
-        $latestUnpairedWrite = if ($unpairedWrites.Count -gt 0) { $unpairedWrites[0] } else { $null }
-        $latestUnpairedBatchId = Get-RecordField -Record $latestUnpairedWrite -Key "batch_id"
-        $recommendedRestore = if ($latestUnpairedWrite) { New-RestoreCommand -Batch $latestUnpairedBatchId } else { "-" }
+        $resolvedWrites = @(Read-ResolvedWriteRecords -Path $ResolvedWritesPath)
+        $resolvedBatchSet = New-ResolvedBatchSet -Records $resolvedWrites
+        $activeUnpairedWrites = @()
+        $manuallyResolvedWrites = @()
+        foreach ($writeRecord in $unpairedWrites) {
+            $writeBatchId = Get-RecordField -Record $writeRecord -Key "batch_id"
+            if ($resolvedBatchSet.ContainsKey($writeBatchId)) {
+                $manuallyResolvedWrites += $writeRecord
+            } else {
+                $activeUnpairedWrites += $writeRecord
+            }
+        }
+
+        $latestActiveUnpairedWrite = if ($activeUnpairedWrites.Count -gt 0) { $activeUnpairedWrites[0] } else { $null }
+        $latestActiveUnpairedBatchId = Get-RecordField -Record $latestActiveUnpairedWrite -Key "batch_id"
+        $latestResolvedWrite = if ($manuallyResolvedWrites.Count -gt 0) { $manuallyResolvedWrites[0] } else { $null }
+        $latestResolvedBatchId = Get-RecordField -Record $latestResolvedWrite -Key "batch_id"
+        $recommendedRestore = if ($latestActiveUnpairedWrite) { New-RestoreCommand -Batch $latestActiveUnpairedBatchId } else { "-" }
 
         $currentConfig = Read-CaseConfigMap -Path $CaseConfigPath
         $writeCapable = Test-ExecutionConfigWriteCapable -Config $currentConfig
         $armPresent = Test-ExecutionArmPresent -Config $currentConfig
         $targetNormal = Test-NormalTargetConfig -Config $currentConfig
 
-        $safetyConclusion = "SAFE: no unpaired writes and config not write-capable"
-        if ($unpairedWrites.Count -gt 0 -and $writeCapable) {
+        $safetyConclusion = "SAFE: no active unpaired writes and config not write-capable"
+        if ($activeUnpairedWrites.Count -gt 0 -and $writeCapable) {
             $safetyConclusion = "WARNING: both unpaired write and write-capable config"
         } elseif ($writeCapable -and $armPresent) {
             $safetyConclusion = "WARNING: restore is armed / confirm present"
         } elseif ($writeCapable) {
             $safetyConclusion = "WARNING: config is write-capable"
-        } elseif ($unpairedWrites.Count -gt 0) {
+        } elseif ($activeUnpairedWrites.Count -gt 0) {
             $safetyConclusion = "ATTENTION: unpaired write exists"
         } elseif (-not $targetNormal) {
             $safetyConclusion = "ATTENTION: target is not normal expected value"
@@ -1055,8 +1153,10 @@ switch ($Command) {
             "latest scanned batches" = $Latest
             "latest batch id" = Get-RecordField -Record $latestRecord -Key "batch_id"
             "latest transaction_type" = Get-RecordField -Record $latestRecord -Key "transaction_type"
-            "unpaired_write_success count" = $unpairedWrites.Count
-            "latest unpaired write batch id" = $latestUnpairedBatchId
+            "active_unpaired_write_success count" = $activeUnpairedWrites.Count
+            "manually_resolved_write count" = $manuallyResolvedWrites.Count
+            "latest active unpaired write batch id" = $latestActiveUnpairedBatchId
+            "latest manually resolved write batch id" = $latestResolvedBatchId
             "recommended restore command" = $recommendedRestore
             "current config execution_mode" = Get-ConfigField -Config $currentConfig -Key "execution_mode"
             "current config write_enabled" = Get-ConfigField -Config $currentConfig -Key "write_enabled"
@@ -1068,14 +1168,65 @@ switch ($Command) {
             "safety conclusion" = $safetyConclusion
         })
 
-        if ($unpairedWrites.Count -gt 0) {
+        if ($activeUnpairedWrites.Count -gt 0) {
             Write-Output ""
             Write-Output "Recommended restore command:"
             Write-Output $recommendedRestore
         } else {
             Write-Output ""
-            Write-Output ("No unpaired successful writes found in latest {0} batches." -f $Latest)
+            Write-Output ("No active unpaired successful writes found in latest {0} batches." -f $Latest)
         }
+        if ($manuallyResolvedWrites.Count -gt 0) {
+            Write-Output "manually resolved historical writes exist"
+        }
+        if ($IncludeResolved) {
+            $latestResolvedRecord = if ($latestResolvedBatchId -ne "-") { Get-ResolvedWriteRecord -Records $resolvedWrites -Batch $latestResolvedBatchId } else { $null }
+            Write-WorkflowSummary -Title "Resolved Writes Summary" -Fields ([ordered]@{
+                "resolved list path" = $ResolvedWritesPath
+                "resolved records total" = $resolvedWrites.Count
+                "resolved writes in scan" = $manuallyResolvedWrites.Count
+                "latest resolved batch id" = $latestResolvedBatchId
+                "latest resolved_at_utc" = Get-RecordField -Record $latestResolvedRecord -Key "resolved_at_utc"
+                "latest resolved reason" = Get-RecordField -Record $latestResolvedRecord -Key "reason"
+            })
+        }
+        exit 0
+    }
+
+    "mark-write-resolved" {
+        if (-not $BatchId) {
+            Write-Output "ERROR: -BatchId is required for mark-write-resolved"
+            exit 1
+        }
+        Assert-RestoreBatchId -Value $BatchId -CommandName "mark-write-resolved"
+        if ([string]::IsNullOrWhiteSpace($Reason)) {
+            Write-Output "ERROR: -Reason is required for mark-write-resolved"
+            exit 1
+        }
+
+        $resolvedWrites = @(Read-ResolvedWriteRecords -Path $ResolvedWritesPath)
+        $existing = Get-ResolvedWriteRecord -Records $resolvedWrites -Batch $BatchId
+        $status = "appended"
+        $resolvedAt = "-"
+        if ($existing) {
+            $status = "already resolved"
+            $resolvedAt = Get-RecordField -Record $existing -Key "resolved_at_utc"
+        } else {
+            $record = Add-ResolvedWriteRecord -Path $ResolvedWritesPath -Batch $BatchId -ResolutionReason $Reason
+            $resolvedAt = Get-RecordField -Record $record -Key "resolved_at_utc"
+        }
+
+        Write-WorkflowSummary -Title "Manual Write Resolution" -Fields ([ordered]@{
+            "batch_id" = $BatchId
+            "status" = $status
+            "resolved_at_utc" = $resolvedAt
+            "reason" = $Reason
+            "source" = "manual"
+            "tool" = "test_session_tool.ps1"
+            "resolved list path" = $ResolvedWritesPath
+            "config modified" = $false
+            "ce runtime run" = $false
+        })
         exit 0
     }
 
