@@ -134,6 +134,34 @@ function Test-KnownTrueAddr {
     return "$Value" -match '^0x[0-9A-Fa-f]+$'
 }
 
+function Test-RestoreBatchId {
+    param($Value)
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return $false
+    }
+
+    $text = "$Value".Trim()
+    if ($text -match '[<>]') {
+        return $false
+    }
+    if ($text.IndexOfAny([System.IO.Path]::GetInvalidFileNameChars()) -ge 0) {
+        return $false
+    }
+    return $text -match '^\d{8}-\d{6}$'
+}
+
+function Assert-RestoreBatchId {
+    param([string]$Value, [string]$CommandName)
+
+    if (-not (Test-RestoreBatchId -Value $Value)) {
+        Write-Output ("ERROR: BatchId looks like a placeholder or invalid id for {0}: {1}" -f $CommandName, (Format-CommandPart $Value))
+        Write-Output "Use a real batch id such as 20260613-225514."
+        Write-Output "Find one with: powershell -NoProfile -ExecutionPolicy Bypass -File `"D:\armedforces.io-v2\src\batch_log_classifier.ps1`" -Latest 10 -Profile full -ConsoleSummary"
+        exit 1
+    }
+}
+
 function Assert-KnownTrueAddr {
     param([string]$Value, [string]$CommandName)
 
@@ -702,6 +730,7 @@ switch ($Command) {
             Write-Output "ERROR: -BatchId is required for prepare-restore"
             exit 1
         }
+        Assert-RestoreBatchId -Value $BatchId -CommandName "prepare-restore"
         if ($EnableWrite -and -not $ConfirmWrite) {
             Write-Output "ERROR: -ConfirmWrite is required with -EnableWrite for prepare-restore"
             exit 1

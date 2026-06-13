@@ -160,6 +160,34 @@ function Test-HexString {
     return "$Value" -match '^0x[0-9A-Fa-f]+$'
 }
 
+function Test-RestoreBatchId {
+    param($Value)
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return $false
+    }
+
+    $text = "$Value".Trim()
+    if ($text -match '[<>]') {
+        return $false
+    }
+    if ($text.IndexOfAny([System.IO.Path]::GetInvalidFileNameChars()) -ge 0) {
+        return $false
+    }
+    return $text -match '^\d{8}-\d{6}$'
+}
+
+function Assert-RestoreBatchId {
+    param([string]$Value)
+
+    if (-not (Test-RestoreBatchId -Value $Value)) {
+        Write-Output ("ERROR: BatchId looks like a placeholder or invalid id: {0}" -f (Format-Cell $Value))
+        Write-Output "Use a real batch id such as 20260613-225514."
+        Write-Output "Find one with: powershell -NoProfile -ExecutionPolicy Bypass -File `"D:\armedforces.io-v2\src\batch_log_classifier.ps1`" -Latest 10 -Profile full -ConsoleSummary"
+        exit 1
+    }
+}
+
 function Assert-KnownTrueAddr {
     param($Value)
 
@@ -691,6 +719,8 @@ function New-RestorePlan {
         [bool]$EnableWriteConfig,
         [bool]$ConfirmWriteConfig
     )
+
+    Assert-RestoreBatchId -Value $BatchId
 
     $logPath = Get-BatchLogPath -BatchId $BatchId -Root $Root
     $blocks = @(Read-BatchLogBlocks -Path $logPath)
