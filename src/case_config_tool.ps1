@@ -20,7 +20,14 @@ param(
     [string]$LogRoot = "D:\armedforces.io-v2\log\auto_output",
     [switch]$Apply,
     [switch]$EnableWrite,
-    [switch]$ConfirmWrite
+    [switch]$ConfirmWrite,
+    [switch]$DisableExecution,
+    [switch]$SetExecutionDryRun,
+    [switch]$SetExecutionWrite,
+    [double]$WriteValueFloat = [double]::NaN,
+    [ValidateSet("full", "quick")]
+    [string]$Profile,
+    [double]$SetTargetFloat = [double]::NaN
 )
 
 Set-StrictMode -Version 2.0
@@ -58,6 +65,10 @@ function Write-Help {
     Write-Output "  powershell -NoProfile -ExecutionPolicy Bypass -File `"D:\armedforces.io-v2\src\case_config_tool.ps1`" -SetProfile quick"
     Write-Output "  powershell -NoProfile -ExecutionPolicy Bypass -File `"D:\armedforces.io-v2\src\case_config_tool.ps1`" -SetDiagnosticLevel trace"
     Write-Output "  powershell -NoProfile -ExecutionPolicy Bypass -File `"D:\armedforces.io-v2\src\case_config_tool.ps1`" -PrepareRestoreFromBatch 20260613-183041 [-Apply] [-EnableWrite -ConfirmWrite]"
+    Write-Output "  powershell -NoProfile -ExecutionPolicy Bypass -File `"D:\armedforces.io-v2\src\case_config_tool.ps1`" -DisableExecution"
+    Write-Output "  powershell -NoProfile -ExecutionPolicy Bypass -File `"D:\armedforces.io-v2\src\case_config_tool.ps1`" -SetExecutionDryRun -WriteValueFloat 999.0 [-Profile full]"
+    Write-Output "  powershell -NoProfile -ExecutionPolicy Bypass -File `"D:\armedforces.io-v2\src\case_config_tool.ps1`" -SetExecutionWrite -WriteValueFloat 999.0 -ConfirmWrite"
+    Write-Output "  powershell -NoProfile -ExecutionPolicy Bypass -File `"D:\armedforces.io-v2\src\case_config_tool.ps1`" -SetTargetFloat 100.0"
 }
 
 function Format-Cell {
@@ -164,6 +175,12 @@ function Test-NumberString {
     return [double]::TryParse("$Value", [System.Globalization.NumberStyles]::Float, [System.Globalization.CultureInfo]::InvariantCulture, [ref]$number)
 }
 
+function Format-InvariantFloat {
+    param([double]$Value)
+
+    return $Value.ToString("0.0###############", [System.Globalization.CultureInfo]::InvariantCulture)
+}
+
 function ConvertTo-NormalizedU32Pattern {
     param($Value)
 
@@ -205,6 +222,12 @@ function Test-U32PatternString {
     param($Value)
 
     return $null -ne (ConvertTo-NormalizedU32Pattern -Value $Value)
+}
+
+function Test-DoubleParameterProvided {
+    param([double]$Value)
+
+    return -not [double]::IsNaN($Value)
 }
 
 function Test-GitIgnored {
@@ -357,6 +380,97 @@ function Write-ConfigSummaryOutput {
         Write-ConfigSummary -Config $Config
     } else {
         Write-ConfigSummaryConsole -Config $Config
+    }
+}
+
+function Get-EditableConfig {
+    param($Current)
+
+    if (-not (Test-Path -LiteralPath $ConfigPath)) {
+        Write-Error ("Local config does not exist: {0}" -f $ConfigPath)
+        exit 1
+    }
+
+    $newConfig = New-CompleteConfig -Base $Current
+    if (-not $newConfig.case_id -or -not $newConfig.known_true_addr) {
+        Write-Error "Existing config is missing case_id or known_true_addr; use -Set first."
+        exit 1
+    }
+    return $newConfig
+}
+
+function Remove-ConfigKeyIfPresent {
+    param($Config, [string]$Key)
+
+    if ($Config.Contains($Key)) {
+        [void]$Config.Remove($Key)
+    }
+}
+
+function Set-ExecutionDisabledFields {
+    param($Config)
+
+    $Config.execution_mode = "disabled"
+    $Config.write_enabled = "false"
+    Remove-ConfigKeyIfPresent -Config $Config -Key "execution_confirm"
+}
+
+function Set-WriteFloatFields {
+    param($Config, [double]$Value)
+
+    $floatText = Format-InvariantFloat -Value $Value
+    $Config.write_value_float = $floatText
+    $Config.write_value_pattern = ConvertTo-FloatU32Pattern -Value $floatText
+    $Config.write_method = "float"
+    $Config.require_old_value_match = "true"
+}
+
+function Set-TargetFloatFields {
+    param($Config, [double]$Value)
+
+    $floatText = Format-InvariantFloat -Value $Value
+    $Config.target_value_float = $floatText
+    $Config.target_value_pattern = ConvertTo-FloatU32Pattern -Value $floatText
+}
+
+function Get-ExecutionConfirmPresent {
+    param($Config)
+
+    $value = Get-ConfigValue -Config $Config -Key "execution_confirm"
+    return $null -ne $value -and "$value" -ne ""
+}
+
+function Write-ActionSummaryConsole {
+    param([string]$Action, $Config, [string[]]$ExtraKeys)
+
+    $fieldWidth = 30
+    $rows = [ordered]@{
+        action = $Action
+        execution_mode = Get-ConfigValue -Config $Config -Key "execution_mode"
+        write_enabled = Get-ConfigValue -Config $Config -Key "write_enabled"
+        execution_confirm_present = Get-ExecutionConfirmPresent -Config $Config
+        write_value_float = Get-ConfigValue -Config $Config -Key "write_value_float"
+        write_value_pattern = Get-ConfigValue -Config $Config -Key "write_value_pattern"
+        validation_profile = Get-ConfigValue -Config $Config -Key "validation_profile"
+        config_path = $ConfigPath
+    }
+
+    foreach ($key in @($ExtraKeys)) {
+        if ($key -eq "target_value_float") {
+            $rows[$key] = Get-ConfigValue -Config $Config -Key "target_value_float"
+        } elseif ($key -eq "target_value_pattern") {
+            $rows[$key] = Get-ConfigValue -Config $Config -Key "target_value_pattern"
+        } elseif ($key -eq "backup_path") {
+            $rows[$key] = $BackupPath
+        }
+    }
+
+    Write-Output "Config Update"
+    Write-Output ""
+    Write-Output ("{0,-$fieldWidth} {1}" -f "Field", "Value")
+    Write-Output ("{0,-$fieldWidth} {1}" -f "-----", "-----")
+    foreach ($key in $rows.Keys) {
+        Write-Output ("{0,-$fieldWidth} {1}" -f $key, (Format-Cell $rows[$key]))
     }
 }
 
@@ -765,6 +879,20 @@ function Write-ValidationRows {
     }
 }
 
+function Write-ValidationRowsConsole {
+    param([object[]]$Rows)
+
+    $statusWidth = 6
+    $checkWidth = 42
+    Write-Output "Case Config Validation"
+    Write-Output ""
+    Write-Output ("{0,-$statusWidth} {1,-$checkWidth} {2}" -f "Status", "Check", "Detail")
+    Write-Output ("{0,-$statusWidth} {1,-$checkWidth} {2}" -f "------", "-----", "------")
+    foreach ($row in $Rows) {
+        Write-Output ("{0,-$statusWidth} {1,-$checkWidth} {2}" -f (Format-Cell $row.status), (Format-Cell $row.check), (Format-Cell $row.detail))
+    }
+}
+
 $actions = @()
 if ($Show) { $actions += "Show" }
 if ($Set) { $actions += "Set" }
@@ -772,13 +900,19 @@ if ($Validate) { $actions += "Validate" }
 if ($SetProfile) { $actions += "SetProfile" }
 if ($SetDiagnosticLevel) { $actions += "SetDiagnosticLevel" }
 if ($PrepareRestoreFromBatch) { $actions += "PrepareRestoreFromBatch" }
+if ($DisableExecution) { $actions += "DisableExecution" }
+if ($SetExecutionDryRun) { $actions += "SetExecutionDryRun" }
+if ($SetExecutionWrite) { $actions += "SetExecutionWrite" }
+if (Test-DoubleParameterProvided -Value $SetTargetFloat) { $actions += "SetTargetFloat" }
 
 if ($Help -or $actions.Count -eq 0) {
     Write-Help
     exit 0
 }
 
-if ($actions.Count -gt 1) {
+$setTargetRequested = Test-DoubleParameterProvided -Value $SetTargetFloat
+$allowedCombinedAction = $setTargetRequested -and $DisableExecution -and $actions.Count -eq 2
+if ($actions.Count -gt 1 -and -not $allowedCombinedAction) {
     Write-Error ("Choose exactly one action. Requested: {0}" -f ($actions -join ", "))
     exit 1
 }
@@ -791,10 +925,14 @@ if ($Show) {
 }
 
 if ($Validate) {
-    Write-Output "# Case Config Validation"
-    Write-Output ""
     $rows = @(Test-CaseConfig -Config $currentConfig)
-    Write-ValidationRows -Rows $rows
+    if ($Markdown) {
+        Write-Output "# Case Config Validation"
+        Write-Output ""
+        Write-ValidationRows -Rows $rows
+    } else {
+        Write-ValidationRowsConsole -Rows $rows
+    }
 
     if (@($rows | Where-Object { $_.status -eq "WARN" }).Count -gt 0) {
         Write-Warning "Validation completed with warnings."
@@ -835,6 +973,83 @@ if ($Set) {
         Write-Output ("Backup path: {0}" -f $BackupPath)
     }
     Write-ConfigSummaryOutput -Config (Read-CaseConfig -Path $ConfigPath) -UseMarkdown ([bool]$Markdown)
+    exit 0
+}
+
+if ($setTargetRequested -and $DisableExecution) {
+    $newConfig = Get-EditableConfig -Current $currentConfig
+    Set-TargetFloatFields -Config $newConfig -Value $SetTargetFloat
+    Set-ExecutionDisabledFields -Config $newConfig
+    Write-CaseConfig -Config $newConfig
+    $updatedConfig = Read-CaseConfig -Path $ConfigPath
+    Write-ActionSummaryConsole -Action "SetTargetFloat+DisableExecution" -Config $updatedConfig -ExtraKeys @("target_value_float", "target_value_pattern", "backup_path")
+    exit 0
+}
+
+if ($DisableExecution) {
+    $newConfig = Get-EditableConfig -Current $currentConfig
+    Set-ExecutionDisabledFields -Config $newConfig
+    Write-CaseConfig -Config $newConfig
+    $updatedConfig = Read-CaseConfig -Path $ConfigPath
+    Write-ActionSummaryConsole -Action "DisableExecution" -Config $updatedConfig -ExtraKeys @("backup_path")
+    exit 0
+}
+
+if ($SetExecutionDryRun) {
+    if (-not (Test-DoubleParameterProvided -Value $WriteValueFloat)) {
+        Write-Output "ERROR: WriteValueFloat is required for SetExecutionDryRun"
+        exit 1
+    }
+
+    $newConfig = Get-EditableConfig -Current $currentConfig
+    $newConfig.execution_mode = "dry_run"
+    $newConfig.write_enabled = "false"
+    Remove-ConfigKeyIfPresent -Config $newConfig -Key "execution_confirm"
+    Set-WriteFloatFields -Config $newConfig -Value $WriteValueFloat
+    if ($Profile) {
+        $newConfig.validation_profile = $Profile
+    }
+    Write-CaseConfig -Config $newConfig
+    $updatedConfig = Read-CaseConfig -Path $ConfigPath
+    Write-ActionSummaryConsole -Action "SetExecutionDryRun" -Config $updatedConfig -ExtraKeys @("backup_path")
+    if ((Get-ConfigValue -Config $updatedConfig -Key "validation_profile") -ne "full") {
+        Write-Warning "dry-run execution requires full profile for stable execution"
+    }
+    exit 0
+}
+
+if ($SetExecutionWrite) {
+    if (-not $ConfirmWrite) {
+        Write-Output "ERROR: ConfirmWrite is required for SetExecutionWrite"
+        exit 1
+    }
+    if (-not (Test-DoubleParameterProvided -Value $WriteValueFloat)) {
+        Write-Output "ERROR: WriteValueFloat is required for SetExecutionWrite"
+        exit 1
+    }
+
+    $newConfig = Get-EditableConfig -Current $currentConfig
+    $newConfig.execution_mode = "write"
+    $newConfig.write_enabled = "true"
+    $newConfig.execution_confirm = $ExecutionConfirmText
+    $newConfig.validation_profile = "full"
+    $newConfig.write_method = "float"
+    $newConfig.require_known_true_match = "true"
+    $newConfig.require_full_profile = "true"
+    $newConfig.require_old_value_match = "true"
+    Set-WriteFloatFields -Config $newConfig -Value $WriteValueFloat
+    Write-CaseConfig -Config $newConfig
+    $updatedConfig = Read-CaseConfig -Path $ConfigPath
+    Write-ActionSummaryConsole -Action "SetExecutionWrite" -Config $updatedConfig -ExtraKeys @("backup_path")
+    exit 0
+}
+
+if ($setTargetRequested) {
+    $newConfig = Get-EditableConfig -Current $currentConfig
+    Set-TargetFloatFields -Config $newConfig -Value $SetTargetFloat
+    Write-CaseConfig -Config $newConfig
+    $updatedConfig = Read-CaseConfig -Path $ConfigPath
+    Write-ActionSummaryConsole -Action "SetTargetFloat" -Config $updatedConfig -ExtraKeys @("target_value_float", "target_value_pattern", "backup_path")
     exit 0
 }
 
