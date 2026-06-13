@@ -11,7 +11,11 @@ param(
     [string]$TargetValuePattern = "0x42C80000",
     [double]$TargetValueFloat = 100.0,
     [ValidateSet("basic", "debug", "trace")]
-    [string]$DiagnosticLevel = "basic"
+    [string]$DiagnosticLevel = "basic",
+    [double]$WriteValueFloat = [double]::NaN,
+    [string]$BatchId,
+    [switch]$EnableWrite,
+    [switch]$ConfirmWrite
 )
 
 Set-StrictMode -Version 2.0
@@ -54,9 +58,17 @@ function Write-CommandHelp {
     Write-Output "  compare-full   Compare latest 20 full batches to the compact baseline"
     Write-Output "  inspect-latest Inspect the latest batch id from -LogRoot"
     Write-Output "  status         Show config, latest 5 classifier summary, registry summary, and git status"
+    Write-Output "  disable-execution       Disable execution/write in local case config"
+    Write-Output "  prepare-dry-run-write   Prepare full/basic dry-run write config"
+    Write-Output "  prepare-guarded-write   Prepare full/basic guarded write config"
+    Write-Output "  prepare-restore         Prepare dry-run or write-ready restore config from a batch"
+    Write-Output "  post-execution          Summarize latest full execution fields after manual CE run"
     Write-Output ""
     Write-Output "Prepare options:"
     Write-Output "  -KnownTrueAddr <addr> [-CaseId <id>] [-Profile quick|full] [-DiagnosticLevel basic|debug|trace]"
+    Write-Output "  prepare-dry-run-write -KnownTrueAddr <addr> -WriteValueFloat <float>"
+    Write-Output "  prepare-guarded-write -KnownTrueAddr <addr> -WriteValueFloat <float> -ConfirmWrite"
+    Write-Output "  prepare-restore -BatchId <batch> [-EnableWrite -ConfirmWrite]"
     Write-Output ""
     Write-Output "Common options:"
     Write-Output "  -ProjectRoot D:\armedforces.io-v2"
@@ -96,6 +108,103 @@ function Assert-ToolExists {
         Write-Error ("Required tool not found: {0}" -f $Path)
         exit 1
     }
+}
+
+function Format-InvariantFloat {
+    param([double]$Value)
+
+    return $Value.ToString("0.0###############", [System.Globalization.CultureInfo]::InvariantCulture)
+}
+
+function Test-DoubleParameterProvided {
+    param([double]$Value)
+
+    return -not [double]::IsNaN($Value)
+}
+
+function New-SetCaseArguments {
+    param(
+        [string]$Address,
+        [string]$OptionalCaseId,
+        [string]$ProfileName
+    )
+
+    $args = @(
+        "-Set",
+        "-KnownTrueAddr", $Address,
+        "-TargetValuePattern", $TargetValuePattern,
+        "-TargetValueFloat", (Format-InvariantFloat -Value $TargetValueFloat),
+        "-DiagnosticLevel", "basic",
+        "-ValidationProfile", $ProfileName
+    )
+    if ($OptionalCaseId) {
+        $args = @("-Set", "-CaseId", $OptionalCaseId) + @($args | Select-Object -Skip 1)
+    }
+    return $args
+}
+
+function Get-LogField {
+    param($Block, [string]$Key)
+
+    if ($Block -and $Block.Fields -and $Block.Fields.Contains($Key)) {
+        return $Block.Fields[$Key]
+    }
+    return "not_available"
+}
+
+function Read-BatchLogBlocks {
+    param([string]$Path)
+
+    $blocks = @()
+    $currentName = "batch_header"
+    $currentFields = [ordered]@{}
+
+    foreach ($line in Get-Content -LiteralPath $Path) {
+        if ($line -match '^\s*---\s+(.+?)\s+---\s*$') {
+            if ($currentFields.Count -gt 0) {
+                $blocks += [pscustomobject]@{ Name = $currentName; Fields = $currentFields }
+            }
+            $currentName = $matches[1]
+            $currentFields = [ordered]@{}
+            continue
+        }
+        if ($line -match '^\s*([A-Za-z0-9_]+)\s*=\s*(.*?)\s*$') {
+            $currentFields[$matches[1]] = $matches[2].Trim()
+        }
+    }
+
+    if ($currentFields.Count -gt 0) {
+        $blocks += [pscustomobject]@{ Name = $currentName; Fields = $currentFields }
+    }
+    return $blocks
+}
+
+function Get-BatchSummaryPath {
+    param([string]$Root, [string]$Batch)
+
+    $summaryPath = Join-Path $Root ("{0}__summary.txt" -f $Batch)
+    if (Test-Path -LiteralPath $summaryPath) {
+        return $summaryPath
+    }
+    $diagnosticPath = Join-Path $Root ("{0}__diagnostic_diff.txt" -f $Batch)
+    if (Test-Path -LiteralPath $diagnosticPath) {
+        return $diagnosticPath
+    }
+    return $null
+}
+
+function Select-ExecutionBlock {
+    param([object[]]$Blocks)
+
+    $stable = @($Blocks | Where-Object { $_.Name -like "*stable_no_probe_intersection*" -and $_.Fields.Contains("executor_version") })
+    if ($stable.Count -gt 0) {
+        return $stable[$stable.Count - 1]
+    }
+    $withExecution = @($Blocks | Where-Object { $_.Fields.Contains("executor_version") -or $_.Fields.Contains("execution_mode") })
+    if ($withExecution.Count -gt 0) {
+        return $withExecution[$withExecution.Count - 1]
+    }
+    return $null
 }
 
 function Get-LatestBatchId {
@@ -282,7 +391,19 @@ function Invoke-ClassifierAppend {
     return Invoke-WorkflowCommand -FilePath $ClassifierPath -Arguments $args -Capture
 }
 
-$availableCommands = @("prepare", "post-quick", "post-full", "compare-full", "inspect-latest", "status")
+$availableCommands = @(
+    "prepare",
+    "post-quick",
+    "post-full",
+    "compare-full",
+    "inspect-latest",
+    "status",
+    "disable-execution",
+    "prepare-dry-run-write",
+    "prepare-guarded-write",
+    "prepare-restore",
+    "post-execution"
+)
 if ($Help -or -not $Command) {
     Write-CommandHelp
     exit 0
@@ -330,6 +451,150 @@ switch ($Command) {
         Write-Output "After the run completes, use:"
         Write-Output "  post-quick  for quick validation"
         Write-Output "  post-full   for full validation"
+        exit 0
+    }
+
+    "disable-execution" {
+        $result = Invoke-WorkflowCommand -FilePath $CaseConfigToolPath -Arguments @("-DisableExecution") -Capture
+        if ($result.exit_code -ne 0) {
+            exit $result.exit_code
+        }
+
+        Write-Output ""
+        Write-Output "execution disabled"
+        Write-Output "next step: normal detect/full test"
+        exit 0
+    }
+
+    "prepare-dry-run-write" {
+        if (-not $KnownTrueAddr) {
+            Write-Output "ERROR: -KnownTrueAddr is required for prepare-dry-run-write"
+            exit 1
+        }
+        if (-not (Test-DoubleParameterProvided -Value $WriteValueFloat)) {
+            Write-Output "ERROR: -WriteValueFloat is required for prepare-dry-run-write"
+            exit 1
+        }
+
+        $setResult = Invoke-WorkflowCommand -FilePath $CaseConfigToolPath -Arguments (New-SetCaseArguments -Address $KnownTrueAddr -OptionalCaseId $CaseId -ProfileName "full") -Capture
+        if ($setResult.exit_code -ne 0) {
+            exit $setResult.exit_code
+        }
+
+        $dryRunArgs = @("-SetExecutionDryRun", "-WriteValueFloat", (Format-InvariantFloat -Value $WriteValueFloat), "-Profile", "full")
+        $dryRunResult = Invoke-WorkflowCommand -FilePath $CaseConfigToolPath -Arguments $dryRunArgs -Capture
+        if ($dryRunResult.exit_code -ne 0) {
+            exit $dryRunResult.exit_code
+        }
+
+        Write-Output ""
+        Write-Output "dry-run write config prepared"
+        Write-Output "next step: manually run CE dofile"
+        Write-Output "then run: post-full"
+        exit 0
+    }
+
+    "prepare-guarded-write" {
+        if (-not $ConfirmWrite) {
+            Write-Output "ERROR: -ConfirmWrite is required for prepare-guarded-write"
+            exit 1
+        }
+        if (-not $KnownTrueAddr) {
+            Write-Output "ERROR: -KnownTrueAddr is required for prepare-guarded-write"
+            exit 1
+        }
+        if (-not (Test-DoubleParameterProvided -Value $WriteValueFloat)) {
+            Write-Output "ERROR: -WriteValueFloat is required for prepare-guarded-write"
+            exit 1
+        }
+
+        $setResult = Invoke-WorkflowCommand -FilePath $CaseConfigToolPath -Arguments (New-SetCaseArguments -Address $KnownTrueAddr -OptionalCaseId $CaseId -ProfileName "full") -Capture
+        if ($setResult.exit_code -ne 0) {
+            exit $setResult.exit_code
+        }
+
+        $writeArgs = @("-SetExecutionWrite", "-WriteValueFloat", (Format-InvariantFloat -Value $WriteValueFloat), "-ConfirmWrite")
+        $writeResult = Invoke-WorkflowCommand -FilePath $CaseConfigToolPath -Arguments $writeArgs -Capture
+        if ($writeResult.exit_code -ne 0) {
+            exit $writeResult.exit_code
+        }
+
+        Write-Output ""
+        Write-Warning "this will write live memory after CE dofile if all guards pass"
+        Write-Output "run CE manually only when ready"
+        Write-Output "then run: post-execution"
+        exit 0
+    }
+
+    "prepare-restore" {
+        if (-not $BatchId) {
+            Write-Output "ERROR: -BatchId is required for prepare-restore"
+            exit 1
+        }
+        if ($EnableWrite -and -not $ConfirmWrite) {
+            Write-Output "ERROR: -ConfirmWrite is required with -EnableWrite for prepare-restore"
+            exit 1
+        }
+        if ($ConfirmWrite -and -not $EnableWrite) {
+            Write-Output "ERROR: -EnableWrite is required with -ConfirmWrite for prepare-restore"
+            exit 1
+        }
+
+        $restoreArgs = @("-PrepareRestoreFromBatch", $BatchId, "-LogRoot", $LogRoot, "-Apply")
+        if ($EnableWrite -and $ConfirmWrite) {
+            $restoreArgs += @("-EnableWrite", "-ConfirmWrite")
+        }
+        $restoreResult = Invoke-WorkflowCommand -FilePath $CaseConfigToolPath -Arguments $restoreArgs -Capture
+        if ($restoreResult.exit_code -ne 0) {
+            exit $restoreResult.exit_code
+        }
+
+        Write-Output ""
+        if ($EnableWrite -and $ConfirmWrite) {
+            Write-Warning "restore config is write-ready; run CE manually only when ready"
+        } else {
+            Write-Output "dry-run restore config prepared"
+        }
+        Write-Output "next step: manually run CE dofile, then run post-execution"
+        exit 0
+    }
+
+    "post-execution" {
+        $classify = Invoke-ClassifierLatest -ProfileName "full"
+        if ($classify.exit_code -ne 0) {
+            exit $classify.exit_code
+        }
+        $record = Get-LatestClassifierRecord -OutputLines $classify.output
+        $latestBatchId = if ($record -and $record.batch_id) { $record.batch_id } else { Get-LatestBatchId -Root $LogRoot }
+        $summaryPath = Get-BatchSummaryPath -Root $LogRoot -Batch $latestBatchId
+        if (-not $summaryPath) {
+            Write-Error ("No summary or diagnostic log found for batch {0}" -f $latestBatchId)
+            exit 1
+        }
+
+        $blocks = @(Read-BatchLogBlocks -Path $summaryPath)
+        $executionBlock = Select-ExecutionBlock -Blocks $blocks
+        if (-not $executionBlock) {
+            Write-Error ("No execution fields found in batch log: {0}" -f $summaryPath)
+            exit 1
+        }
+
+        Write-WorkflowSummary -Title "Post-Execution Summary" -Fields ([ordered]@{
+            "batch_id" = $latestBatchId
+            "classification" = if ($record) { $record.classification } else { "not_available" }
+            "final hit" = if ($record) { $record.final_hit } else { "not_available" }
+            "execution_mode" = Get-LogField -Block $executionBlock -Key "execution_mode"
+            "execution_addr" = Get-LogField -Block $executionBlock -Key "execution_addr"
+            "old_value_float" = Get-LogField -Block $executionBlock -Key "old_value_float"
+            "requested_write_value_float" = Get-LogField -Block $executionBlock -Key "requested_write_value_float"
+            "write_attempted" = Get-LogField -Block $executionBlock -Key "write_attempted"
+            "write_ok" = Get-LogField -Block $executionBlock -Key "write_ok"
+            "readback_ok" = Get-LogField -Block $executionBlock -Key "readback_ok"
+            "readback_float" = Get-LogField -Block $executionBlock -Key "readback_float"
+            "execution_failure_class" = Get-LogField -Block $executionBlock -Key "execution_failure_class"
+            "rollback_available" = Get-LogField -Block $executionBlock -Key "rollback_available"
+            "source_log" = $summaryPath
+        })
         exit 0
     }
 
