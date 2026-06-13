@@ -14,7 +14,8 @@ param(
     [int]$RegistryRecent = 20,
     [string]$RegistryAddr,
     [switch]$RegistryOutliers,
-    [string]$ExpectedRepoRoot = "D:\armedforces.io-v2"
+    [string]$ExpectedRepoRoot = "D:\armedforces.io-v2",
+    [switch]$ConsoleSummary
 )
 
 Set-StrictMode -Version 2.0
@@ -1422,6 +1423,66 @@ function Append-RegistryRecords {
     return [pscustomobject]$result
 }
 
+function Add-ConsoleField {
+    param([object[]]$Lines, [string]$Name, $Value, [int]$Width = 22)
+
+    $Lines += ("{0,-$Width} {1}" -f $Name, (Format-Cell $Value))
+    return $Lines
+}
+
+function Get-ConsoleRecordConclusion {
+    param($Record)
+
+    if (-not $Record) {
+        return "not_available"
+    }
+    if ($Record.classification -eq "success") {
+        return "success"
+    }
+    if ($Record.classification -eq "quick_success") {
+        return "quick_success"
+    }
+    if ($Record.recommendation) {
+        return $Record.recommendation
+    }
+    return "inspect recommended"
+}
+
+function Get-ConsoleSummaryLines {
+    param([object[]]$Records)
+
+    $lines = @()
+    if (-not $Records -or $Records.Count -eq 0) {
+        $lines += "Batch Summary"
+        $lines += "-------------"
+        $lines = Add-ConsoleField -Lines $lines -Name "records" -Value 0
+        return $lines
+    }
+
+    foreach ($record in @($Records)) {
+        if ($lines.Count -gt 0) {
+            $lines += ""
+        }
+        $lines += "Batch Summary"
+        $lines += "-------------"
+        $lines = Add-ConsoleField -Lines $lines -Name "batch_id" -Value $record.batch_id
+        $lines = Add-ConsoleField -Lines $lines -Name "classification" -Value $record.classification
+        $lines = Add-ConsoleField -Lines $lines -Name "validation_profile" -Value $record.validation_profile
+        $lines = Add-ConsoleField -Lines $lines -Name "baseline_eligible" -Value $record.baseline_eligible
+        $lines = Add-ConsoleField -Lines $lines -Name "known_true_addr" -Value $record.known_true_addr
+        $lines = Add-ConsoleField -Lines $lines -Name "final_hit" -Value $record.final_hit_true_addr
+        $lines = Add-ConsoleField -Lines $lines -Name "rank_A/W/B" -Value $record.known_true_rank_position
+        $lines = Add-ConsoleField -Lines $lines -Name "stable_rank" -Value $record.stable_intersection_known_true_rank_position
+        $lines = Add-ConsoleField -Lines $lines -Name "best_candidate" -Value $record.final_best_candidate
+        $lines = Add-ConsoleField -Lines $lines -Name "recommendation" -Value $record.recommendation
+        $lines = Add-ConsoleField -Lines $lines -Name "conclusion" -Value (Get-ConsoleRecordConclusion -Record $record)
+        $lines = Add-ConsoleField -Lines $lines -Name "total_ms" -Value (Format-Number (Get-RegistryMetricTotal -Record $record -Metric "total_ms"))
+        $lines = Add-ConsoleField -Lines $lines -Name "log_size_bytes" -Value (Format-Number (Get-RegistryMetricTotal -Record $record -Metric "log_size_bytes"))
+    }
+
+    return $lines
+}
+
 function Get-RegistryField {
     param($Record, [string]$Name)
 
@@ -2246,6 +2307,7 @@ if ($registryQueryRequested) {
 
 $reportLines = @()
 $recordsForRegistry = @()
+$consoleSummaryLines = @()
 if ($InspectBatch) {
     $record = Get-BatchRecord -Root $LogRoot -BatchId $InspectBatch
     $recordsForRegistry = @($record)
@@ -2264,8 +2326,15 @@ if ($InspectBatch) {
 
     $recordsForRegistry = $records
     $reportLines = @(Build-ReportLines -Records $records -RequestedLatest $Latest -Root $LogRoot -CompareTo $CompareTo -Profile $Profile -OnlyBaselineEligible ([bool]$OnlyBaselineEligible) -ExplainFailures ([bool]$ExplainFailures) -Environment $scriptEnvironment)
+    if ($ConsoleSummary -and -not $CompareTo -and -not $ExplainFailures) {
+        $consoleSummaryLines = @(Get-ConsoleSummaryLines -Records $records)
+    }
 }
-Write-Output $reportLines
+if ($consoleSummaryLines.Count -gt 0) {
+    Write-Output $consoleSummaryLines
+} else {
+    Write-Output $reportLines
+}
 
 if ($OutFile) {
     try {

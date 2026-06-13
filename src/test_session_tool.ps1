@@ -133,6 +133,7 @@ function Get-LatestBatchId {
 function Get-LatestClassifierRecord {
     param([string[]]$OutputLines)
 
+    $fields = @{}
     foreach ($line in @($OutputLines)) {
         if ($line -match "^\|\s*(\d{8}-\d{6})\s*\|") {
             $parts = @($line.Trim("|") -split "\|" | ForEach-Object { $_.Trim() })
@@ -144,8 +145,31 @@ function Get-LatestClassifierRecord {
                     baseline_eligible = $parts[4]
                     classification = $parts[7]
                     final_hit = $parts[8]
+                    rank_awb = $parts[9]
+                    stable_rank = $parts[10]
+                    best_candidate = $parts[11]
+                    recommendation = $parts[13]
+                    conclusion = $parts[7]
                 }
             }
+        } elseif ($line -match "^(batch_id|classification|validation_profile|baseline_eligible|known_true_addr|final_hit|rank_A/W/B|stable_rank|best_candidate|recommendation|conclusion)\s+(.+?)\s*$") {
+            $fields[$matches[1]] = $matches[2].Trim()
+        }
+    }
+
+    if ($fields.ContainsKey("batch_id")) {
+        return [pscustomobject][ordered]@{
+            batch_id = $fields["batch_id"]
+            known_true_addr = $fields["known_true_addr"]
+            validation_profile = $fields["validation_profile"]
+            baseline_eligible = $fields["baseline_eligible"]
+            classification = $fields["classification"]
+            final_hit = $fields["final_hit"]
+            rank_awb = $fields["rank_A/W/B"]
+            stable_rank = $fields["stable_rank"]
+            best_candidate = $fields["best_candidate"]
+            recommendation = $fields["recommendation"]
+            conclusion = $fields["conclusion"]
         }
     }
 
@@ -190,26 +214,28 @@ function Get-ComparisonStatus {
 }
 
 function Write-WorkflowSummary {
-    param([string]$Title, [hashtable]$Fields)
+    param([string]$Title, $Fields)
 
     Write-Output ""
     Write-Output $Title
+    Write-Output ("{0,-32} {1}" -f "Field", "Value")
+    Write-Output ("{0,-32} {1}" -f "-----", "-----")
     foreach ($key in $Fields.Keys) {
-        Write-Output ("- {0}: {1}" -f $key, $Fields[$key])
+        Write-Output ("{0,-32} {1}" -f $key, $Fields[$key])
     }
 }
 
 function Invoke-ClassifierLatest {
     param([string]$ProfileName)
 
-    $args = @("-Latest", "1", "-Profile", $ProfileName, "-LogRoot", $LogRoot)
+    $args = @("-Latest", "1", "-Profile", $ProfileName, "-LogRoot", $LogRoot, "-ConsoleSummary")
     return Invoke-WorkflowCommand -FilePath $ClassifierPath -Arguments $args -Capture
 }
 
 function Invoke-ClassifierAppend {
     param([string]$ProfileName)
 
-    $args = @("-Latest", "1", "-Profile", $ProfileName, "-LogRoot", $LogRoot, "-AppendRegistry")
+    $args = @("-Latest", "1", "-Profile", $ProfileName, "-LogRoot", $LogRoot, "-ConsoleSummary", "-AppendRegistry")
     return Invoke-WorkflowCommand -FilePath $ClassifierPath -Arguments $args -Capture
 }
 
@@ -287,7 +313,14 @@ switch ($Command) {
         Write-WorkflowSummary -Title "Post-Quick Summary" -Fields ([ordered]@{
             "latest batch id" = if ($record) { $record.batch_id } else { "not_available" }
             "classification" = if ($record) { $record.classification } else { "not_available" }
+            "validation_profile" = if ($record) { $record.validation_profile } else { "not_available" }
+            "known_true_addr" = if ($record) { $record.known_true_addr } else { "not_available" }
             "final hit true" = if ($record) { $record.final_hit } else { "not_available" }
+            "rank A/W/B" = if ($record) { $record.rank_awb } else { "not_available" }
+            "stable rank" = if ($record) { $record.stable_rank } else { "not_available" }
+            "best_candidate" = if ($record) { $record.best_candidate } else { "not_available" }
+            "recommendation" = if ($record) { $record.recommendation } else { "not_available" }
+            "conclusion" = if ($record) { $record.conclusion } else { "not_available" }
             "quick_success passed" = $quickPass
             "registry appended_count" = $appendResult.appended_count
             "registry skipped_duplicate_count" = $appendResult.skipped_duplicate_count
@@ -314,8 +347,15 @@ switch ($Command) {
         Write-WorkflowSummary -Title "Post-Full Summary" -Fields ([ordered]@{
             "latest batch id" = if ($record) { $record.batch_id } else { "not_available" }
             "classification" = if ($record) { $record.classification } else { "not_available" }
+            "validation_profile" = if ($record) { $record.validation_profile } else { "not_available" }
+            "known_true_addr" = if ($record) { $record.known_true_addr } else { "not_available" }
             "final hit true" = if ($record) { $record.final_hit } else { "not_available" }
             "baseline_eligible" = if ($record) { $record.baseline_eligible } else { "not_available" }
+            "rank A/W/B" = if ($record) { $record.rank_awb } else { "not_available" }
+            "stable rank" = if ($record) { $record.stable_rank } else { "not_available" }
+            "best_candidate" = if ($record) { $record.best_candidate } else { "not_available" }
+            "recommendation" = if ($record) { $record.recommendation } else { "not_available" }
+            "conclusion" = if ($record) { $record.conclusion } else { "not_available" }
             "registry appended_count" = $appendResult.appended_count
             "registry skipped_duplicate_count" = $appendResult.skipped_duplicate_count
         })
@@ -362,7 +402,7 @@ switch ($Command) {
 
         Write-Output ""
         Write-Output "## Latest 5 Classifier Summary"
-        $latestResult = Invoke-WorkflowCommand -FilePath $ClassifierPath -Arguments @("-Latest", "5", "-LogRoot", $LogRoot)
+        $latestResult = Invoke-WorkflowCommand -FilePath $ClassifierPath -Arguments @("-Latest", "5", "-LogRoot", $LogRoot, "-ConsoleSummary")
         if ($latestResult.exit_code -ne 0) {
             exit $latestResult.exit_code
         }
