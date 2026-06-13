@@ -13,7 +13,8 @@ param(
     [switch]$RegistrySummary,
     [int]$RegistryRecent = 20,
     [string]$RegistryAddr,
-    [switch]$RegistryOutliers
+    [switch]$RegistryOutliers,
+    [string]$ExpectedRepoRoot = "D:\armedforces.io-v2"
 )
 
 Set-StrictMode -Version 2.0
@@ -616,6 +617,99 @@ function Get-RepoRoot {
     }
 
     return $null
+}
+
+function ConvertTo-NormalizedPath {
+    param([string]$Path)
+
+    if (-not $Path) {
+        return $null
+    }
+
+    try {
+        return ([System.IO.Path]::GetFullPath($Path)).TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+    } catch {
+        return $Path.TrimEnd("\", "/")
+    }
+}
+
+function Test-PathUnderRoot {
+    param([string]$Path, [string]$Root)
+
+    $normalizedPath = ConvertTo-NormalizedPath -Path $Path
+    $normalizedRoot = ConvertTo-NormalizedPath -Path $Root
+    if (-not $normalizedPath -or -not $normalizedRoot) {
+        return $false
+    }
+
+    if ([string]::Equals($normalizedPath, $normalizedRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+        return $true
+    }
+
+    $rootPrefix = $normalizedRoot + [System.IO.Path]::DirectorySeparatorChar
+    return $normalizedPath.StartsWith($rootPrefix, [System.StringComparison]::OrdinalIgnoreCase)
+}
+
+function Get-ScriptEnvironmentInfo {
+    param([string]$ExpectedRoot, [string]$Root)
+
+    $scriptPath = $PSCommandPath
+    if (-not $scriptPath) {
+        $scriptPath = $MyInvocation.ScriptName
+    }
+    $scriptPath = ConvertTo-NormalizedPath -Path $scriptPath
+
+    $scriptRepoRoot = $null
+    if ($scriptPath) {
+        $scriptDir = Split-Path -Parent $scriptPath
+        if ($scriptDir) {
+            $scriptRepoRoot = ConvertTo-NormalizedPath -Path (Split-Path -Parent $scriptDir)
+        }
+    }
+
+    $expectedRootNormalized = ConvertTo-NormalizedPath -Path $ExpectedRoot
+    $expectedScriptPath = $null
+    if ($expectedRootNormalized) {
+        $expectedScriptPath = ConvertTo-NormalizedPath -Path (Join-Path (Join-Path $expectedRootNormalized "src") "batch_log_classifier.ps1")
+    }
+
+    $legacyRoot = ConvertTo-NormalizedPath -Path "D:\Lua Developer"
+    $legacyPathDetected = (Test-PathUnderRoot -Path $scriptPath -Root $legacyRoot) -or (Test-PathUnderRoot -Path $scriptRepoRoot -Root $legacyRoot)
+    $isExpectedRepo = $false
+    if ($scriptPath -and $expectedScriptPath) {
+        $isExpectedRepo = [string]::Equals($scriptPath, $expectedScriptPath, [System.StringComparison]::OrdinalIgnoreCase)
+    }
+
+    return [pscustomobject][ordered]@{
+        script_path = $scriptPath
+        script_repo_root = $scriptRepoRoot
+        expected_repo_root = $expectedRootNormalized
+        expected_script_path = $expectedScriptPath
+        log_root = ConvertTo-NormalizedPath -Path $Root
+        is_expected_repo = $isExpectedRepo
+        legacy_path_detected = $legacyPathDetected
+        legacy_root = $legacyRoot
+    }
+}
+
+function Write-EnvironmentWarning {
+    param($Environment)
+
+    if ($Environment -and $Environment.legacy_path_detected) {
+        Write-Warning ("classifier is running from legacy path {0}. Active project root is {1}." -f $Environment.legacy_root, $Environment.expected_repo_root)
+    }
+}
+
+function Add-EnvironmentHeaderLines {
+    param([object[]]$Lines, $Environment)
+
+    $Lines += ("| script_path | {0} |" -f (Format-Cell $Environment.script_path))
+    $Lines += ("| script_repo_root | {0} |" -f (Format-Cell $Environment.script_repo_root))
+    $Lines += ("| expected_repo_root | {0} |" -f (Format-Cell $Environment.expected_repo_root))
+    $Lines += ("| log_root | {0} |" -f (Format-Cell $Environment.log_root))
+    $Lines += ("| is_expected_repo | {0} |" -f (Format-Cell $Environment.is_expected_repo))
+    $Lines += ("| legacy_path_detected | {0} |" -f (Format-Cell $Environment.legacy_path_detected))
+    return $Lines
 }
 
 function Invoke-GitText {
@@ -1833,7 +1927,8 @@ function Build-RegistryQueryReport {
         [bool]$IncludeRecent,
         [int]$RecentCount,
         [string]$Address,
-        [bool]$IncludeOutliers
+        [bool]$IncludeOutliers,
+        $Environment
     )
 
     $registry = Read-RegistryJsonl -Path $Path
@@ -1848,6 +1943,7 @@ function Build-RegistryQueryReport {
     $lines += "| field | value |"
     $lines += "|---|---|"
     $lines += ("| generated_at | {0} |" -f (Format-Cell (Get-Date -Format "yyyy-MM-dd HH:mm:ss zzz")))
+    $lines = Add-EnvironmentHeaderLines -Lines $lines -Environment $Environment
     $lines += ("| registry path | {0} |" -f (Format-Cell $registry.path))
     $lines += ("| registry exists | {0} |" -f (Format-Cell $registry.exists))
     $lines += ("| readable records | {0} |" -f $records.Count)
@@ -1886,7 +1982,7 @@ function Build-RegistryQueryReport {
 }
 
 function Build-ReportLines {
-    param([object[]]$Records, [int]$RequestedLatest, [string]$Root, [string]$CompareTo, [string]$Profile, [bool]$OnlyBaselineEligible, [bool]$ExplainFailures)
+    param([object[]]$Records, [int]$RequestedLatest, [string]$Root, [string]$CompareTo, [string]$Profile, [bool]$OnlyBaselineEligible, [bool]$ExplainFailures, $Environment)
 
     $repoRoot = Get-RepoRoot -Root $Root
     $commitHash = "not_available"
@@ -1954,6 +2050,7 @@ function Build-ReportLines {
     $lines += "|---|---|"
     $lines += ("| report_title | {0} |" -f (Format-Cell "Baseline Batch Log Classification Report"))
     $lines += ("| generated_at | {0} |" -f (Format-Cell (Get-Date -Format "yyyy-MM-dd HH:mm:ss zzz")))
+    $lines = Add-EnvironmentHeaderLines -Lines $lines -Environment $Environment
     $lines += ("| latest N | {0} |" -f (Format-Cell $RequestedLatest))
     $lines += ("| log root path | {0} |" -f (Format-Cell $Root))
     $lines += ("| repository path | {0} |" -f (Format-Cell (Normalize-ReportValue $repoRoot)))
@@ -2112,6 +2209,9 @@ function Build-ReportLines {
     return $lines
 }
 
+$scriptEnvironment = Get-ScriptEnvironmentInfo -ExpectedRoot $ExpectedRepoRoot -Root $LogRoot
+Write-EnvironmentWarning -Environment $scriptEnvironment
+
 $registryRecentRequested = $PSBoundParameters.ContainsKey("RegistryRecent")
 $registryQueryRequested = ([bool]$RegistrySummary) -or $registryRecentRequested -or ([bool]$RegistryAddr) -or ([bool]$RegistryOutliers)
 if ($registryQueryRequested) {
@@ -2121,7 +2221,8 @@ if ($registryQueryRequested) {
         -IncludeRecent $registryRecentRequested `
         -RecentCount $RegistryRecent `
         -Address $RegistryAddr `
-        -IncludeOutliers ([bool]$RegistryOutliers))
+        -IncludeOutliers ([bool]$RegistryOutliers) `
+        -Environment $scriptEnvironment)
     Write-Output $reportLines
 
     if ($OutFile) {
@@ -2162,7 +2263,7 @@ if ($InspectBatch) {
     }
 
     $recordsForRegistry = $records
-    $reportLines = @(Build-ReportLines -Records $records -RequestedLatest $Latest -Root $LogRoot -CompareTo $CompareTo -Profile $Profile -OnlyBaselineEligible ([bool]$OnlyBaselineEligible) -ExplainFailures ([bool]$ExplainFailures))
+    $reportLines = @(Build-ReportLines -Records $records -RequestedLatest $Latest -Root $LogRoot -CompareTo $CompareTo -Profile $Profile -OnlyBaselineEligible ([bool]$OnlyBaselineEligible) -ExplainFailures ([bool]$ExplainFailures) -Environment $scriptEnvironment)
 }
 Write-Output $reportLines
 
