@@ -9,7 +9,11 @@ param(
     [string]$CompareTo,
     [string]$OutFile,
     [switch]$AppendRegistry,
-    [string]$RegistryPath = "D:\armedforces.io-v2\log\case_registry.jsonl"
+    [string]$RegistryPath = "D:\armedforces.io-v2\log\case_registry.jsonl",
+    [switch]$RegistrySummary,
+    [int]$RegistryRecent = 20,
+    [string]$RegistryAddr,
+    [switch]$RegistryOutliers
 )
 
 Set-StrictMode -Version 2.0
@@ -1324,6 +1328,563 @@ function Append-RegistryRecords {
     return [pscustomobject]$result
 }
 
+function Get-RegistryField {
+    param($Record, [string]$Name)
+
+    if ($null -eq $Record) {
+        return $null
+    }
+
+    $property = $Record.PSObject.Properties[$Name]
+    if ($property) {
+        return $property.Value
+    }
+    return $null
+}
+
+function Get-RegistryText {
+    param($Record, [string]$Name)
+
+    $value = Get-RegistryField -Record $Record -Name $Name
+    if ($null -eq $value -or "$value" -eq "") {
+        return $null
+    }
+    return "$value"
+}
+
+function Get-RegistryNumber {
+    param($Record, [string]$Name)
+
+    $value = Get-RegistryField -Record $Record -Name $Name
+    if ($null -eq $value -or "$value" -eq "") {
+        return $null
+    }
+
+    $number = 0.0
+    if ([double]::TryParse("$value", [System.Globalization.NumberStyles]::Float, [System.Globalization.CultureInfo]::InvariantCulture, [ref]$number)) {
+        return $number
+    }
+    return $null
+}
+
+function Test-RegistryTrue {
+    param($Value)
+
+    if ($Value -is [bool]) {
+        return [bool]$Value
+    }
+    if ($null -eq $Value) {
+        return $false
+    }
+    return "$Value".Trim().ToLowerInvariant() -eq "true"
+}
+
+function Test-RegistryFalse {
+    param($Value)
+
+    if ($Value -is [bool]) {
+        return -not [bool]$Value
+    }
+    if ($null -eq $Value) {
+        return $false
+    }
+    return "$Value".Trim().ToLowerInvariant() -eq "false"
+}
+
+function Test-RegistrySuccessClass {
+    param($Record)
+
+    $classification = Get-RegistryText -Record $Record -Name "classification"
+    return $classification -eq "success" -or $classification -eq "quick_success"
+}
+
+function Get-RegistryDate {
+    param($Record)
+
+    $recordedAt = Get-RegistryText -Record $Record -Name "recorded_at"
+    if (-not $recordedAt) {
+        return $null
+    }
+
+    try {
+        return [datetime]::Parse($recordedAt, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::RoundtripKind)
+    } catch {
+        return $null
+    }
+}
+
+function Get-RegistryRecordsNewest {
+    param([object[]]$Records)
+
+    $indexed = @()
+    for ($i = 0; $i -lt $Records.Count; $i++) {
+        $date = Get-RegistryDate -Record $Records[$i]
+        $sortDate = [datetime]::MinValue
+        if ($date) {
+            $sortDate = $date
+        }
+        $indexed += [pscustomobject][ordered]@{
+            record = $Records[$i]
+            index = $i
+            sort_date = $sortDate
+        }
+    }
+
+    return @($indexed |
+        Sort-Object -Property @{ Expression = { $_.sort_date }; Descending = $true }, @{ Expression = { $_.index }; Descending = $true } |
+        ForEach-Object { $_.record })
+}
+
+function Read-RegistryJsonl {
+    param([string]$Path)
+
+    $result = [ordered]@{
+        path = $Path
+        exists = $false
+        records = @()
+        warnings = @()
+    }
+
+    try {
+        $resolvedPath = [System.IO.Path]::GetFullPath($Path)
+        $result.path = $resolvedPath
+    } catch {
+        $result.warnings += "Could not resolve registry path '$Path': $($_.Exception.Message)"
+        return [pscustomobject]$result
+    }
+
+    if (-not (Test-Path -LiteralPath $result.path)) {
+        return [pscustomobject]$result
+    }
+
+    $result.exists = $true
+    $lineNumber = 0
+    foreach ($line in Get-Content -LiteralPath $result.path) {
+        $lineNumber += 1
+        if (-not $line -or $line.Trim() -eq "") {
+            continue
+        }
+
+        try {
+            $record = $line | ConvertFrom-Json
+            if ($null -eq $record) {
+                $result.warnings += "Skipping registry line ${lineNumber}: empty JSON value"
+                continue
+            }
+            $result.records += $record
+        } catch {
+            $result.warnings += "Skipping registry line ${lineNumber}: $($_.Exception.Message)"
+        }
+    }
+
+    return [pscustomobject]$result
+}
+
+function Get-RegistryMetricStats {
+    param([object[]]$Records, [string]$Metric)
+
+    $values = @()
+    foreach ($record in @($Records)) {
+        $value = Get-RegistryNumber -Record $record -Name $Metric
+        if ($null -ne $value) {
+            $values += $value
+        }
+    }
+    return Get-MetricStats -Values $values
+}
+
+function Get-RegistryClassificationCount {
+    param([object[]]$Records, [string]$Classification)
+
+    return @($Records | Where-Object { (Get-RegistryText -Record $_ -Name "classification") -eq $Classification }).Count
+}
+
+function Get-RegistryLikelyReason {
+    param($Record)
+
+    foreach ($field in @("likely_reason", "likely_cause", "reason")) {
+        $value = Get-RegistryText -Record $Record -Name $field
+        if ($value) {
+            return $value
+        }
+    }
+
+    $classification = Get-RegistryText -Record $Record -Name "classification"
+    switch ($classification) {
+        "incomplete_output" { return "missing expected output files" }
+        "collector_runtime_empty" { return "collector produced empty runtime sample" }
+        "known_true_value_mismatch" { return "truth_value_mismatch" }
+        "suspected_filter_bug" { return "suspected_filter_bug" }
+        "selected_quota_issue" { return "known_true reached filtered but did not enter selected" }
+        "ranking_issue" { return "known_true selected but final best_candidate differs" }
+        "quick_failure" { return "quick profile did not meet smoke success criteria" }
+    }
+
+    return $null
+}
+
+function Get-RegistryRecommendation {
+    param($Record)
+
+    $existing = Get-RegistryText -Record $Record -Name "recommendation"
+    if ($existing) {
+        return $existing
+    }
+
+    $classification = Get-RegistryText -Record $Record -Name "classification"
+    switch ($classification) {
+        "incomplete_output" { return "rerun or inspect output persistence" }
+        "collector_runtime_empty" { return "rerun sample; do not count as algorithm failure" }
+        "known_true_value_mismatch" { return "trace rerun recommended; verify sampled known_true value" }
+        "suspected_filter_bug" { return "trace rerun and code review recommended" }
+        "selected_quota_issue" { return "trace rerun recommended; inspect selected cap and cutoff diagnostics" }
+        "ranking_issue" { return "code review recommended; inspect scoring and ranking diagnostics" }
+        "quick_failure" { return "rerun full profile or inspect quick smoke criteria" }
+    }
+
+    $profile = Get-RegistryText -Record $Record -Name "validation_profile"
+    $baselineEligible = Get-RegistryField -Record $Record -Name "baseline_eligible"
+    $finalHit = Get-RegistryField -Record $Record -Name "final_hit"
+    if ($profile -eq "full" -and (Test-RegistryFalse $baselineEligible)) {
+        return "inspect baseline eligibility before using as baseline"
+    }
+    if (-not (Test-RegistryTrue $finalHit)) {
+        return "inspect final best_candidate and rank fields"
+    }
+
+    return $null
+}
+
+function Test-RegistryOutlier {
+    param($Record)
+
+    $profile = Get-RegistryText -Record $Record -Name "validation_profile"
+    $classificationOk = Test-RegistrySuccessClass -Record $Record
+    $finalHit = Get-RegistryField -Record $Record -Name "final_hit"
+    $runValid = Get-RegistryField -Record $Record -Name "run_valid"
+    $collectorEmpty = Get-RegistryField -Record $Record -Name "collector_empty"
+    $baselineEligible = Get-RegistryField -Record $Record -Name "baseline_eligible"
+
+    if (-not $classificationOk) {
+        return $true
+    }
+    if (-not (Test-RegistryTrue $finalHit)) {
+        return $true
+    }
+    if (Test-RegistryFalse $runValid) {
+        return $true
+    }
+    if (Test-RegistryTrue $collectorEmpty) {
+        return $true
+    }
+    if ($profile -eq "full" -and (Test-RegistryFalse $baselineEligible)) {
+        return $true
+    }
+    return $false
+}
+
+function Get-RegistryOutlierReason {
+    param($Record)
+
+    $reasons = @()
+    if (-not (Test-RegistrySuccessClass -Record $Record)) {
+        $reason = Get-RegistryLikelyReason -Record $Record
+        if ($reason) {
+            $reasons += $reason
+        } else {
+            $reasons += "classification is not success or quick_success"
+        }
+    }
+    if (-not (Test-RegistryTrue (Get-RegistryField -Record $Record -Name "final_hit"))) {
+        $reasons += "final_hit is not true"
+    }
+    if (Test-RegistryFalse (Get-RegistryField -Record $Record -Name "run_valid")) {
+        $reasons += "run_valid=false"
+    }
+    if (Test-RegistryTrue (Get-RegistryField -Record $Record -Name "collector_empty")) {
+        $reasons += "collector_empty=true"
+    }
+    if ((Get-RegistryText -Record $Record -Name "validation_profile") -eq "full" -and (Test-RegistryFalse (Get-RegistryField -Record $Record -Name "baseline_eligible"))) {
+        $reasons += "full profile marked baseline_eligible=false"
+    }
+
+    if ($reasons.Count -eq 0) {
+        return $null
+    }
+    return $reasons -join "; "
+}
+
+function Add-RegistrySummaryLines {
+    param([object[]]$Lines, [object[]]$Records)
+
+    $newest = @(Get-RegistryRecordsNewest -Records $Records | Select-Object -First 1)
+    $latestRecord = $null
+    if ($newest.Count -gt 0) {
+        $latestRecord = $newest[0]
+    }
+
+    $uniqueBatchIds = @($Records |
+        ForEach-Object { Get-RegistryText -Record $_ -Name "batch_id" } |
+        Where-Object { $_ } |
+        Select-Object -Unique)
+    $uniqueKnownTrue = @($Records |
+        ForEach-Object { Get-RegistryText -Record $_ -Name "known_true_addr" } |
+        Where-Object { $_ } |
+        Select-Object -Unique)
+    $fullSuccessCount = @($Records | Where-Object {
+        (Get-RegistryText -Record $_ -Name "validation_profile") -eq "full" -and
+        (Get-RegistryText -Record $_ -Name "classification") -eq "success"
+    }).Count
+    $quickSuccessCount = Get-RegistryClassificationCount -Records $Records -Classification "quick_success"
+    $nonSuccessCount = @($Records | Where-Object { -not (Test-RegistrySuccessClass -Record $_) }).Count
+
+    $Lines += "## Registry Summary"
+    $Lines += ""
+    $Lines += "| field | value |"
+    $Lines += "|---|---|"
+    $Lines += ("| total records | {0} |" -f $Records.Count)
+    $Lines += ("| unique batch_id count | {0} |" -f $uniqueBatchIds.Count)
+    $Lines += ("| unique known_true_addr count | {0} |" -f $uniqueKnownTrue.Count)
+    $Lines += ("| full success count | {0} |" -f $fullSuccessCount)
+    $Lines += ("| quick_success count | {0} |" -f $quickSuccessCount)
+    $Lines += ("| non-success count | {0} |" -f $nonSuccessCount)
+    $Lines += ("| collector_runtime_empty count | {0} |" -f (Get-RegistryClassificationCount -Records $Records -Classification "collector_runtime_empty"))
+    $Lines += ("| incomplete_output count | {0} |" -f (Get-RegistryClassificationCount -Records $Records -Classification "incomplete_output"))
+    $Lines += ("| known_true_value_mismatch count | {0} |" -f (Get-RegistryClassificationCount -Records $Records -Classification "known_true_value_mismatch"))
+    $Lines += ("| selected_quota_issue count | {0} |" -f (Get-RegistryClassificationCount -Records $Records -Classification "selected_quota_issue"))
+    $Lines += ("| ranking_issue count | {0} |" -f (Get-RegistryClassificationCount -Records $Records -Classification "ranking_issue"))
+    $Lines += ("| latest recorded_at | {0} |" -f (Format-Cell (Get-RegistryText -Record $latestRecord -Name "recorded_at")))
+    $Lines += ("| latest batch_id | {0} |" -f (Format-Cell (Get-RegistryText -Record $latestRecord -Name "batch_id")))
+    $Lines += ""
+
+    $Lines += "### Most Repeated known_true_addr"
+    $Lines += ""
+    $knownTrueGroups = @($Records |
+        ForEach-Object { Get-RegistryText -Record $_ -Name "known_true_addr" } |
+        Where-Object { $_ } |
+        Group-Object |
+        Sort-Object -Property @{ Expression = "Count"; Descending = $true }, Name |
+        Select-Object -First 10)
+    if ($knownTrueGroups.Count -eq 0) {
+        $Lines += "No known_true_addr values recorded."
+    } else {
+        $Lines += "| known_true_addr | count |"
+        $Lines += "|---|---:|"
+        foreach ($group in $knownTrueGroups) {
+            $Lines += ("| {0} | {1} |" -f (Format-Cell $group.Name), $group.Count)
+        }
+    }
+    $Lines += ""
+
+    $Lines += "### Performance"
+    $Lines += ""
+    $Lines += "| metric | average | median | count |"
+    $Lines += "|---|---:|---:|---:|"
+    foreach ($metric in @("total_ms", "report_render_ms", "log_size_bytes")) {
+        $stats = Get-RegistryMetricStats -Records $Records -Metric $metric
+        if ($null -eq $stats) {
+            $Lines += ("| {0} | - | - | 0 |" -f (Format-Cell $metric))
+        } else {
+            $Lines += ("| {0} | {1} | {2} | {3} |" -f (Format-Cell $metric), (Format-Number $stats.average), (Format-Number $stats.median), $stats.count)
+        }
+    }
+    $Lines += ""
+
+    return $Lines
+}
+
+function Add-RegistryRecentLines {
+    param([object[]]$Lines, [object[]]$Records, [int]$Count)
+
+    if ($Count -lt 0) {
+        $Count = 0
+    }
+
+    $recentRecords = @(Get-RegistryRecordsNewest -Records $Records | Select-Object -First $Count)
+    $Lines += "## Recent Registry Records"
+    $Lines += ""
+    $Lines += ("- requested count: {0}" -f $Count)
+    $Lines += ""
+    $Lines += "| recorded_at | batch_id | known_true_addr | validation_profile | classification | baseline_eligible | final_hit | rank_A/W/B | stable_rank | total_ms | log_size_bytes |"
+    $Lines += "|---|---|---|---|---|---|---|---|---|---:|---:|"
+    foreach ($record in $recentRecords) {
+        $Lines += ("| {0} | {1} | {2} | {3} | {4} | {5} | {6} | {7} | {8} | {9} | {10} |" -f `
+            (Format-Cell (Get-RegistryText -Record $record -Name "recorded_at")),
+            (Format-Cell (Get-RegistryText -Record $record -Name "batch_id")),
+            (Format-Cell (Get-RegistryText -Record $record -Name "known_true_addr")),
+            (Format-Cell (Get-RegistryText -Record $record -Name "validation_profile")),
+            (Format-Cell (Get-RegistryText -Record $record -Name "classification")),
+            (Format-Cell (Get-RegistryField -Record $record -Name "baseline_eligible")),
+            (Format-Cell (Get-RegistryField -Record $record -Name "final_hit")),
+            (Format-Cell (Format-Triplet (Get-RegistryText -Record $record -Name "rank_A") (Get-RegistryText -Record $record -Name "rank_W") (Get-RegistryText -Record $record -Name "rank_B"))),
+            (Format-Cell (Get-RegistryText -Record $record -Name "stable_rank")),
+            (Format-Cell (Format-Number (Get-RegistryNumber -Record $record -Name "total_ms"))),
+            (Format-Cell (Format-Number (Get-RegistryNumber -Record $record -Name "log_size_bytes"))))
+    }
+    $Lines += ""
+
+    return $Lines
+}
+
+function Add-RegistryAddrLines {
+    param([object[]]$Lines, [object[]]$Records, [string]$Address)
+
+    $matchedRecords = @($Records | Where-Object {
+        [string]::Equals((Get-RegistryText -Record $_ -Name "known_true_addr"), $Address, [System.StringComparison]::OrdinalIgnoreCase)
+    })
+    $newest = @(Get-RegistryRecordsNewest -Records $matchedRecords | Select-Object -First 1)
+    $latestRecord = $null
+    if ($newest.Count -gt 0) {
+        $latestRecord = $newest[0]
+    }
+
+    $fullRuns = @($matchedRecords | Where-Object { (Get-RegistryText -Record $_ -Name "validation_profile") -eq "full" }).Count
+    $quickRuns = @($matchedRecords | Where-Object { (Get-RegistryText -Record $_ -Name "validation_profile") -eq "quick" }).Count
+    $successCount = @($matchedRecords | Where-Object { Test-RegistrySuccessClass -Record $_ }).Count
+    $nonSuccessCount = @($matchedRecords | Where-Object { -not (Test-RegistrySuccessClass -Record $_) }).Count
+    $batchIds = @($matchedRecords |
+        ForEach-Object { Get-RegistryText -Record $_ -Name "batch_id" } |
+        Where-Object { $_ } |
+        Select-Object -Unique)
+    $totalStats = Get-RegistryMetricStats -Records $matchedRecords -Metric "total_ms"
+    $averageTotalMs = $null
+    if ($null -ne $totalStats) {
+        $averageTotalMs = $totalStats.average
+    }
+
+    $Lines += "## Registry Address History"
+    $Lines += ""
+    $Lines += ("- known_true_addr: {0}" -f (Format-Cell $Address))
+    $Lines += ""
+
+    if ($matchedRecords.Count -eq 0) {
+        $Lines += "No records found for this address."
+        $Lines += ""
+        return $Lines
+    }
+
+    $Lines += "| field | value |"
+    $Lines += "|---|---|"
+    $Lines += ("| total runs | {0} |" -f $matchedRecords.Count)
+    $Lines += ("| full runs | {0} |" -f $fullRuns)
+    $Lines += ("| quick runs | {0} |" -f $quickRuns)
+    $Lines += ("| success count | {0} |" -f $successCount)
+    $Lines += ("| non-success count | {0} |" -f $nonSuccessCount)
+    $Lines += ("| latest batch | {0} |" -f (Format-Cell (Get-RegistryText -Record $latestRecord -Name "batch_id")))
+    $Lines += ("| all batch ids | {0} |" -f (Format-Cell ($batchIds -join ", ")))
+    $Lines += ("| average total_ms | {0} |" -f (Format-Cell (Format-Number $averageTotalMs)))
+    $Lines += ("| ever selected_quota_issue | {0} |" -f (Format-Cell (@($matchedRecords | Where-Object { (Get-RegistryText -Record $_ -Name "classification") -eq "selected_quota_issue" }).Count -gt 0)))
+    $Lines += ("| ever known_true_value_mismatch | {0} |" -f (Format-Cell (@($matchedRecords | Where-Object { (Get-RegistryText -Record $_ -Name "classification") -eq "known_true_value_mismatch" }).Count -gt 0)))
+    $Lines += ("| ever ranking_issue | {0} |" -f (Format-Cell (@($matchedRecords | Where-Object { (Get-RegistryText -Record $_ -Name "classification") -eq "ranking_issue" }).Count -gt 0)))
+    $Lines += ""
+
+    $Lines += "### Classifications"
+    $Lines += ""
+    $Lines += "| classification | count |"
+    $Lines += "|---|---:|"
+    $classificationGroups = @($matchedRecords |
+        ForEach-Object {
+            $classification = Get-RegistryText -Record $_ -Name "classification"
+            if ($classification) { $classification } else { "not_available" }
+        } |
+        Group-Object |
+        Sort-Object -Property @{ Expression = "Count"; Descending = $true }, Name)
+    foreach ($group in $classificationGroups) {
+        $Lines += ("| {0} | {1} |" -f (Format-Cell $group.Name), $group.Count)
+    }
+    $Lines += ""
+
+    return $Lines
+}
+
+function Add-RegistryOutlierLines {
+    param([object[]]$Lines, [object[]]$Records)
+
+    $outliers = @(Get-RegistryRecordsNewest -Records $Records | Where-Object { Test-RegistryOutlier -Record $_ })
+
+    $Lines += "## Registry Outliers"
+    $Lines += ""
+    if ($outliers.Count -eq 0) {
+        $Lines += "No registry outliers detected."
+        $Lines += ""
+        return $Lines
+    }
+
+    $Lines += "| batch_id | known_true_addr | validation_profile | classification | likely reason | recommendation |"
+    $Lines += "|---|---|---|---|---|---|"
+    foreach ($record in $outliers) {
+        $Lines += ("| {0} | {1} | {2} | {3} | {4} | {5} |" -f `
+            (Format-Cell (Get-RegistryText -Record $record -Name "batch_id")),
+            (Format-Cell (Get-RegistryText -Record $record -Name "known_true_addr")),
+            (Format-Cell (Get-RegistryText -Record $record -Name "validation_profile")),
+            (Format-Cell (Get-RegistryText -Record $record -Name "classification")),
+            (Format-Cell (Get-RegistryOutlierReason -Record $record)),
+            (Format-Cell (Get-RegistryRecommendation -Record $record)))
+    }
+    $Lines += ""
+
+    return $Lines
+}
+
+function Build-RegistryQueryReport {
+    param(
+        [string]$Path,
+        [bool]$IncludeSummary,
+        [bool]$IncludeRecent,
+        [int]$RecentCount,
+        [string]$Address,
+        [bool]$IncludeOutliers
+    )
+
+    $registry = Read-RegistryJsonl -Path $Path
+    foreach ($warning in @($registry.warnings)) {
+        Write-Warning $warning
+    }
+
+    $records = @($registry.records)
+    $lines = @()
+    $lines += "# Case Registry Query Report"
+    $lines += ""
+    $lines += "| field | value |"
+    $lines += "|---|---|"
+    $lines += ("| generated_at | {0} |" -f (Format-Cell (Get-Date -Format "yyyy-MM-dd HH:mm:ss zzz")))
+    $lines += ("| registry path | {0} |" -f (Format-Cell $registry.path))
+    $lines += ("| registry exists | {0} |" -f (Format-Cell $registry.exists))
+    $lines += ("| readable records | {0} |" -f $records.Count)
+    $lines += ("| skipped bad lines | {0} |" -f @($registry.warnings).Count)
+    $lines += ""
+
+    if (-not $registry.exists) {
+        $lines += ("Registry file not found: {0}" -f $registry.path)
+        $lines += ""
+        return $lines
+    }
+
+    if (@($registry.warnings).Count -gt 0) {
+        $lines += "## Warnings"
+        $lines += ""
+        foreach ($warning in @($registry.warnings)) {
+            $lines += ("- {0}" -f $warning)
+        }
+        $lines += ""
+    }
+
+    if ($IncludeSummary) {
+        $lines = Add-RegistrySummaryLines -Lines $lines -Records $records
+    }
+    if ($IncludeRecent) {
+        $lines = Add-RegistryRecentLines -Lines $lines -Records $records -Count $RecentCount
+    }
+    if ($Address) {
+        $lines = Add-RegistryAddrLines -Lines $lines -Records $records -Address $Address
+    }
+    if ($IncludeOutliers) {
+        $lines = Add-RegistryOutlierLines -Lines $lines -Records $records
+    }
+
+    return $lines
+}
+
 function Build-ReportLines {
     param([object[]]$Records, [int]$RequestedLatest, [string]$Root, [string]$CompareTo, [string]$Profile, [bool]$OnlyBaselineEligible, [bool]$ExplainFailures)
 
@@ -1549,6 +2110,37 @@ function Build-ReportLines {
     }
 
     return $lines
+}
+
+$registryRecentRequested = $PSBoundParameters.ContainsKey("RegistryRecent")
+$registryQueryRequested = ([bool]$RegistrySummary) -or $registryRecentRequested -or ([bool]$RegistryAddr) -or ([bool]$RegistryOutliers)
+if ($registryQueryRequested) {
+    $reportLines = @(Build-RegistryQueryReport `
+        -Path $RegistryPath `
+        -IncludeSummary ([bool]$RegistrySummary) `
+        -IncludeRecent $registryRecentRequested `
+        -RecentCount $RegistryRecent `
+        -Address $RegistryAddr `
+        -IncludeOutliers ([bool]$RegistryOutliers))
+    Write-Output $reportLines
+
+    if ($OutFile) {
+        try {
+            $resolvedOutFile = [System.IO.Path]::GetFullPath($OutFile)
+            $outDir = [System.IO.Path]::GetDirectoryName($resolvedOutFile)
+            if ($outDir -and -not (Test-Path -LiteralPath $outDir)) {
+                New-Item -ItemType Directory -Path $outDir -Force | Out-Null
+            }
+
+            Set-Content -LiteralPath $resolvedOutFile -Value $reportLines -Encoding UTF8
+            Write-Output ""
+            Write-Output ("Registry query report saved to: {0}" -f $resolvedOutFile)
+        } catch {
+            Write-Warning ("Failed to save registry query report to {0}: {1}" -f $OutFile, $_.Exception.Message)
+        }
+    }
+
+    return
 }
 
 $reportLines = @()
