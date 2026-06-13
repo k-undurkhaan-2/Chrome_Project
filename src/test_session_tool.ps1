@@ -15,7 +15,8 @@ param(
     [double]$WriteValueFloat = [double]::NaN,
     [string]$BatchId,
     [switch]$EnableWrite,
-    [switch]$ConfirmWrite
+    [switch]$ConfirmWrite,
+    [int]$Latest = 50
 )
 
 Set-StrictMode -Version 2.0
@@ -65,6 +66,7 @@ function Write-CommandHelp {
     Write-Output "  prepare-guarded-write   Prepare full/basic guarded write config"
     Write-Output "  prepare-restore         Prepare dry-run or write-ready restore config from a batch"
     Write-Output "  post-execution          Summarize latest full execution fields after manual CE run"
+    Write-Output "  execution-status        Show write/restore transaction safety status"
     Write-Output ""
     Write-Output "Prepare options:"
     Write-Output "  -KnownTrueAddr <addr> [-CaseId <id>] [-Profile quick|full] [-DiagnosticLevel basic|debug|trace]"
@@ -76,6 +78,7 @@ function Write-CommandHelp {
     Write-Output "Common options:"
     Write-Output "  -ProjectRoot D:\armedforces.io-v2"
     Write-Output "  -LogRoot D:\armedforces.io-v2\log\auto_output"
+    Write-Output "  execution-status [-Latest 50]"
 }
 
 function Invoke-WorkflowCommand {
@@ -217,6 +220,41 @@ function Test-ExecutionConfigWriteCapable {
     $executionConfirm = Get-ConfigField -Config $Config -Key "execution_confirm"
 
     return $executionMode -eq "write" -or $writeEnabled -eq "true" -or ($null -ne $executionConfirm -and "$executionConfirm" -ne "")
+}
+
+function Test-ExecutionArmPresent {
+    param($Config)
+
+    foreach ($key in @("execution_confirm", "execution_write_request_id", "execution_armed_at_utc", "execution_arm_expires_at_utc")) {
+        $value = Get-ConfigField -Config $Config -Key $key
+        if (Test-LogPresent -Value $value) {
+            return $true
+        }
+    }
+    return $false
+}
+
+function Test-NormalTargetConfig {
+    param($Config)
+
+    $pattern = Get-ConfigField -Config $Config -Key "target_value_pattern"
+    $floatText = Get-ConfigField -Config $Config -Key "target_value_float"
+    if (-not (Test-LogPresent -Value $pattern) -or -not (Test-LogPresent -Value $floatText)) {
+        return $false
+    }
+
+    $normalizedPattern = "$pattern".Trim().ToUpperInvariant()
+    if (-not $normalizedPattern.StartsWith("0X")) {
+        $normalizedPattern = "0X$normalizedPattern"
+    }
+
+    try {
+        $targetFloat = [double]::Parse("$floatText", [System.Globalization.CultureInfo]::InvariantCulture)
+    } catch {
+        return $false
+    }
+
+    return $normalizedPattern -eq "0X42C80000" -and ([math]::Abs($targetFloat - 100.0) -le 0.000001)
 }
 
 function Write-ExecutionConfigSafetyWarning {
@@ -506,6 +544,83 @@ function Get-LatestClassifierRecord {
     return $null
 }
 
+function Get-ClassifierConsoleRecords {
+    param([string[]]$OutputLines)
+
+    $records = @()
+    $current = $null
+
+    foreach ($line in @($OutputLines)) {
+        $text = "$line"
+        if ($text -match '^\s*Batch Summary\s*$') {
+            if ($null -ne $current -and $current.Count -gt 0) {
+                $records += [pscustomobject]$current
+            }
+            $current = [ordered]@{}
+            continue
+        }
+
+        if ($null -ne $current -and $text -match '^\s*([A-Za-z0-9_\/ -]+?)\s{2,}(.+?)\s*$') {
+            $key = $matches[1].Trim()
+            $value = $matches[2].Trim()
+            if ($key -and $key -ne "Field" -and $key -ne "-----") {
+                $current[$key] = $value
+            }
+        }
+    }
+
+    if ($null -ne $current -and $current.Count -gt 0) {
+        $records += [pscustomobject]$current
+    }
+    return $records
+}
+
+function Get-RecordField {
+    param($Record, [string]$Key, [string]$Default = "-")
+
+    if ($null -eq $Record) {
+        return $Default
+    }
+    $property = $Record.PSObject.Properties[$Key]
+    if ($null -eq $property) {
+        return $Default
+    }
+    if (-not (Test-LogPresent -Value $property.Value)) {
+        return $Default
+    }
+    return $property.Value
+}
+
+function Get-UnpairedWriteRecords {
+    param([object[]]$Records)
+
+    $restoredSourceBatches = @{}
+    foreach ($record in @($Records)) {
+        if ((Get-RecordField -Record $record -Key "transaction_type") -eq "restore_success") {
+            $restoreSource = Get-RecordField -Record $record -Key "restore_source_batch"
+            if (Test-LogPresent -Value $restoreSource) {
+                $restoredSourceBatches[$restoreSource] = $true
+            }
+        }
+    }
+
+    $unpaired = @()
+    foreach ($record in @($Records)) {
+        $batchId = Get-RecordField -Record $record -Key "batch_id"
+        if ((Get-RecordField -Record $record -Key "transaction_type") -eq "write_success" -and -not $restoredSourceBatches.ContainsKey($batchId)) {
+            $unpaired += $record
+        }
+    }
+    return $unpaired
+}
+
+function New-RestoreCommand {
+    param([string]$Batch)
+
+    $workflowPath = Join-Path (Join-Path $ProjectRootPath "src") "test_session_tool.ps1"
+    return ('powershell -NoProfile -ExecutionPolicy Bypass -File "{0}" prepare-restore -BatchId "{1}" -EnableWrite -ConfirmWrite' -f $workflowPath, $Batch)
+}
+
 function Get-RegistryAppendResult {
     param([string[]]$OutputLines)
 
@@ -621,7 +736,8 @@ $availableCommands = @(
     "prepare-dry-run-write",
     "prepare-guarded-write",
     "prepare-restore",
-    "post-execution"
+    "post-execution",
+    "execution-status"
 )
 if ($Help -or -not $Command) {
     Write-CommandHelp
@@ -892,6 +1008,77 @@ switch ($Command) {
         exit 0
     }
 
+    "execution-status" {
+        if ($Latest -lt 1) {
+            Write-Output "ERROR: -Latest must be greater than 0 for execution-status"
+            exit 1
+        }
+
+        $classifyArgs = @("-Latest", "$Latest", "-LogRoot", $LogRoot, "-ConsoleSummary")
+        $classify = Invoke-WorkflowCommand -FilePath $ClassifierPath -Arguments $classifyArgs -Capture -Quiet
+        if ($classify.exit_code -ne 0) {
+            $classify.output | ForEach-Object { Write-Output $_ }
+            exit $classify.exit_code
+        }
+
+        $records = @(Get-ClassifierConsoleRecords -OutputLines $classify.output)
+        if ($records.Count -eq 0) {
+            Write-Output "ERROR: no classifier records found for execution-status"
+            exit 1
+        }
+
+        $latestRecord = $records[0]
+        $unpairedWrites = @(Get-UnpairedWriteRecords -Records $records)
+        $latestUnpairedWrite = if ($unpairedWrites.Count -gt 0) { $unpairedWrites[0] } else { $null }
+        $latestUnpairedBatchId = Get-RecordField -Record $latestUnpairedWrite -Key "batch_id"
+        $recommendedRestore = if ($latestUnpairedWrite) { New-RestoreCommand -Batch $latestUnpairedBatchId } else { "-" }
+
+        $currentConfig = Read-CaseConfigMap -Path $CaseConfigPath
+        $writeCapable = Test-ExecutionConfigWriteCapable -Config $currentConfig
+        $armPresent = Test-ExecutionArmPresent -Config $currentConfig
+        $targetNormal = Test-NormalTargetConfig -Config $currentConfig
+
+        $safetyConclusion = "SAFE: no unpaired writes and config not write-capable"
+        if ($unpairedWrites.Count -gt 0 -and $writeCapable) {
+            $safetyConclusion = "WARNING: both unpaired write and write-capable config"
+        } elseif ($writeCapable -and $armPresent) {
+            $safetyConclusion = "WARNING: restore is armed / confirm present"
+        } elseif ($writeCapable) {
+            $safetyConclusion = "WARNING: config is write-capable"
+        } elseif ($unpairedWrites.Count -gt 0) {
+            $safetyConclusion = "ATTENTION: unpaired write exists"
+        } elseif (-not $targetNormal) {
+            $safetyConclusion = "ATTENTION: target is not normal expected value"
+        }
+
+        Write-WorkflowSummary -Title "Execution Transaction Status" -Fields ([ordered]@{
+            "latest scanned batches" = $Latest
+            "latest batch id" = Get-RecordField -Record $latestRecord -Key "batch_id"
+            "latest transaction_type" = Get-RecordField -Record $latestRecord -Key "transaction_type"
+            "unpaired_write_success count" = $unpairedWrites.Count
+            "latest unpaired write batch id" = $latestUnpairedBatchId
+            "recommended restore command" = $recommendedRestore
+            "current config execution_mode" = Get-ConfigField -Config $currentConfig -Key "execution_mode"
+            "current config write_enabled" = Get-ConfigField -Config $currentConfig -Key "write_enabled"
+            "current config confirm present" = [bool](Get-ConfigField -Config $currentConfig -Key "execution_confirm")
+            "current config arm present" = $armPresent
+            "current config target_value_float" = Get-ConfigField -Config $currentConfig -Key "target_value_float"
+            "current config target_value_pattern" = Get-ConfigField -Config $currentConfig -Key "target_value_pattern"
+            "current config target normal" = $targetNormal
+            "safety conclusion" = $safetyConclusion
+        })
+
+        if ($unpairedWrites.Count -gt 0) {
+            Write-Output ""
+            Write-Output "Recommended restore command:"
+            Write-Output $recommendedRestore
+        } else {
+            Write-Output ""
+            Write-Output ("No unpaired successful writes found in latest {0} batches." -f $Latest)
+        }
+        exit 0
+    }
+
     "post-quick" {
         $classify = Invoke-ClassifierLatest -ProfileName "quick"
         if ($classify.exit_code -ne 0) {
@@ -1028,6 +1215,8 @@ switch ($Command) {
         } else {
             $gitStatus | ForEach-Object { Write-Output $_ }
         }
+        Write-Output ""
+        Write-Output "For transaction safety, run: test_session_tool.ps1 execution-status"
         exit 0
     }
 }
