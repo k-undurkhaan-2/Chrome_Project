@@ -5,3 +5,6 @@ src/run_case_config.local.lua.bak
 log/
 *.log
 *.jsonl
+
+# Temporary Codex task files
+docs/codex_tasks/
