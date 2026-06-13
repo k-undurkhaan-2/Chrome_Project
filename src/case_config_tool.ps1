@@ -35,7 +35,7 @@ function Write-Help {
     Write-Output "  powershell -NoProfile -ExecutionPolicy Bypass -File `"D:\armedforces.io-v2\src\case_config_tool.ps1`" -Show"
     Write-Output "  powershell -NoProfile -ExecutionPolicy Bypass -File `"D:\armedforces.io-v2\src\case_config_tool.ps1`" -Show -Markdown"
     Write-Output "  powershell -NoProfile -ExecutionPolicy Bypass -File `"D:\armedforces.io-v2\src\case_config_tool.ps1`" -Validate"
-    Write-Output "  powershell -NoProfile -ExecutionPolicy Bypass -File `"D:\armedforces.io-v2\src\case_config_tool.ps1`" -Set -CaseId case_001 -KnownTrueAddr 0x25A061C7D48"
+    Write-Output "  powershell -NoProfile -ExecutionPolicy Bypass -File `"D:\armedforces.io-v2\src\case_config_tool.ps1`" -Set -KnownTrueAddr 0x25A061C7D48 [-CaseId case_001]"
     Write-Output "  powershell -NoProfile -ExecutionPolicy Bypass -File `"D:\armedforces.io-v2\src\case_config_tool.ps1`" -SetProfile quick"
     Write-Output "  powershell -NoProfile -ExecutionPolicy Bypass -File `"D:\armedforces.io-v2\src\case_config_tool.ps1`" -SetDiagnosticLevel trace"
 }
@@ -94,6 +94,20 @@ function Test-HexString {
         return $false
     }
     return "$Value" -match '^0x[0-9A-Fa-f]+$'
+}
+
+function New-GeneratedCaseId {
+    param([string]$Address)
+
+    $hex = "$Address" -replace '^0x', ''
+    $hex = $hex -replace '[^0-9A-Fa-f]', ''
+    if (-not $hex) {
+        $hex = "addr"
+    }
+
+    $suffixLength = [Math]::Min(5, $hex.Length)
+    $suffix = $hex.Substring($hex.Length - $suffixLength).ToUpperInvariant()
+    return ("case_{0}_{1}" -f (Get-Date -Format "yyyyMMdd_HHmmss"), $suffix)
 }
 
 function Test-NumberString {
@@ -368,13 +382,15 @@ if ($Validate) {
 }
 
 if ($Set) {
-    if (-not $CaseId) {
-        Write-Error "-CaseId is required with -Set"
-        exit 1
-    }
     if (-not $KnownTrueAddr) {
         Write-Error "-KnownTrueAddr is required with -Set"
         exit 1
+    }
+
+    $generatedCaseId = $false
+    if (-not $CaseId) {
+        $CaseId = New-GeneratedCaseId -Address $KnownTrueAddr
+        $generatedCaseId = $true
     }
 
     $newConfig = [ordered]@{
@@ -387,6 +403,9 @@ if ($Set) {
     }
     Write-CaseConfig -Config $newConfig
     Write-Output ("Updated local config: {0}" -f $ConfigPath)
+    if ($generatedCaseId) {
+        Write-Output ("generated_case_id = {0}" -f $CaseId)
+    }
     if (Test-Path -LiteralPath $BackupPath) {
         Write-Output ("Backup path: {0}" -f $BackupPath)
     }

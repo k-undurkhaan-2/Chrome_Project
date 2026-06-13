@@ -15,7 +15,8 @@ param(
     [string]$RegistryAddr,
     [switch]$RegistryOutliers,
     [string]$ExpectedRepoRoot = "D:\armedforces.io-v2",
-    [switch]$ConsoleSummary
+    [switch]$ConsoleSummary,
+    [switch]$Markdown
 )
 
 Set-StrictMode -Version 2.0
@@ -2326,7 +2327,8 @@ if ($InspectBatch) {
 
     $recordsForRegistry = $records
     $reportLines = @(Build-ReportLines -Records $records -RequestedLatest $Latest -Root $LogRoot -CompareTo $CompareTo -Profile $Profile -OnlyBaselineEligible ([bool]$OnlyBaselineEligible) -ExplainFailures ([bool]$ExplainFailures) -Environment $scriptEnvironment)
-    if ($ConsoleSummary -and -not $CompareTo -and -not $ExplainFailures) {
+    $useConsoleSummary = (([bool]$ConsoleSummary) -or (-not [bool]$Markdown)) -and -not $CompareTo -and -not $ExplainFailures
+    if ($useConsoleSummary) {
         $consoleSummaryLines = @(Get-ConsoleSummaryLines -Records $records)
     }
 }

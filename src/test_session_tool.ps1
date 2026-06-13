@@ -56,7 +56,7 @@ function Write-CommandHelp {
     Write-Output "  status         Show config, latest 5 classifier summary, registry summary, and git status"
     Write-Output ""
     Write-Output "Prepare options:"
-    Write-Output "  -CaseId <id> -KnownTrueAddr <addr> [-Profile quick|full] [-DiagnosticLevel basic|debug|trace]"
+    Write-Output "  -KnownTrueAddr <addr> [-CaseId <id>] [-Profile quick|full] [-DiagnosticLevel basic|debug|trace]"
     Write-Output ""
     Write-Output "Common options:"
     Write-Output "  -ProjectRoot D:\armedforces.io-v2"
@@ -67,7 +67,8 @@ function Invoke-WorkflowCommand {
     param(
         [string]$FilePath,
         [string[]]$Arguments,
-        [switch]$Capture
+        [switch]$Capture,
+        [switch]$Quiet
     )
 
     $commandParts = @("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $FilePath) + @($Arguments)
@@ -76,8 +77,10 @@ function Invoke-WorkflowCommand {
 
     $output = @(& powershell -NoProfile -ExecutionPolicy Bypass -File $FilePath @Arguments 2>&1)
     $exitCode = $LASTEXITCODE
-    foreach ($line in $output) {
-        Write-Host $line
+    if (-not $Quiet) {
+        foreach ($line in $output) {
+            Write-Host $line
+        }
     }
 
     return [pscustomobject][ordered]@{
@@ -213,6 +216,46 @@ function Get-ComparisonStatus {
     }
 }
 
+function Get-MarkdownFieldMap {
+    param([string[]]$OutputLines)
+
+    $fields = [ordered]@{}
+    foreach ($line in @($OutputLines)) {
+        if ($line -match "^\|\s*([^|]+?)\s*\|\s*([^|]*?)\s*\|$") {
+            $key = $matches[1].Trim()
+            $value = $matches[2].Trim()
+            if ($key -and $key -ne "---" -and $key -ne "field" -and -not $fields.Contains($key)) {
+                $fields[$key] = $value
+            }
+        }
+    }
+    return $fields
+}
+
+function Get-RegistrySummaryFields {
+    param([string[]]$OutputLines)
+
+    $fields = Get-MarkdownFieldMap -OutputLines $OutputLines
+    $summary = [ordered]@{}
+    foreach ($key in @(
+        "total records",
+        "unique batch_id count",
+        "unique known_true_addr count",
+        "full success count",
+        "quick_success count",
+        "non-success count",
+        "latest recorded_at",
+        "latest batch_id"
+    )) {
+        if ($fields.Contains($key)) {
+            $summary[$key] = $fields[$key]
+        } else {
+            $summary[$key] = "not_available"
+        }
+    }
+    return $summary
+}
+
 function Write-WorkflowSummary {
     param([string]$Title, $Fields)
 
@@ -260,10 +303,6 @@ if (-not [string]::Equals($ProjectRootPath, $ExpectedProjectRoot, [System.String
 
 switch ($Command) {
     "prepare" {
-        if (-not $CaseId) {
-            Write-Error "-CaseId is required for prepare"
-            exit 1
-        }
         if (-not $KnownTrueAddr) {
             Write-Error "-KnownTrueAddr is required for prepare"
             exit 1
@@ -271,13 +310,15 @@ switch ($Command) {
 
         $args = @(
             "-Set",
-            "-CaseId", $CaseId,
             "-KnownTrueAddr", $KnownTrueAddr,
             "-TargetValuePattern", $TargetValuePattern,
             "-TargetValueFloat", $TargetValueFloat.ToString("0.0###############", [System.Globalization.CultureInfo]::InvariantCulture),
             "-DiagnosticLevel", $DiagnosticLevel,
             "-ValidationProfile", $Profile
         )
+        if ($CaseId) {
+            $args = @("-Set", "-CaseId", $CaseId) + @($args | Select-Object -Skip 1)
+        }
         $result = Invoke-WorkflowCommand -FilePath $CaseConfigToolPath -Arguments $args -Capture
         if ($result.exit_code -ne 0) {
             exit $result.exit_code
@@ -367,8 +408,9 @@ switch ($Command) {
 
     "compare-full" {
         $args = @("-Latest", "20", "-Profile", "full", "-LogRoot", $LogRoot, "-CompareTo", $BaselinePath)
-        $result = Invoke-WorkflowCommand -FilePath $ClassifierPath -Arguments $args -Capture
+        $result = Invoke-WorkflowCommand -FilePath $ClassifierPath -Arguments $args -Capture -Quiet
         if ($result.exit_code -ne 0) {
+            $result.output | ForEach-Object { Write-Output $_ }
             exit $result.exit_code
         }
 
@@ -394,28 +436,29 @@ switch ($Command) {
     }
 
     "status" {
-        Write-Output "## Current Case Config"
+        Write-Output "Current Case Config"
         $caseResult = Invoke-WorkflowCommand -FilePath $CaseConfigToolPath -Arguments @("-Show")
         if ($caseResult.exit_code -ne 0) {
             exit $caseResult.exit_code
         }
 
         Write-Output ""
-        Write-Output "## Latest 5 Classifier Summary"
+        Write-Output "Latest 5 Classifier Summary"
         $latestResult = Invoke-WorkflowCommand -FilePath $ClassifierPath -Arguments @("-Latest", "5", "-LogRoot", $LogRoot, "-ConsoleSummary")
         if ($latestResult.exit_code -ne 0) {
             exit $latestResult.exit_code
         }
 
         Write-Output ""
-        Write-Output "## Registry Summary"
-        $registryResult = Invoke-WorkflowCommand -FilePath $ClassifierPath -Arguments @("-RegistrySummary", "-LogRoot", $LogRoot)
+        $registryResult = Invoke-WorkflowCommand -FilePath $ClassifierPath -Arguments @("-RegistrySummary", "-LogRoot", $LogRoot) -Capture -Quiet
         if ($registryResult.exit_code -ne 0) {
+            $registryResult.output | ForEach-Object { Write-Output $_ }
             exit $registryResult.exit_code
         }
+        Write-WorkflowSummary -Title "Registry Summary" -Fields (Get-RegistrySummaryFields -OutputLines $registryResult.output)
 
         Write-Output ""
-        Write-Output "## Git Status"
+        Write-Output "Git Status"
         $gitStatus = @(& git -C $ProjectRootPath status --short)
         if ($gitStatus.Count -eq 0) {
             Write-Output "clean"
