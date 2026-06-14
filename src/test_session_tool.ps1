@@ -25,6 +25,7 @@ param(
     [string]$Level,
     [int]$TargetUnique = 0,
     [int]$MinFullSuccess = 2,
+    [int]$Limit = 0,
     [switch]$ShowRejected
 )
 
@@ -79,6 +80,8 @@ function Write-CommandHelp {
     Write-Output "  case-library  Summarize tested known_true_addr library"
     Write-Output "  stable-cases  List strict stable baseline candidate addresses"
     Write-Output "  baseline-candidates Alias for stable-cases"
+    Write-Output "  retest-queue  Plan next clean full detect-only retests"
+    Write-Output "  sample-plan   Alias for retest-queue"
     Write-Output "  case-summary   Summarize baseline-eligible case coverage"
     Write-Output "  coverage-plan  Alias for case-summary"
     Write-Output "  inspect-latest Inspect the latest batch id from -LogRoot"
@@ -106,6 +109,7 @@ function Write-CommandHelp {
     Write-Output "  baseline-compare -Baseline <file-or-path> [-Latest 20]"
     Write-Output "  case-library [-Latest 100] [-Profile full|quick]"
     Write-Output "  stable-cases [-Latest 100] [-Profile full] [-MinFullSuccess 2] [-TargetUnique 13] [-ShowRejected] [-KnownTrueAddr <addr>]"
+    Write-Output "  retest-queue [-Latest 200] [-Profile full] [-MinFullSuccess 2] [-TargetUnique 13] [-Limit 15]"
     Write-Output "  case-summary [-Latest 20] [-Profile full] [-Baseline <file-or-path>] [-TargetUnique 13]"
     Write-Output "  safe-reset [-TargetValueFloat 100.0]"
     Write-Output ""
@@ -2078,6 +2082,264 @@ function Invoke-StableCasesCommand {
     exit 0
 }
 
+function Get-RetestReasonList {
+    param($Row)
+
+    return @("$($Row.rejection_reasons)".Split(";") | ForEach-Object { $_.Trim() } | Where-Object { Test-LogPresent -Value $_ -and $_ -ne "-" })
+}
+
+function Get-MissingCleanFullRuns {
+    param($Row, [int]$MinimumFullSuccess)
+
+    $missingFull = $MinimumFullSuccess - [int]$Row.full_success_count
+    $missingEligible = $MinimumFullSuccess - [int]$Row.baseline_eligible_count
+    $missing = [Math]::Max($missingFull, $missingEligible)
+    if ($missing -lt 0) {
+        return 0
+    }
+    return $missing
+}
+
+function Test-RetestBlockedReason {
+    param([string[]]$Reasons)
+
+    $blockedReasons = @(
+        "has_invalid_config_mismatch",
+        "has_known_true_value_mismatch",
+        "has_ranking_issue",
+        "has_selected_quota_issue",
+        "latest_final_hit_false",
+        "latest_rank_not_1_1_1",
+        "latest_stable_rank_not_1",
+        "latest_full_not_success",
+        "no_full_success"
+    )
+    foreach ($reason in @($Reasons)) {
+        if ($blockedReasons -contains $reason) {
+            return $true
+        }
+    }
+    return $false
+}
+
+function Test-RetestOnlyCleanCountReasons {
+    param([string[]]$Reasons)
+
+    $allowed = @("full_success_lt_min", "baseline_eligible_lt_min")
+    foreach ($reason in @($Reasons)) {
+        if (-not ($allowed -contains $reason)) {
+            return $false
+        }
+    }
+    return @($Reasons).Count -gt 0
+}
+
+function Get-RetestPriority {
+    param($Row, [int]$MissingCleanFullRuns)
+
+    $reasons = @(Get-RetestReasonList -Row $Row)
+    if (Test-RetestBlockedReason -Reasons $reasons) {
+        return "BLOCKED"
+    }
+    if (@($reasons | Where-Object { $_ -eq "has_execution_batch" }).Count -gt 0) {
+        return "LOW"
+    }
+    if ((Test-RetestOnlyCleanCountReasons -Reasons $reasons) -and $MissingCleanFullRuns -le 1) {
+        return "HIGH"
+    }
+    if ((Test-RetestOnlyCleanCountReasons -Reasons $reasons) -and $MissingCleanFullRuns -gt 1) {
+        return "MEDIUM"
+    }
+    if ([int]$Row.total_cases -ge 5) {
+        return "LOW"
+    }
+    return "MEDIUM"
+}
+
+function Get-RetestRecommendedAction {
+    param([string]$Priority, [int]$MissingCleanFullRuns)
+
+    switch ($Priority) {
+        "HIGH" { return "Collect 1 more full detect-only baseline-eligible success run." }
+        "MEDIUM" { return ("Collect {0} more full detect-only clean runs." -f [Math]::Max($MissingCleanFullRuns, 1)) }
+        "LOW" { return "Retest only if additional stability confirmation is needed." }
+        "BLOCKED" { return "Inspect failed batches before using this address." }
+        default { return "Review this address before scheduling retest." }
+    }
+}
+
+function Get-RetestConclusion {
+    param(
+        [int]$StableCount,
+        [int]$TargetUniqueValue,
+        [int]$HighCount,
+        [int]$MediumCount,
+        [int]$LowCount,
+        [int]$BlockedCount
+    )
+
+    if ($StableCount -ge $TargetUniqueValue) {
+        return "READY_FOR_BASELINE"
+    }
+    if ($HighCount -gt 0) {
+        return "COLLECT_HIGH_PRIORITY_RETESTS"
+    }
+    if ($MediumCount -gt 0 -or $LowCount -gt 0) {
+        return "COLLECT_MORE_DISTINCT_CASES"
+    }
+    if ($BlockedCount -gt 0) {
+        return "INSPECT_BLOCKED_CASES"
+    }
+    return "COLLECT_MORE_DISTINCT_CASES"
+}
+
+function Get-RetestQueueSummary {
+    param(
+        [int]$RequestedLatest,
+        [string]$RequestedProfile,
+        [int]$MinimumFullSuccess,
+        [int]$RequestedTargetUnique,
+        [int]$RequestedLimit
+    )
+
+    $stable = Get-StableCasesSummary -RequestedLatest $RequestedLatest -RequestedProfile $RequestedProfile -MinimumFullSuccess $MinimumFullSuccess -RequestedTargetUnique $RequestedTargetUnique
+    $queueRows = @()
+    foreach ($row in @($stable.rows | Where-Object { $_.stable_candidate -ne $true })) {
+        $missing = Get-MissingCleanFullRuns -Row $row -MinimumFullSuccess $MinimumFullSuccess
+        $priority = Get-RetestPriority -Row $row -MissingCleanFullRuns $missing
+        $priorityRank = switch ($priority) {
+            "HIGH" { 1 }
+            "MEDIUM" { 2 }
+            "LOW" { 3 }
+            "BLOCKED" { 4 }
+            default { 5 }
+        }
+        $queueRows += [pscustomobject][ordered]@{
+            known_true_addr = $row.known_true_addr
+            full_success_count = $row.full_success_count
+            baseline_eligible_count = $row.baseline_eligible_count
+            quick_success_count = $row.quick_success_count
+            latest_full_batch = $row.latest_full_batch
+            latest_rank_AWB = $row.latest_rank_AWB
+            latest_stable_rank = $row.latest_stable_rank
+            rejection_reasons = $row.rejection_reasons
+            missing_clean_full_runs = $missing
+            retest_priority = $priority
+            priority_rank = $priorityRank
+            recommended_action = Get-RetestRecommendedAction -Priority $priority -MissingCleanFullRuns $missing
+        }
+    }
+
+    $orderedRows = @($queueRows | Sort-Object -Property `
+        @{ Expression = "priority_rank"; Ascending = $true },
+        @{ Expression = "missing_clean_full_runs"; Ascending = $true },
+        @{ Expression = "baseline_eligible_count"; Descending = $true },
+        @{ Expression = "latest_full_batch"; Descending = $true },
+        known_true_addr)
+    $displayRows = @($orderedRows | Select-Object -First $RequestedLimit)
+    $highCount = @($queueRows | Where-Object { $_.retest_priority -eq "HIGH" }).Count
+    $mediumCount = @($queueRows | Where-Object { $_.retest_priority -eq "MEDIUM" }).Count
+    $lowCount = @($queueRows | Where-Object { $_.retest_priority -eq "LOW" }).Count
+    $blockedCount = @($queueRows | Where-Object { $_.retest_priority -eq "BLOCKED" }).Count
+    $conclusion = Get-RetestConclusion `
+        -StableCount $stable.stable_count `
+        -TargetUniqueValue $RequestedTargetUnique `
+        -HighCount $highCount `
+        -MediumCount $mediumCount `
+        -LowCount $lowCount `
+        -BlockedCount $blockedCount
+
+    return [pscustomobject][ordered]@{
+        fields = [ordered]@{
+            "latest N" = $RequestedLatest
+            "profile" = $RequestedProfile
+            "min full success" = $MinimumFullSuccess
+            "target unique" = $RequestedTargetUnique
+            "display limit" = $RequestedLimit
+            "total unique addr" = $stable.fields["total unique addr"]
+            "stable candidate count" = $stable.stable_count
+            "high priority retest count" = $highCount
+            "medium priority retest count" = $mediumCount
+            "low priority retest count" = $lowCount
+            "blocked address count" = $blockedCount
+            "duplicate-heavy top addr" = $stable.fields["top repeated addr"]
+            "conclusion" = $conclusion
+        }
+        rows = $displayRows
+        all_rows = $queueRows
+        conclusion = $conclusion
+        high_count = $highCount
+        medium_count = $mediumCount
+        blocked_count = $blockedCount
+    }
+}
+
+function Write-RetestQueueTable {
+    param([object[]]$Rows)
+
+    Write-Output ""
+    Write-Output "Retest Queue"
+    if (@($Rows).Count -eq 0) {
+        Write-Output "No retest rows found."
+        return
+    }
+
+    Write-Output ("{0,-15} {1,8} {2,8} {3,5} {4,-15} {5,-9} {6,-6} {7,7} {8,-8} {9,-34} {10}" -f "known_true_addr", "full", "eligible", "quick", "latest_full", "rank_AWB", "stable", "missing", "priority", "rejection_reasons", "recommended_action")
+    Write-Output ("{0,-15} {1,8} {2,8} {3,5} {4,-15} {5,-9} {6,-6} {7,7} {8,-8} {9,-34} {10}" -f "---------------", "----", "--------", "-----", "-----------", "--------", "------", "-------", "--------", "-----------------", "------------------")
+    foreach ($row in @($Rows)) {
+        Write-Output ("{0,-15} {1,8} {2,8} {3,5} {4,-15} {5,-9} {6,-6} {7,7} {8,-8} {9,-34} {10}" -f `
+            $row.known_true_addr,
+            $row.full_success_count,
+            $row.baseline_eligible_count,
+            $row.quick_success_count,
+            $row.latest_full_batch,
+            $row.latest_rank_AWB,
+            $row.latest_stable_rank,
+            $row.missing_clean_full_runs,
+            $row.retest_priority,
+            $row.rejection_reasons,
+            $row.recommended_action)
+    }
+}
+
+function Invoke-RetestQueueCommand {
+    param(
+        [string]$CommandName,
+        [bool]$LatestProvided,
+        [bool]$ProfileProvided,
+        [bool]$TargetUniqueProvided,
+        [bool]$LimitProvided
+    )
+
+    $queueLatest = if ($LatestProvided) { $Latest } else { 200 }
+    if ($queueLatest -lt 1) {
+        Write-Output ("ERROR: -Latest must be greater than 0 for {0}" -f $CommandName)
+        exit 1
+    }
+    if ($MinFullSuccess -lt 1) {
+        Write-Output ("ERROR: -MinFullSuccess must be greater than 0 for {0}" -f $CommandName)
+        exit 1
+    }
+    $queueLimit = if ($LimitProvided) { $Limit } else { 15 }
+    if ($queueLimit -lt 1) {
+        Write-Output ("ERROR: -Limit must be greater than 0 for {0}" -f $CommandName)
+        exit 1
+    }
+    $queueTargetUnique = if ($TargetUniqueProvided -and $TargetUnique -gt 0) { $TargetUnique } else { 13 }
+    $queueProfile = if ($ProfileProvided) { $Profile } else { "full" }
+
+    $queue = Get-RetestQueueSummary `
+        -RequestedLatest $queueLatest `
+        -RequestedProfile $queueProfile `
+        -MinimumFullSuccess $MinFullSuccess `
+        -RequestedTargetUnique $queueTargetUnique `
+        -RequestedLimit $queueLimit
+
+    Write-WorkflowSummary -Title "Retest Queue Summary" -Fields $queue.fields
+    Write-RetestQueueTable -Rows $queue.rows
+    exit 0
+}
+
 function New-WorkflowHelpItem {
     param(
         [string]$Category,
@@ -2127,6 +2389,8 @@ function Get-WorkflowHelpItems {
         New-WorkflowHelpItem "Baseline management" "case-library" "Summarize tested known_true_addr matrix from recent logs" "test_session_tool.ps1 case-library [-Latest 100] [-Profile full|quick]" "$prefix case-library -Latest 100" "Read-only; does not run CE or write files" "case-summary"
         New-WorkflowHelpItem "Baseline management" "stable-cases" "List strict stable baseline candidate addresses and rejection reasons" "test_session_tool.ps1 stable-cases [-Latest 100] [-Profile full] [-MinFullSuccess 2] [-TargetUnique 13] [-ShowRejected] [-KnownTrueAddr <addr>]" "$prefix stable-cases -ShowRejected; $prefix stable-cases -KnownTrueAddr `"0x25A061C7D48`"" "Read-only; does not run CE or write files; rejects placeholder addresses" "baseline-save"
         New-WorkflowHelpItem "Baseline management" "baseline-candidates" "Alias for stable-cases" "test_session_tool.ps1 baseline-candidates [-Latest 100] [-Profile full] [-ShowRejected]" "$prefix baseline-candidates" "Read-only; same output as stable-cases" "baseline-save"
+        New-WorkflowHelpItem "Baseline management" "retest-queue" "Plan next clean full detect-only retests from rejected stable-cases" "test_session_tool.ps1 retest-queue [-Latest 200] [-Profile full] [-MinFullSuccess 2] [-TargetUnique 13] [-Limit 15]" "$prefix retest-queue -Latest 200 -Limit 10" "Read-only; does not run CE, write files, save baselines, or modify config" "prepare"
+        New-WorkflowHelpItem "Baseline management" "sample-plan" "Alias for retest-queue" "test_session_tool.ps1 sample-plan [-Latest 200] [-Profile full] [-Limit 15]" "$prefix sample-plan" "Read-only; same output as retest-queue" "prepare"
         New-WorkflowHelpItem "Baseline management" "case-summary" "Summarize known_true_addr coverage for latest baseline-eligible batches" "test_session_tool.ps1 case-summary [-Latest 20] [-Profile full] [-Baseline <file-or-path>] [-TargetUnique 13]" "$prefix case-summary -Latest 20" "Read-only; does not run CE or write files" "collect new distinct full cases if coverage warns"
         New-WorkflowHelpItem "Baseline management" "coverage-plan" "Alias for case-summary" "test_session_tool.ps1 coverage-plan [-Latest 20] [-Profile full]" "$prefix coverage-plan" "Read-only; same output as case-summary" "collect new distinct full cases if coverage warns"
         New-WorkflowHelpItem "Diagnostics / inspection" "inspect-latest" "Inspect the latest batch id from LogRoot" "test_session_tool.ps1 inspect-latest" "$prefix inspect-latest" "Read-only; does not run CE" "doctor"
@@ -2211,6 +2475,8 @@ $availableCommands = @(
     "case-library",
     "stable-cases",
     "baseline-candidates",
+    "retest-queue",
+    "sample-plan",
     "case-summary",
     "coverage-plan",
     "inspect-latest",
@@ -3060,6 +3326,24 @@ switch ($Action) {
             -ProfileProvided ($PSBoundParameters.ContainsKey("Profile")) `
             -TargetUniqueProvided ($PSBoundParameters.ContainsKey("TargetUnique")) `
             -KnownTrueAddrProvided ($PSBoundParameters.ContainsKey("KnownTrueAddr"))
+    }
+
+    "retest-queue" {
+        Invoke-RetestQueueCommand `
+            -CommandName "retest-queue" `
+            -LatestProvided ($PSBoundParameters.ContainsKey("Latest")) `
+            -ProfileProvided ($PSBoundParameters.ContainsKey("Profile")) `
+            -TargetUniqueProvided ($PSBoundParameters.ContainsKey("TargetUnique")) `
+            -LimitProvided ($PSBoundParameters.ContainsKey("Limit"))
+    }
+
+    "sample-plan" {
+        Invoke-RetestQueueCommand `
+            -CommandName "sample-plan" `
+            -LatestProvided ($PSBoundParameters.ContainsKey("Latest")) `
+            -ProfileProvided ($PSBoundParameters.ContainsKey("Profile")) `
+            -TargetUniqueProvided ($PSBoundParameters.ContainsKey("TargetUnique")) `
+            -LimitProvided ($PSBoundParameters.ContainsKey("Limit"))
     }
 
     "case-summary" {

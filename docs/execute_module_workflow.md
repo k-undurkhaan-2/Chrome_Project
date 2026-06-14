@@ -216,6 +216,18 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\te
 
 Use `-ShowRejected` to plan retests for addresses that are not yet stable baseline candidates. The output includes compact rejection reason codes and recommended retest actions. Use `-KnownTrueAddr` to inspect one address in detail; placeholder values such as `0x...` are rejected before any log scan.
 
+## Retest Queue / Sample Plan
+
+Use `retest-queue` to choose the next known true addresses worth collecting as clean full detect-only runs:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" retest-queue
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" retest-queue -Latest 200 -Limit 10
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" sample-plan
+```
+
+`sample-plan` is an alias for the same read-only planner. These commands use rejected `stable-cases` data to rank addresses as `HIGH`, `MEDIUM`, `LOW`, or `BLOCKED`. They do not run CE, do not write files, do not modify local config, and do not save a baseline. Use `baseline-save` separately when you intentionally want to write a local baseline snapshot.
+
 ## Detect-Only Workflow
 
 1. Reset to a safe detect-only target:
