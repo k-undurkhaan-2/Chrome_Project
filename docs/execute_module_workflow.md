@@ -208,9 +208,13 @@ Use `stable-cases` to select baseline candidate addresses from historical logs:
 powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" stable-cases
 powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" stable-cases -Latest 200
 powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" stable-cases -MinFullSuccess 1 -TargetUnique 13
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" stable-cases -ShowRejected
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" stable-cases -KnownTrueAddr "0x25A061C7D48"
 ```
 
 `baseline-candidates` is an alias for the same read-only view. These commands do not run CE, do not write files, do not modify local config, and do not save a baseline. Use `baseline-save` separately when you intentionally want to write a local baseline snapshot under ignored `log\baselines`.
+
+Use `-ShowRejected` to plan retests for addresses that are not yet stable baseline candidates. The output includes compact rejection reason codes and recommended retest actions. Use `-KnownTrueAddr` to inspect one address in detail; placeholder values such as `0x...` are rejected before any log scan.
 
 ## Detect-Only Workflow
 

@@ -24,7 +24,8 @@ param(
     [string]$Baseline,
     [string]$Level,
     [int]$TargetUnique = 0,
-    [int]$MinFullSuccess = 2
+    [int]$MinFullSuccess = 2,
+    [switch]$ShowRejected
 )
 
 Set-StrictMode -Version 2.0
@@ -104,7 +105,7 @@ function Write-CommandHelp {
     Write-Output "  baseline-save -Name <safe-name> [-Latest 20]"
     Write-Output "  baseline-compare -Baseline <file-or-path> [-Latest 20]"
     Write-Output "  case-library [-Latest 100] [-Profile full|quick]"
-    Write-Output "  stable-cases [-Latest 100] [-Profile full] [-MinFullSuccess 2] [-TargetUnique 13]"
+    Write-Output "  stable-cases [-Latest 100] [-Profile full] [-MinFullSuccess 2] [-TargetUnique 13] [-ShowRejected] [-KnownTrueAddr <addr>]"
     Write-Output "  case-summary [-Latest 20] [-Profile full] [-Baseline <file-or-path>] [-TargetUnique 13]"
     Write-Output "  safe-reset [-TargetValueFloat 100.0]"
     Write-Output ""
@@ -1754,6 +1755,71 @@ function Get-StableCaseRecommendation {
     return "Collect more distinct full detect-only clean runs."
 }
 
+function Test-StableCaseOnlyNeedsCleanRuns {
+    param([string[]]$Reasons)
+
+    $allowed = @("full_success_lt_min", "baseline_eligible_lt_min", "no_full_success")
+    foreach ($reason in @($Reasons)) {
+        if (-not ($allowed -contains $reason)) {
+            return $false
+        }
+    }
+    return @($Reasons).Count -gt 0
+}
+
+function Test-StableCaseHasQualityIssue {
+    param([string[]]$Reasons)
+
+    $qualityReasons = @(
+        "latest_full_not_success",
+        "latest_final_hit_false",
+        "latest_rank_not_1_1_1",
+        "latest_stable_rank_not_1",
+        "has_invalid_config_mismatch",
+        "has_known_true_value_mismatch",
+        "has_ranking_issue",
+        "has_selected_quota_issue"
+    )
+    foreach ($reason in @($Reasons)) {
+        if ($qualityReasons -contains $reason) {
+            return $true
+        }
+    }
+    return $false
+}
+
+function Get-StableCaseRecommendedAction {
+    param(
+        [string[]]$Reasons,
+        [bool]$StableCandidate,
+        [int]$FullSuccessCount,
+        [int]$BaselineEligibleSuccessCount,
+        [int]$MinimumFullSuccess
+    )
+
+    if ($StableCandidate) {
+        return "Ready as stable baseline candidate."
+    }
+
+    if (Test-StableCaseHasQualityIssue -Reasons $Reasons) {
+        return "Inspect failed batches before using this address as baseline candidate."
+    }
+
+    if (@($Reasons | Where-Object { $_ -eq "has_execution_batch" }).Count -gt 0) {
+        return "Do not use execution batches for baseline; collect clean detect-only confirmations."
+    }
+
+    if (Test-StableCaseOnlyNeedsCleanRuns -Reasons $Reasons) {
+        $needed = [Math]::Max($MinimumFullSuccess - $FullSuccessCount, $MinimumFullSuccess - $BaselineEligibleSuccessCount)
+        if ($needed -lt 1) {
+            $needed = 1
+        }
+        return ("Collect {0} more full detect-only baseline-eligible success run(s)." -f $needed)
+    }
+
+    return "Collect clean full detect-only confirmations and inspect latest failures before baseline use."
+}
+
 function Get-StableCasesSummary {
     param([int]$RequestedLatest, [string]$RequestedProfile, [int]$MinimumFullSuccess, [int]$RequestedTargetUnique)
 
@@ -1791,34 +1857,40 @@ function Get-StableCasesSummary {
         $knownTrueMismatchCount = @($addrRecords | Where-Object { (Get-RecordField -Record $_ -Key "classification") -eq "known_true_value_mismatch" }).Count
         $rankingIssueCount = @($addrRecords | Where-Object { (Get-RecordField -Record $_ -Key "classification") -eq "ranking_issue" }).Count
         $selectedQuotaIssueCount = @($addrRecords | Where-Object { (Get-RecordField -Record $_ -Key "classification") -eq "selected_quota_issue" }).Count
-        $writeDependencyCount = @($addrRecords | Where-Object { Test-RecordWriteDependency -Record $_ }).Count
+        $executionBatchCount = @($addrRecords | Where-Object { (Test-RecordExecutionBatch -Record $_) -or (Test-RecordWriteDependency -Record $_) }).Count
 
         $latestFinalHitOk = $false
         $latestRankOk = $false
         $latestStableRankOk = $false
+        $latestFullSuccessOk = $false
         if ($latestFullRecord) {
+            $latestFullSuccessOk = Test-RecordFullSuccess -Record $latestFullRecord
             $latestFinalHitOk = Test-LogTrue (Get-RecordField -Record $latestFullRecord -Key "final_hit")
             $latestRankOk = Test-RankAwbOne -Value (Get-RecordField -Record $latestFullRecord -Key "rank_A/W/B")
             $latestStableRankOk = Test-StableRankOne -Value (Get-RecordField -Record $latestFullRecord -Key "stable_rank")
         }
 
-        $notes = @()
-        if ($fullSuccessCount -lt $MinimumFullSuccess) { $notes += "needs full_success>=$MinimumFullSuccess" }
-        if ($baselineEligibleSuccessCount -lt $MinimumFullSuccess) { $notes += "needs baseline_eligible_success>=$MinimumFullSuccess" }
-        if ($invalidConfigCount -gt 0) { $notes += "invalid_config_mismatch" }
-        if ($knownTrueMismatchCount -gt 0) { $notes += "known_true_value_mismatch" }
-        if ($rankingIssueCount -gt 0) { $notes += "ranking_issue" }
-        if ($selectedQuotaIssueCount -gt 0) { $notes += "selected_quota_issue" }
-        if ($writeDependencyCount -gt 0) { $notes += "execution_write_dependency" }
-        if (-not $latestFullRecord) { $notes += "no full result" }
-        if ($latestFullRecord -and -not $latestFinalHitOk) { $notes += "latest final_hit not true" }
-        if ($latestFullRecord -and -not $latestRankOk) { $notes += "latest rank_A/W/B not 1/1/1" }
-        if ($latestFullRecord -and -not $latestStableRankOk) { $notes += "latest stable_rank not 1" }
+        $rejectionReasons = @()
+        if ($fullSuccessCount -lt $MinimumFullSuccess) { $rejectionReasons += "full_success_lt_min" }
+        if ($baselineEligibleSuccessCount -lt $MinimumFullSuccess) { $rejectionReasons += "baseline_eligible_lt_min" }
+        if ($fullSuccessCount -eq 0) { $rejectionReasons += "no_full_success" }
+        if ($latestFullRecord -and -not $latestFullSuccessOk) { $rejectionReasons += "latest_full_not_success" }
+        if ($latestFullRecord -and -not $latestFinalHitOk) { $rejectionReasons += "latest_final_hit_false" }
+        if ($latestFullRecord -and -not $latestRankOk) { $rejectionReasons += "latest_rank_not_1_1_1" }
+        if ($latestFullRecord -and -not $latestStableRankOk) { $rejectionReasons += "latest_stable_rank_not_1" }
+        if ($invalidConfigCount -gt 0) { $rejectionReasons += "has_invalid_config_mismatch" }
+        if ($knownTrueMismatchCount -gt 0) { $rejectionReasons += "has_known_true_value_mismatch" }
+        if ($rankingIssueCount -gt 0) { $rejectionReasons += "has_ranking_issue" }
+        if ($selectedQuotaIssueCount -gt 0) { $rejectionReasons += "has_selected_quota_issue" }
+        if ($executionBatchCount -gt 0) { $rejectionReasons += "has_execution_batch" }
 
-        $stableCandidate = $notes.Count -eq 0
-        if ($stableCandidate) {
-            $notes += "ready"
-        }
+        $stableCandidate = $rejectionReasons.Count -eq 0
+        $recommendedAction = Get-StableCaseRecommendedAction `
+            -Reasons $rejectionReasons `
+            -StableCandidate $stableCandidate `
+            -FullSuccessCount $fullSuccessCount `
+            -BaselineEligibleSuccessCount $baselineEligibleSuccessCount `
+            -MinimumFullSuccess $MinimumFullSuccess
 
         $rows += [pscustomobject][ordered]@{
             known_true_addr = $group.Name
@@ -1827,17 +1899,46 @@ function Get-StableCasesSummary {
             quick_success_count = $quickSuccessCount
             first_seen_batch = $(if ($batchIds.Count -gt 0) { $batchIds[0] } else { "-" })
             last_seen_batch = $(if ($batchIds.Count -gt 0) { $batchIds[$batchIds.Count - 1] } else { "-" })
+            latest_full_batch = $(if ($latestFullRecord) { Get-RecordField -Record $latestFullRecord -Key "batch_id" } else { "-" })
             last_seen_order = $(if ($latestFullRecord) { $latestFullRecord.scan_order } else { "-" })
             latest_best_candidate = $(if ($latestFullRecord) { Get-RecordField -Record $latestFullRecord -Key "best_candidate" } else { "-" })
             latest_rank_AWB = $(if ($latestFullRecord) { Get-RecordField -Record $latestFullRecord -Key "rank_A/W/B" } else { "-" })
             latest_stable_rank = $(if ($latestFullRecord) { Get-RecordField -Record $latestFullRecord -Key "stable_rank" } else { "-" })
             stable_candidate = $stableCandidate
             total_cases = $addrRecords.Count
-            notes = ($notes -join "; ")
+            rejection_reasons = $(if ($stableCandidate) { "-" } else { $rejectionReasons -join "; " })
+            recommended_action = $recommendedAction
+            notes = $(if ($stableCandidate) { "ready" } else { $rejectionReasons -join "; " })
         }
     }
 
     $stableRows = @($rows | Where-Object { $_.stable_candidate -eq $true })
+    $rejectedRows = @($rows | Where-Object { $_.stable_candidate -ne $true })
+    $reasonCounts = @{}
+    foreach ($row in $rejectedRows) {
+        foreach ($reason in @("$($row.rejection_reasons)".Split(";") | ForEach-Object { $_.Trim() } | Where-Object { Test-LogPresent -Value $_ -and $_ -ne "-" })) {
+            if (-not $reasonCounts.ContainsKey($reason)) {
+                $reasonCounts[$reason] = 0
+            }
+            $reasonCounts[$reason] += 1
+        }
+    }
+    $reasonSummary = @(
+        foreach ($reason in @($reasonCounts.Keys | Sort-Object)) {
+            [pscustomobject][ordered]@{
+                rejection_reason = $reason
+                affected_addr_count = $reasonCounts[$reason]
+            }
+        }
+    )
+    $onlyMoreCleanRunsCount = @($rejectedRows | Where-Object {
+        $reasons = @("$($_.rejection_reasons)".Split(";") | ForEach-Object { $_.Trim() } | Where-Object { Test-LogPresent -Value $_ -and $_ -ne "-" })
+        Test-StableCaseOnlyNeedsCleanRuns -Reasons $reasons
+    }).Count
+    $qualityIssueCount = @($rejectedRows | Where-Object {
+        $reasons = @("$($_.rejection_reasons)".Split(";") | ForEach-Object { $_.Trim() } | Where-Object { Test-LogPresent -Value $_ -and $_ -ne "-" })
+        Test-StableCaseHasQualityIssue -Reasons $reasons
+    }).Count
     $topRepeated = @($rows | Sort-Object -Property @{ Expression = "total_cases"; Descending = $true }, known_true_addr | Select-Object -First 1)
     $topRepeatedText = if ($topRepeated.Count -gt 0) { "{0} count {1}" -f $topRepeated[0].known_true_addr, $topRepeated[0].total_cases } else { "none" }
     $duplicateHeavyWarning = $topRepeated.Count -gt 0 -and $topRepeated[0].total_cases -ge 5
@@ -1851,44 +1952,130 @@ function Get-StableCasesSummary {
             "target unique" = $RequestedTargetUnique
             "total unique addr" = $rows.Count
             "stable candidate count" = $stableRows.Count
+            "rejected address count" = $rejectedRows.Count
+            "addresses needing only more clean full runs" = $onlyMoreCleanRunsCount
+            "addresses blocked by quality issues" = $qualityIssueCount
             "coverage readiness" = $readiness
             "top repeated addr" = $topRepeatedText
             "duplicate-heavy warning" = $duplicateHeavyWarning
             "recommended action" = Get-StableCaseRecommendation -Readiness $readiness
         }
         rows = $rows
+        reason_summary = $reasonSummary
         stable_count = $stableRows.Count
+        rejected_count = $rejectedRows.Count
         readiness = $readiness
     }
 }
 
 function Write-StableCasesTable {
-    param([object[]]$Rows)
+    param(
+        [object[]]$Rows,
+        [switch]$IncludeRejected,
+        [string]$Title = "Stable Cases"
+    )
 
     Write-Output ""
-    Write-Output "Stable Cases"
-    if (@($Rows).Count -eq 0) {
-        Write-Output "No known_true_addr records found."
+    Write-Output $Title
+    $displayRows = @($Rows)
+    if (-not $IncludeRejected) {
+        $displayRows = @($displayRows | Where-Object { $_.stable_candidate -eq $true })
+    }
+    if ($displayRows.Count -eq 0) {
+        Write-Output "No matching known_true_addr rows found."
         return
     }
 
-    Write-Output ("{0,-15} {1,9} {2,8} {3,5} {4,-15} {5,-15} {6,5} {7,-15} {8,-9} {9,-6} {10,-6} {11}" -f "known_true_addr", "full_succ", "eligible", "quick", "first_seen", "last_seen", "order", "best_candidate", "rank_AWB", "stable", "cand", "notes")
-    Write-Output ("{0,-15} {1,9} {2,8} {3,5} {4,-15} {5,-15} {6,5} {7,-15} {8,-9} {9,-6} {10,-6} {11}" -f "---------------", "---------", "--------", "-----", "----------", "---------", "-----", "--------------", "--------", "------", "----", "-----")
-    foreach ($row in @($Rows | Sort-Object -Property @{ Expression = "stable_candidate"; Descending = $true }, @{ Expression = "full_success_count"; Descending = $true }, known_true_addr)) {
-        Write-Output ("{0,-15} {1,9} {2,8} {3,5} {4,-15} {5,-15} {6,5} {7,-15} {8,-9} {9,-6} {10,-6} {11}" -f `
+    Write-Output ("{0,-15} {1,9} {2,8} {3,5} {4,-15} {5,-15} {6,-15} {7,-9} {8,-6} {9,-6} {10,-36} {11}" -f "known_true_addr", "full_succ", "eligible", "quick", "first_seen", "last_seen", "latest_full", "rank_AWB", "stable", "cand", "rejection_reasons", "recommended_action")
+    Write-Output ("{0,-15} {1,9} {2,8} {3,5} {4,-15} {5,-15} {6,-15} {7,-9} {8,-6} {9,-6} {10,-36} {11}" -f "---------------", "---------", "--------", "-----", "----------", "---------", "-----------", "--------", "------", "----", "-----------------", "------------------")
+    foreach ($row in @($displayRows | Sort-Object -Property @{ Expression = "stable_candidate"; Descending = $true }, @{ Expression = "full_success_count"; Descending = $true }, known_true_addr)) {
+        Write-Output ("{0,-15} {1,9} {2,8} {3,5} {4,-15} {5,-15} {6,-15} {7,-9} {8,-6} {9,-6} {10,-36} {11}" -f `
             $row.known_true_addr,
             $row.full_success_count,
             $row.baseline_eligible_count,
             $row.quick_success_count,
             $row.first_seen_batch,
             $row.last_seen_batch,
-            $row.last_seen_order,
-            $row.latest_best_candidate,
+            $row.latest_full_batch,
             $row.latest_rank_AWB,
             $row.latest_stable_rank,
             $row.stable_candidate,
-            $row.notes)
+            $row.rejection_reasons,
+            $row.recommended_action)
     }
+}
+
+function Write-StableRejectionReasonSummary {
+    param([object[]]$Rows)
+
+    Write-Output ""
+    Write-Output "Rejection Reason Summary"
+    if (@($Rows).Count -eq 0) {
+        Write-Output "No rejected addresses."
+        return
+    }
+
+    Write-Output ("{0,-36} {1,10}" -f "rejection_reason", "addr_count")
+    Write-Output ("{0,-36} {1,10}" -f "----------------", "----------")
+    foreach ($row in @($Rows | Sort-Object -Property @{ Expression = "affected_addr_count"; Descending = $true }, rejection_reason)) {
+        Write-Output ("{0,-36} {1,10}" -f $row.rejection_reason, $row.affected_addr_count)
+    }
+}
+
+function Invoke-StableCasesCommand {
+    param(
+        [string]$CommandName,
+        [bool]$LatestProvided,
+        [bool]$ProfileProvided,
+        [bool]$TargetUniqueProvided,
+        [bool]$KnownTrueAddrProvided
+    )
+
+    $stableLatest = if ($LatestProvided) { $Latest } else { 100 }
+    if ($stableLatest -lt 1) {
+        Write-Output ("ERROR: -Latest must be greater than 0 for {0}" -f $CommandName)
+        exit 1
+    }
+    if ($MinFullSuccess -lt 1) {
+        Write-Output ("ERROR: -MinFullSuccess must be greater than 0 for {0}" -f $CommandName)
+        exit 1
+    }
+    if ($KnownTrueAddrProvided) {
+        Assert-KnownTrueAddr -Value $KnownTrueAddr -CommandName $CommandName
+    }
+
+    $stableTargetUnique = if ($TargetUniqueProvided -and $TargetUnique -gt 0) { $TargetUnique } else { 13 }
+    $stableProfile = if ($ProfileProvided) { $Profile } else { "full" }
+    $stable = Get-StableCasesSummary -RequestedLatest $stableLatest -RequestedProfile $stableProfile -MinimumFullSuccess $MinFullSuccess -RequestedTargetUnique $stableTargetUnique
+
+    $rows = @($stable.rows)
+    $reasonRows = @($stable.reason_summary)
+    $tableTitle = "Stable Cases"
+    $includeRejectedRows = $ShowRejected
+
+    if ($KnownTrueAddrProvided) {
+        $rows = @($rows | Where-Object { [string]::Equals($_.known_true_addr, $KnownTrueAddr, [System.StringComparison]::OrdinalIgnoreCase) })
+        if ($rows.Count -eq 0) {
+            Write-Output ("ERROR: known_true_addr not found in latest {0} {1} records: {2}" -f $stableLatest, $stableProfile, $KnownTrueAddr)
+            exit 1
+        }
+        $reasonRows = @()
+        foreach ($reason in @("$($rows[0].rejection_reasons)".Split(";") | ForEach-Object { $_.Trim() } | Where-Object { Test-LogPresent -Value $_ -and $_ -ne "-" })) {
+            $reasonRows += [pscustomobject][ordered]@{
+                rejection_reason = $reason
+                affected_addr_count = 1
+            }
+        }
+        $tableTitle = "Stable Case Detail"
+        $includeRejectedRows = $true
+    } elseif ($ShowRejected) {
+        $tableTitle = "Stable and Rejected Cases"
+    }
+
+    Write-WorkflowSummary -Title "Stable Baseline Candidates Summary" -Fields $stable.fields
+    Write-StableRejectionReasonSummary -Rows $reasonRows
+    Write-StableCasesTable -Rows $rows -IncludeRejected:$includeRejectedRows -Title $tableTitle
+    exit 0
 }
 
 function New-WorkflowHelpItem {
@@ -1938,8 +2125,8 @@ function Get-WorkflowHelpItems {
         New-WorkflowHelpItem "Baseline management" "baseline-save" "Save latest baseline-eligible full snapshot as a local baseline" "test_session_tool.ps1 baseline-save -Name <safe-name> [-Latest 20]" "$prefix baseline-save -Name `"full_clean_YYYYMMDD`" -Latest 20" "Writes ignored log/baselines/*.md; do not commit baseline files" "baseline-compare"
         New-WorkflowHelpItem "Baseline management" "baseline-compare" "Compare latest clean full batches against a chosen baseline" "test_session_tool.ps1 baseline-compare -Baseline <file-or-path> [-Latest 20]" "$prefix baseline-compare -Baseline `"baseline_compact_basic_20260613_latest20.md`"" "Read-only; rejects missing baseline file" "compare-full"
         New-WorkflowHelpItem "Baseline management" "case-library" "Summarize tested known_true_addr matrix from recent logs" "test_session_tool.ps1 case-library [-Latest 100] [-Profile full|quick]" "$prefix case-library -Latest 100" "Read-only; does not run CE or write files" "case-summary"
-        New-WorkflowHelpItem "Baseline management" "stable-cases" "List strict stable baseline candidate addresses" "test_session_tool.ps1 stable-cases [-Latest 100] [-Profile full] [-MinFullSuccess 2] [-TargetUnique 13]" "$prefix stable-cases" "Read-only; does not run CE or write files" "baseline-save"
-        New-WorkflowHelpItem "Baseline management" "baseline-candidates" "Alias for stable-cases" "test_session_tool.ps1 baseline-candidates [-Latest 100] [-Profile full]" "$prefix baseline-candidates" "Read-only; same output as stable-cases" "baseline-save"
+        New-WorkflowHelpItem "Baseline management" "stable-cases" "List strict stable baseline candidate addresses and rejection reasons" "test_session_tool.ps1 stable-cases [-Latest 100] [-Profile full] [-MinFullSuccess 2] [-TargetUnique 13] [-ShowRejected] [-KnownTrueAddr <addr>]" "$prefix stable-cases -ShowRejected; $prefix stable-cases -KnownTrueAddr `"0x25A061C7D48`"" "Read-only; does not run CE or write files; rejects placeholder addresses" "baseline-save"
+        New-WorkflowHelpItem "Baseline management" "baseline-candidates" "Alias for stable-cases" "test_session_tool.ps1 baseline-candidates [-Latest 100] [-Profile full] [-ShowRejected]" "$prefix baseline-candidates" "Read-only; same output as stable-cases" "baseline-save"
         New-WorkflowHelpItem "Baseline management" "case-summary" "Summarize known_true_addr coverage for latest baseline-eligible batches" "test_session_tool.ps1 case-summary [-Latest 20] [-Profile full] [-Baseline <file-or-path>] [-TargetUnique 13]" "$prefix case-summary -Latest 20" "Read-only; does not run CE or write files" "collect new distinct full cases if coverage warns"
         New-WorkflowHelpItem "Baseline management" "coverage-plan" "Alias for case-summary" "test_session_tool.ps1 coverage-plan [-Latest 20] [-Profile full]" "$prefix coverage-plan" "Read-only; same output as case-summary" "collect new distinct full cases if coverage warns"
         New-WorkflowHelpItem "Diagnostics / inspection" "inspect-latest" "Inspect the latest batch id from LogRoot" "test_session_tool.ps1 inspect-latest" "$prefix inspect-latest" "Read-only; does not run CE" "doctor"
@@ -2858,39 +3045,21 @@ switch ($Action) {
     }
 
     "stable-cases" {
-        $stableLatest = if ($PSBoundParameters.ContainsKey("Latest")) { $Latest } else { 100 }
-        if ($stableLatest -lt 1) {
-            Write-Output "ERROR: -Latest must be greater than 0 for stable-cases"
-            exit 1
-        }
-        if ($MinFullSuccess -lt 1) {
-            Write-Output "ERROR: -MinFullSuccess must be greater than 0 for stable-cases"
-            exit 1
-        }
-        $stableTargetUnique = if ($PSBoundParameters.ContainsKey("TargetUnique") -and $TargetUnique -gt 0) { $TargetUnique } else { 13 }
-        $stableProfile = if ($PSBoundParameters.ContainsKey("Profile")) { $Profile } else { "full" }
-        $stable = Get-StableCasesSummary -RequestedLatest $stableLatest -RequestedProfile $stableProfile -MinimumFullSuccess $MinFullSuccess -RequestedTargetUnique $stableTargetUnique
-        Write-WorkflowSummary -Title "Stable Baseline Candidates Summary" -Fields $stable.fields
-        Write-StableCasesTable -Rows $stable.rows
-        exit 0
+        Invoke-StableCasesCommand `
+            -CommandName "stable-cases" `
+            -LatestProvided ($PSBoundParameters.ContainsKey("Latest")) `
+            -ProfileProvided ($PSBoundParameters.ContainsKey("Profile")) `
+            -TargetUniqueProvided ($PSBoundParameters.ContainsKey("TargetUnique")) `
+            -KnownTrueAddrProvided ($PSBoundParameters.ContainsKey("KnownTrueAddr"))
     }
 
     "baseline-candidates" {
-        $stableLatest = if ($PSBoundParameters.ContainsKey("Latest")) { $Latest } else { 100 }
-        if ($stableLatest -lt 1) {
-            Write-Output "ERROR: -Latest must be greater than 0 for baseline-candidates"
-            exit 1
-        }
-        if ($MinFullSuccess -lt 1) {
-            Write-Output "ERROR: -MinFullSuccess must be greater than 0 for baseline-candidates"
-            exit 1
-        }
-        $stableTargetUnique = if ($PSBoundParameters.ContainsKey("TargetUnique") -and $TargetUnique -gt 0) { $TargetUnique } else { 13 }
-        $stableProfile = if ($PSBoundParameters.ContainsKey("Profile")) { $Profile } else { "full" }
-        $stable = Get-StableCasesSummary -RequestedLatest $stableLatest -RequestedProfile $stableProfile -MinimumFullSuccess $MinFullSuccess -RequestedTargetUnique $stableTargetUnique
-        Write-WorkflowSummary -Title "Stable Baseline Candidates Summary" -Fields $stable.fields
-        Write-StableCasesTable -Rows $stable.rows
-        exit 0
+        Invoke-StableCasesCommand `
+            -CommandName "baseline-candidates" `
+            -LatestProvided ($PSBoundParameters.ContainsKey("Latest")) `
+            -ProfileProvided ($PSBoundParameters.ContainsKey("Profile")) `
+            -TargetUniqueProvided ($PSBoundParameters.ContainsKey("TargetUnique")) `
+            -KnownTrueAddrProvided ($PSBoundParameters.ContainsKey("KnownTrueAddr"))
     }
 
     "case-summary" {
