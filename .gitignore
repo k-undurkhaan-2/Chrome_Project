@@ -1,6 +1,17 @@
 src/run_case_config.local.lua
 src/run_case_config.local.lua.bak
 
+# Python local environments / build and test outputs
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+build/
+dist/
+*.egg-info/
+
 # Local runtime logs / generated reports
 log/
 *.log
