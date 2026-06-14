@@ -35,6 +35,7 @@ $CaseConfigPath = Join-Path (Join-Path $ProjectRootPath "src") "run_case_config.
 $BaselineRoot = Join-Path (Join-Path $ProjectRootPath "log") "baselines"
 $BaselinePath = Join-Path $BaselineRoot "baseline_compact_basic_20260613_latest20.md"
 $ResolvedWritesPath = Join-Path (Join-Path $ProjectRootPath "log") "execution_resolved_writes.local.jsonl"
+$ExecutionConfirmText = "I_ACCEPT_WRITE_TO_LIVE_MEMORY"
 
 function Format-CommandPart {
     param([string]$Value)
@@ -61,6 +62,8 @@ function Write-CommandHelp {
     Write-Output "  powershell -NoProfile -ExecutionPolicy Bypass -File `"D:\armedforces.io-v2\src\test_session_tool.ps1`" <command> [options]"
     Write-Output ""
     Write-Output "Commands:"
+    Write-Output "  plan           Preview what the next manual CE/Lua run would do"
+    Write-Output "  preview-next-run Alias for plan"
     Write-Output "  prepare        Set run_case_config.local.lua for the next manual CE/Lua run"
     Write-Output "  post-quick     Classify latest quick batch and append registry"
     Write-Output "  post-full      Classify latest full batch and append registry"
@@ -94,6 +97,8 @@ function Write-CommandHelp {
     Write-Output "Common options:"
     Write-Output "  -ProjectRoot D:\armedforces.io-v2"
     Write-Output "  -LogRoot D:\armedforces.io-v2\log\auto_output"
+    Write-Output "  plan"
+    Write-Output "  preview-next-run"
     Write-Output "  execution-status [-Latest 50] [-IncludeResolved]"
     Write-Output "  doctor [-Latest 50]"
 }
@@ -321,6 +326,214 @@ function Get-TargetConsistencyCheck {
         actual_pattern = $(if ($pattern) { $pattern } else { "-" })
         expected_pattern = $(if ($expected) { $expected } else { "-" })
     }
+}
+
+function Get-ConfigDisplayValue {
+    param($Config, [string]$Key, [string]$Default = "-")
+
+    $value = Get-ConfigField -Config $Config -Key $Key
+    if (Test-LogPresent -Value $value) {
+        return "$value"
+    }
+    return $Default
+}
+
+function Test-ConfigBooleanTrue {
+    param($Config, [string]$Key)
+
+    $value = Get-ConfigField -Config $Config -Key $Key
+    if ($value -is [bool]) {
+        return [bool]$value
+    }
+    if ($null -eq $value) {
+        return $false
+    }
+    return "$value".Trim().ToLowerInvariant() -eq "true"
+}
+
+function Convert-ConfigUtcDateTime {
+    param($Value)
+
+    if (-not (Test-LogPresent -Value $Value)) {
+        return $null
+    }
+
+    try {
+        return ([datetime]::Parse(
+            "$Value",
+            [System.Globalization.CultureInfo]::InvariantCulture,
+            [System.Globalization.DateTimeStyles]::RoundtripKind
+        )).ToUniversalTime()
+    } catch {
+        try {
+            return ([datetime]::Parse(
+                "$Value",
+                [System.Globalization.CultureInfo]::InvariantCulture,
+                ([System.Globalization.DateTimeStyles]::AssumeUniversal -bor [System.Globalization.DateTimeStyles]::AdjustToUniversal)
+            )).ToUniversalTime()
+        } catch {
+            return $null
+        }
+    }
+}
+
+function Get-ExecutionArmPreview {
+    param($Config, [bool]$WriteMode)
+
+    $requestId = Get-ConfigField -Config $Config -Key "execution_write_request_id"
+    $armedAt = Get-ConfigField -Config $Config -Key "execution_armed_at_utc"
+    $expiresAt = Get-ConfigField -Config $Config -Key "execution_arm_expires_at_utc"
+    $hasAnyArmField = (Test-LogPresent -Value $requestId) -or (Test-LogPresent -Value $armedAt) -or (Test-LogPresent -Value $expiresAt)
+    $hasAllArmFields = (Test-LogPresent -Value $requestId) -and (Test-LogPresent -Value $armedAt) -and (Test-LogPresent -Value $expiresAt)
+
+    if (-not $hasAnyArmField -and -not $WriteMode) {
+        return [pscustomobject][ordered]@{
+            valid = "unknown"
+            seconds_remaining = "-"
+            reason = "not_required"
+            malformed = $false
+        }
+    }
+
+    if (-not $hasAllArmFields) {
+        return [pscustomobject][ordered]@{
+            valid = "false"
+            seconds_remaining = "-"
+            reason = "missing_execution_arm"
+            malformed = $false
+        }
+    }
+
+    $expiresAtUtc = Convert-ConfigUtcDateTime -Value $expiresAt
+    if (-not $expiresAtUtc) {
+        return [pscustomobject][ordered]@{
+            valid = "false"
+            seconds_remaining = "-"
+            reason = "invalid_execution_arm"
+            malformed = $true
+        }
+    }
+
+    $secondsRemaining = ($expiresAtUtc - [datetime]::UtcNow).TotalSeconds
+    $secondsText = ([math]::Round($secondsRemaining, 1)).ToString("0.0", [System.Globalization.CultureInfo]::InvariantCulture)
+    if ($secondsRemaining -le 0) {
+        return [pscustomobject][ordered]@{
+            valid = "false"
+            seconds_remaining = $secondsText
+            reason = "execution_arm_expired"
+            malformed = $false
+        }
+    }
+
+    return [pscustomobject][ordered]@{
+        valid = "true"
+        seconds_remaining = $secondsText
+        reason = "active"
+        malformed = $false
+    }
+}
+
+function Get-NextRunPlan {
+    $configExists = Test-Path -LiteralPath $CaseConfigPath
+    $config = Read-CaseConfigMap -Path $CaseConfigPath
+    $targetConsistency = Get-TargetConsistencyCheck -Config $config
+
+    $executionMode = Get-ConfigDisplayValue -Config $config -Key "execution_mode" -Default "disabled"
+    $executionModeLower = "$executionMode".Trim().ToLowerInvariant()
+    $writeEnabled = Test-ConfigBooleanTrue -Config $config -Key "write_enabled"
+    $executionConfirm = Get-ConfigField -Config $config -Key "execution_confirm"
+    $executionConfirmPresent = Test-LogPresent -Value $executionConfirm
+    $executionConfirmOk = $executionConfirmPresent -and [string]::Equals("$executionConfirm", $ExecutionConfirmText, [System.StringComparison]::Ordinal)
+    $executionAddrSource = Get-ConfigDisplayValue -Config $config -Key "execution_addr_source" -Default "stable_intersection_best_candidate"
+    $armPreview = Get-ExecutionArmPreview -Config $config -WriteMode ($executionModeLower -eq "write")
+    $armPresent = Test-ExecutionArmPresent -Config $config
+
+    $targetFloatPresent = Test-LogPresent -Value (Get-ConfigField -Config $config -Key "target_value_float")
+    $targetPatternPresent = Test-LogPresent -Value (Get-ConfigField -Config $config -Key "target_value_pattern")
+    $criticalMalformed = $executionModeLower -eq "write" -and [bool]$armPreview.malformed
+    $targetConfigValid = $configExists -and $targetFloatPresent -and $targetPatternPresent -and [bool]$targetConsistency.matches
+
+    $nextRunType = "detect_only"
+    $dangerLevel = "SAFE"
+    $recommendedNextStep = "Run CE if you want a detect-only batch, then post-full/post-quick."
+
+    if (-not $targetConfigValid -or $criticalMalformed) {
+        $nextRunType = "invalid_config"
+        $dangerLevel = "FAIL"
+        $recommendedNextStep = "Run safe-reset -TargetValueFloat 100.0 or fix config before CE."
+    } elseif ($executionModeLower -eq "dry_run") {
+        $nextRunType = "dry_run"
+        $dangerLevel = "ATTENTION"
+        $recommendedNextStep = "Run CE for dry-run validation only, then post-execution."
+    } elseif ($executionModeLower -eq "write") {
+        if (-not $writeEnabled -or -not $executionConfirmOk -or $armPreview.valid -ne "true") {
+            $nextRunType = "write_blocked_by_config"
+            $dangerLevel = "ATTENTION"
+            $recommendedNextStep = "Run safe-reset or prepare the write/restore again."
+        } elseif ([string]::Equals($executionAddrSource, "restore_source_batch_execution_addr", [System.StringComparison]::OrdinalIgnoreCase)) {
+            $nextRunType = "restore_write"
+            $dangerLevel = "WRITE_CAPABLE"
+            $recommendedNextStep = "Run CE before arm expiry, then post-execution. Then safe-reset -TargetValueFloat 100.0."
+        } else {
+            $nextRunType = "guarded_write"
+            $dangerLevel = "WRITE_CAPABLE"
+            $recommendedNextStep = "Run CE before arm expiry, then post-execution. Restore immediately after write_success."
+        }
+    } elseif ($writeEnabled -or $executionConfirmPresent) {
+        $nextRunType = "write_blocked_by_config"
+        $dangerLevel = "ATTENTION"
+        $recommendedNextStep = "Run safe-reset or prepare the write/restore again."
+    } elseif ($armPresent) {
+        $nextRunType = "detect_only"
+        $dangerLevel = "ATTENTION"
+        $recommendedNextStep = "Run safe-reset or prepare the write/restore again."
+    }
+
+    $fields = [ordered]@{
+        "config path" = $CaseConfigPath
+        "config exists" = $configExists
+        "validation_profile" = Get-ConfigDisplayValue -Config $config -Key "validation_profile"
+        "diagnostic_level" = Get-ConfigDisplayValue -Config $config -Key "diagnostic_level"
+        "known_true_addr" = Get-ConfigDisplayValue -Config $config -Key "known_true_addr"
+        "target_value_float" = Get-ConfigDisplayValue -Config $config -Key "target_value_float"
+        "target_value_pattern" = Get-ConfigDisplayValue -Config $config -Key "target_value_pattern"
+        "expected pattern from float" = $targetConsistency.expected_pattern
+        "target config consistent" = [bool]$targetConsistency.matches
+        "execution_mode" = $executionMode
+        "write_enabled" = $writeEnabled
+        "execution_confirm present" = $executionConfirmPresent
+        "execution_confirm_ok" = $executionConfirmOk
+        "execution_addr_source" = $executionAddrSource
+        "write_value_float" = Get-ConfigDisplayValue -Config $config -Key "write_value_float"
+        "write_value_pattern" = Get-ConfigDisplayValue -Config $config -Key "write_value_pattern"
+        "restore_source_batch_id" = Get-ConfigDisplayValue -Config $config -Key "restore_source_batch_id"
+        "restore_execution_addr" = Get-ConfigDisplayValue -Config $config -Key "restore_execution_addr"
+        "restore_expected_current_float" = Get-ConfigDisplayValue -Config $config -Key "restore_expected_current_float"
+        "restore_expected_current_pattern" = Get-ConfigDisplayValue -Config $config -Key "restore_expected_current_pattern"
+        "restore_write_value_float" = Get-ConfigDisplayValue -Config $config -Key "restore_write_value_float"
+        "restore_write_value_pattern" = Get-ConfigDisplayValue -Config $config -Key "restore_write_value_pattern"
+        "execution_write_request_id" = Get-ConfigDisplayValue -Config $config -Key "execution_write_request_id"
+        "execution_armed_at_utc" = Get-ConfigDisplayValue -Config $config -Key "execution_armed_at_utc"
+        "execution_arm_expires_at_utc" = Get-ConfigDisplayValue -Config $config -Key "execution_arm_expires_at_utc"
+        "execution_arm_valid" = $armPreview.valid
+        "execution_arm_seconds_remaining" = $armPreview.seconds_remaining
+        "next_run_type" = $nextRunType
+        "danger_level" = $dangerLevel
+        "recommended_next_step" = $recommendedNextStep
+    }
+
+    return [pscustomobject][ordered]@{
+        fields = $fields
+        danger_level = $dangerLevel
+        next_run_type = $nextRunType
+        exit_code = $(if ($dangerLevel -eq "FAIL" -or $nextRunType -eq "invalid_config") { 1 } else { 0 })
+    }
+}
+
+function Write-NextRunPlan {
+    param($Plan)
+
+    Write-WorkflowSummary -Title "Next Run Plan" -Fields $Plan.fields
 }
 
 function New-DoctorCheck {
@@ -1026,6 +1239,8 @@ function New-WorkflowHelpItem {
 function Get-WorkflowHelpItems {
     $prefix = 'powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1"'
     return @(
+        New-WorkflowHelpItem "Safety / Preflight" "plan" "Preview what the next manual CE run would do" "test_session_tool.ps1 plan" "$prefix plan" "Read-only; does not run CE or modify local config" "run CE manually only if the plan is acceptable"
+        New-WorkflowHelpItem "Safety / Preflight" "preview-next-run" "Alias for plan" "test_session_tool.ps1 preview-next-run" "$prefix preview-next-run" "Read-only; same output as plan" "run CE manually only if the plan is acceptable"
         New-WorkflowHelpItem "Safety / Preflight" "doctor" "Run read-only preflight and safety checks" "test_session_tool.ps1 doctor [-Latest 50]" "$prefix doctor" "Read-only; does not run CE or write registry" "status"
         New-WorkflowHelpItem "Safety / Preflight" "status" "Show config, recent classifier output, registry summary, and git status" "test_session_tool.ps1 status" "$prefix status" "Read-only; may print current write-capable warnings" "execution-status -IncludeResolved"
         New-WorkflowHelpItem "Safety / Preflight" "safe-reset" "Disable execution and optionally reset target to safe value" "test_session_tool.ps1 safe-reset [-TargetValueFloat 100.0]" "$prefix safe-reset -TargetValueFloat 100.0" "Writes local config; does not run CE" "doctor"
@@ -1112,6 +1327,8 @@ function Invoke-ClassifierAppend {
 
 $availableCommands = @(
     "help",
+    "plan",
+    "preview-next-run",
     "prepare",
     "post-quick",
     "post-full",
@@ -1165,6 +1382,18 @@ switch ($Action) {
             Write-WorkflowCommandIndex
         }
         exit 0
+    }
+
+    "plan" {
+        $plan = Get-NextRunPlan
+        Write-NextRunPlan -Plan $plan
+        exit $plan.exit_code
+    }
+
+    "preview-next-run" {
+        $plan = Get-NextRunPlan
+        Write-NextRunPlan -Plan $plan
+        exit $plan.exit_code
     }
 
     "prepare" {
@@ -1698,6 +1927,7 @@ switch ($Action) {
 
         $conclusion = Get-DoctorConclusion -Checks $checks
         Write-DoctorReport -Checks $checks -Conclusion $conclusion
+        Write-Output "Before running CE, preview with: test_session_tool.ps1 plan"
         Write-Output "For command list, run: test_session_tool.ps1 help"
         if ($conclusion -eq "FAIL") {
             exit 1
@@ -1941,6 +2171,7 @@ switch ($Action) {
         Write-Output ""
         Write-Output "For transaction safety, run: test_session_tool.ps1 execution-status"
         Write-Output "For full preflight, run: test_session_tool.ps1 doctor"
+        Write-Output "Before running CE, preview with: test_session_tool.ps1 plan"
         Write-Output "For command list, run: test_session_tool.ps1 help"
         exit 0
     }

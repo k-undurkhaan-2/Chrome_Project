@@ -89,6 +89,12 @@ Show current local config, recent classifier output, registry summary, and Git s
 powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" status
 ```
 
+Preview what the next manual CE run would do:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" plan
+```
+
 Check write/restore transaction safety:
 
 ```powershell
@@ -157,33 +163,39 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\te
 powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" prepare -KnownTrueAddr "0x25A061C7D48" -Profile quick
 ```
 
-3. Run CE manually:
+3. Preview the next run:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" plan
+```
+
+4. Run CE manually:
 
 ```lua
 dofile([[D:\armedforces.io-v2\src\execute_module-v5.2.0_batch.lua]])
 ```
 
-4. Classify the quick result:
+5. Classify the quick result:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" post-quick
 ```
 
-5. Prepare a full case:
+6. Prepare a full case:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" prepare -KnownTrueAddr "0x25A061C7D48" -Profile full
 ```
 
-6. Run CE manually again with the same fixed `dofile(...)` command.
+7. Run `plan`, then run CE manually again with the same fixed `dofile(...)` command.
 
-7. Classify the full result:
+8. Classify the full result:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" post-full
 ```
 
-8. Compare clean full detect-only batches:
+9. Compare clean full detect-only batches:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" compare-full
@@ -205,13 +217,19 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\te
 powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" prepare-guarded-write -KnownTrueAddr "0x25A061C7D48" -WriteValueFloat 999.0 -ConfirmWrite
 ```
 
-3. Run CE manually before the write arm expires:
+3. Preview the armed write and confirm `danger_level = WRITE_CAPABLE` only when you are ready:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" plan
+```
+
+4. Run CE manually before the write arm expires:
 
 ```lua
 dofile([[D:\armedforces.io-v2\src\execute_module-v5.2.0_batch.lua]])
 ```
 
-4. Inspect execution output:
+5. Inspect execution output:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" post-execution
@@ -237,13 +255,19 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\te
 
 Replace `YYYYMMDD-HHMMSS` with a real batch id, for example `20260613-225514`.
 
-2. Run CE manually:
+2. Preview the restore and confirm `next_run_type = restore_write` before running CE:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" plan
+```
+
+3. Run CE manually:
 
 ```lua
 dofile([[D:\armedforces.io-v2\src\execute_module-v5.2.0_batch.lua]])
 ```
 
-3. Inspect restore output:
+4. Inspect restore output:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" post-execution
@@ -256,13 +280,13 @@ Expected successful restore signals:
 - `write_ok = true`
 - `readback_ok = true`
 
-4. Reset to safe detect-only config:
+5. Reset to safe detect-only config:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" safe-reset -TargetValueFloat 100.0
 ```
 
-5. Run a full detect-only batch afterward to verify the restored target state.
+6. Run a full detect-only batch afterward to verify the restored target state.
 
 ## Transaction Safety
 
