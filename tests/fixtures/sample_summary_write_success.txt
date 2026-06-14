@@ -1,0 +1,42 @@
+=== Batch Summary ===
+batch_id = 20260614-030303
+
+--- collector-retest-wide-2 / no_probe_A ---
+validation_profile = full
+baseline_eligible = false
+known_true_addr = 0x333061C7D48
+run_valid = true
+failure_class = nil
+collector_empty = false
+target_value_pattern = 0x42C80000
+target_value_float = 100.0
+best_candidate = 0x333061C7D48
+known_true_rank_position = 1
+
+--- collector-retest-wide-2 / with_probe ---
+validation_profile = full
+known_true_addr = 0x333061C7D48
+best_candidate = 0x333061C7D48
+known_true_rank_position = 1
+
+--- collector-retest-wide-2 / no_probe_B ---
+validation_profile = full
+known_true_addr = 0x333061C7D48
+best_candidate = 0x333061C7D48
+known_true_rank_position = 1
+
+--- collector-retest-wide-2 / stable_no_probe_intersection ---
+validation_profile = full
+baseline_eligible = false
+known_true_addr = 0x333061C7D48
+run_valid = true
+collector_empty = false
+target_value_pattern = 0x42C80000
+target_value_float = 100.0
+stable_intersection_best_candidate = 0x333061C7D48
+stable_intersection_known_true_rank_position = 1
+execution_mode = write
+execution_enabled = true
+write_attempted = true
+write_ok = true
+readback_ok = true

@@ -6,7 +6,8 @@ import sys
 from pathlib import Path
 from typing import Sequence
 
-from .logs import DEFAULT_LOG_ROOT, LogParseError, parse_latest_summaries
+from .logs import DEFAULT_LOG_ROOT, BatchSummaryRecord, LogParseError, parse_batch_summary, parse_latest_summaries
+from .parity import parity_latest
 
 
 def _add_logs_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -31,6 +32,38 @@ def _add_logs_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentPar
     )
     parse_latest.add_argument("--json", action="store_true", help="Emit JSON array")
     parse_latest.set_defaults(func=_run_logs_parse_latest)
+
+    parse_batch = logs_subparsers.add_parser(
+        "parse-batch",
+        help="Parse one batch summary log without writing files",
+    )
+    parse_batch.add_argument("--batch-id", required=True, help="Batch id in YYYYMMDD-HHMMSS format")
+    parse_batch.add_argument(
+        "--log-root",
+        default=str(DEFAULT_LOG_ROOT),
+        help="Directory containing *_summary.txt batch logs",
+    )
+    parse_batch.add_argument("--json", action="store_true", help="Emit JSON object")
+    parse_batch.set_defaults(func=_run_logs_parse_batch)
+
+    parity = logs_subparsers.add_parser(
+        "parity-latest",
+        help="Compare Python parser output with the read-only PowerShell classifier console summary",
+    )
+    parity.add_argument("--latest", type=int, default=5, help="Number of latest summary logs to inspect")
+    parity.add_argument(
+        "--profile",
+        choices=("full", "quick"),
+        default="full",
+        help="Validation profile filter",
+    )
+    parity.add_argument(
+        "--log-root",
+        default=str(DEFAULT_LOG_ROOT),
+        help="Directory containing *_summary.txt batch logs",
+    )
+    parity.add_argument("--json", action="store_true", help="Emit JSON object")
+    parity.set_defaults(func=_run_logs_parity_latest)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -61,7 +94,32 @@ def _run_logs_parse_latest(args: argparse.Namespace) -> int:
     return 0
 
 
-def format_records_table(records: Sequence[object]) -> str:
+def _run_logs_parse_batch(args: argparse.Namespace) -> int:
+    record = parse_batch_summary(log_root=Path(args.log_root), batch_id=args.batch_id)
+    if args.json:
+        print(json.dumps(record.to_dict(), indent=2))
+    else:
+        print(format_record_detail(record))
+    return 0
+
+
+def _run_logs_parity_latest(args: argparse.Namespace) -> int:
+    if args.latest < 1:
+        raise LogParseError("--latest must be greater than 0")
+
+    result = parity_latest(
+        log_root=Path(args.log_root),
+        latest=args.latest,
+        profile=args.profile,
+    )
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(format_parity_result(result))
+    return 0 if result.parity_status == "PASS" else 1
+
+
+def format_records_table(records: Sequence[BatchSummaryRecord]) -> str:
     headers = [
         "batch_id",
         "classification",
@@ -108,6 +166,58 @@ def format_records_table(records: Sequence[object]) -> str:
     if not rows:
         lines.append("(no records)")
     return "\n".join(lines)
+
+
+def format_record_detail(record: BatchSummaryRecord) -> str:
+    data = record.to_dict()
+    rows = [(key, data.get(key)) for key in data]
+    width = max(len(key) for key, _ in rows)
+    lines = ["Batch Summary", "-------------"]
+    for key, value in rows:
+        lines.append(f"{key.ljust(width)}  {_display_value(value)}")
+    return "\n".join(lines)
+
+
+def format_parity_result(result: object) -> str:
+    data = result.to_dict()
+    summary_rows = [
+        ("parity_status", data["parity_status"]),
+        ("compared_batch_count", data["compared_batch_count"]),
+        ("mismatch_count", data["mismatch_count"]),
+    ]
+    width = max(len(key) for key, _ in summary_rows)
+    lines = ["Parser Parity", "-------------"]
+    for key, value in summary_rows:
+        lines.append(f"{key.ljust(width)}  {_display_value(value)}")
+
+    mismatches = data["mismatches"]
+    if mismatches:
+        headers = ["batch_id", "field", "python", "powershell"]
+        rows = [
+            [
+                str(item.get("batch_id") or "-"),
+                str(item.get("field") or "-"),
+                _display_value(item.get("python_value")),
+                _display_value(item.get("powershell_value")),
+            ]
+            for item in mismatches
+        ]
+        widths = [len(header) for header in headers]
+        for row in rows:
+            for index, value in enumerate(row):
+                widths[index] = max(widths[index], len(value))
+        lines.append("")
+        lines.append("Mismatches")
+        lines.append("----------")
+        lines.append(" ".join(header.ljust(widths[index]) for index, header in enumerate(headers)))
+        lines.append(" ".join("-" * widths[index] for index in range(len(headers))))
+        for row in rows:
+            lines.append(" ".join(value.ljust(widths[index]) for index, value in enumerate(row)))
+    return "\n".join(lines)
+
+
+def _display_value(value: object | None) -> str:
+    return "-" if value is None else str(value)
 
 
 def main(argv: Sequence[str] | None = None) -> int:

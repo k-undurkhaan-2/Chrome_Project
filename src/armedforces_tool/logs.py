@@ -8,6 +8,7 @@ from typing import Iterable
 
 DEFAULT_LOG_ROOT = Path(r"D:\armedforces.io-v2\log\auto_output")
 
+BATCH_ID_RE = re.compile(r"^\d{8}-\d{6}$")
 SUMMARY_NAME_RE = re.compile(r"^(?P<batch_id>\d{8}-\d{6})__summary\.txt$")
 
 
@@ -21,6 +22,8 @@ class BatchSummaryRecord:
     classification: str
     validation_profile: str
     known_true_addr: str | None
+    target_value_float: str | None
+    target_value_pattern: str | None
     final_hit: bool | None
     rank_AWB: str
     stable_rank: str | None
@@ -28,6 +31,8 @@ class BatchSummaryRecord:
     baseline_eligible: str | None
     execution_outcome: str
     transaction_type: str
+    recommendation: str | None
+    source_log: str
 
     def to_dict(self) -> dict[str, object | None]:
         return {
@@ -35,6 +40,8 @@ class BatchSummaryRecord:
             "classification": self.classification,
             "validation_profile": self.validation_profile,
             "known_true_addr": self.known_true_addr,
+            "target_value_float": self.target_value_float,
+            "target_value_pattern": self.target_value_pattern,
             "final_hit": self.final_hit,
             "rank_AWB": self.rank_AWB,
             "stable_rank": self.stable_rank,
@@ -42,6 +49,8 @@ class BatchSummaryRecord:
             "baseline_eligible": self.baseline_eligible,
             "execution_outcome": self.execution_outcome,
             "transaction_type": self.transaction_type,
+            "recommendation": self.recommendation,
+            "source_log": self.source_log,
         }
 
 
@@ -65,6 +74,20 @@ def parse_latest_summaries(log_root: Path, latest: int, profile: str = "all") ->
         if len(records) >= latest:
             break
     return records
+
+
+def parse_batch_summary(log_root: Path, batch_id: str) -> BatchSummaryRecord:
+    if not BATCH_ID_RE.fullmatch(batch_id):
+        raise LogParseError(f"invalid batch id: {batch_id}; expected YYYYMMDD-HHMMSS")
+    if not log_root.exists():
+        raise LogParseError(f"log root does not exist: {log_root}")
+    if not log_root.is_dir():
+        raise LogParseError(f"log root is not a directory: {log_root}")
+
+    summary = log_root / f"{batch_id}__summary.txt"
+    if not summary.exists():
+        raise LogParseError(f"batch summary not found: {summary}")
+    return parse_summary_file(summary)
 
 
 def parse_summary_file(path: Path) -> BatchSummaryRecord:
@@ -113,6 +136,10 @@ def parse_summary_file(path: Path) -> BatchSummaryRecord:
         stable.get("target_value_float") if stable else None,
         _find_first_value(all_sections, "target_value_float"),
     )
+    recommendation = _first_present(
+        stable.get("recommendation") if stable else None,
+        _find_first_value(all_sections, "recommendation"),
+    )
     config_mismatch = _target_config_mismatch(target_pattern, target_float)
     run_valid = _first_present(stable.get("run_valid") if stable else None, _find_first_value(all_sections, "run_valid"))
     collector_empty = _first_present(
@@ -150,6 +177,8 @@ def parse_summary_file(path: Path) -> BatchSummaryRecord:
         classification=classification,
         validation_profile=validation_profile,
         known_true_addr=known_true_addr,
+        target_value_float=_normalize_value(target_float),
+        target_value_pattern=_normalize_value(target_pattern),
         final_hit=final_hit,
         rank_AWB=rank_awb,
         stable_rank=_normalize_value(stable_rank),
@@ -157,6 +186,8 @@ def parse_summary_file(path: Path) -> BatchSummaryRecord:
         baseline_eligible=_normalize_value(baseline_eligible),
         execution_outcome=execution_outcome,
         transaction_type=transaction_type,
+        recommendation=_recommendation_for_classification(classification, recommendation),
+        source_log=str(path),
     )
 
 
@@ -310,6 +341,21 @@ def _classify_summary(
     if rank_awb == "1/1/1" and not _address_equal(best_candidate, known_true_addr):
         return "ranking_issue"
     return "other"
+
+
+def _recommendation_for_classification(classification: str, recommendation: str | None) -> str | None:
+    normalized = _normalize_value(recommendation)
+    if normalized:
+        return normalized
+    if classification == "stale_known_true_addr":
+        return "verify current-session known_true_addr and rerun"
+    if classification == "invalid_config_mismatch":
+        return "fix target pattern/float consistency and rerun"
+    if classification == "collector_runtime_empty":
+        return "inspect collector/runtime output"
+    if classification in {"success", "quick_success"}:
+        return None
+    return "review batch summary"
 
 
 def _target_config_mismatch(pattern: str | None, float_text: str | None) -> bool:
