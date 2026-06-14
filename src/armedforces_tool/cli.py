@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 from typing import Sequence
 
+from .case_summary import DEFAULT_BASELINE_PATH, analyze_case_summary, case_summary_parity
 from .logs import DEFAULT_LOG_ROOT, BatchSummaryRecord, LogParseError, parse_batch_summary, parse_latest_summaries
 from .parity import parity_latest
 
@@ -66,6 +67,52 @@ def _add_logs_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentPar
     parity.set_defaults(func=_run_logs_parity_latest)
 
 
+def _add_case_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    case_parser = subparsers.add_parser("case", help="Read-only case analysis helpers")
+    case_subparsers = case_parser.add_subparsers(dest="case_command", required=True)
+
+    summary = case_subparsers.add_parser(
+        "summary",
+        help="Summarize baseline-eligible case coverage without writing files",
+    )
+    _add_case_summary_args(summary)
+    summary.set_defaults(func=_run_case_summary)
+
+    parity = case_subparsers.add_parser(
+        "summary-parity",
+        help="Compare Python case summary output with the read-only PowerShell case-summary command",
+    )
+    _add_case_summary_args(parity)
+    parity.set_defaults(func=_run_case_summary_parity)
+
+
+def _add_case_summary_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--latest", type=int, default=20, help="Number of baseline-eligible batches to inspect")
+    parser.add_argument(
+        "--profile",
+        choices=("all", "full", "quick"),
+        default="full",
+        help="Validation profile filter",
+    )
+    parser.add_argument(
+        "--baseline",
+        default=str(DEFAULT_BASELINE_PATH),
+        help="Baseline Markdown file used to infer target unique known_true_addr count",
+    )
+    parser.add_argument(
+        "--target-unique",
+        type=int,
+        default=None,
+        help="Target unique known_true_addr count when no baseline count is available",
+    )
+    parser.add_argument(
+        "--log-root",
+        default=str(DEFAULT_LOG_ROOT),
+        help="Directory containing *_summary.txt batch logs",
+    )
+    parser.add_argument("--json", action="store_true", help="Emit JSON object")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="armedforces_tool",
@@ -75,6 +122,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers = parser.add_subparsers(dest="command", required=True)
     _add_logs_parser(subparsers)
+    _add_case_parser(subparsers)
     return parser
 
 
@@ -116,6 +164,36 @@ def _run_logs_parity_latest(args: argparse.Namespace) -> int:
         print(json.dumps(result.to_dict(), indent=2))
     else:
         print(format_parity_result(result))
+    return 0 if result.parity_status == "PASS" else 1
+
+
+def _run_case_summary(args: argparse.Namespace) -> int:
+    result = analyze_case_summary(
+        log_root=Path(args.log_root),
+        latest=args.latest,
+        profile=args.profile,
+        baseline=Path(args.baseline),
+        target_unique=args.target_unique,
+    )
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(format_case_summary(result))
+    return 0
+
+
+def _run_case_summary_parity(args: argparse.Namespace) -> int:
+    result = case_summary_parity(
+        log_root=Path(args.log_root),
+        latest=args.latest,
+        profile=args.profile,
+        baseline=Path(args.baseline),
+        target_unique=args.target_unique,
+    )
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(format_case_summary_parity(result))
     return 0 if result.parity_status == "PASS" else 1
 
 
@@ -214,6 +292,91 @@ def format_parity_result(result: object) -> str:
         for row in rows:
             lines.append(" ".join(value.ljust(widths[index]) for index, value in enumerate(row)))
     return "\n".join(lines)
+
+
+def format_case_summary(result: object) -> str:
+    data = result.to_dict()
+    field_labels = [
+        ("latest N", "latest_n"),
+        ("profile", "profile"),
+        ("baseline path", "baseline_path"),
+        ("baseline exists", "baseline_exists"),
+        ("baseline unique known_true_addr count", "baseline_unique_known_true_addr_count"),
+        ("target unique source", "target_unique_source"),
+        ("target unique known_true_addr count", "target_unique_known_true_addr_count"),
+        ("current eligible batch count", "current_eligible_batch_count"),
+        ("current success count", "current_success_count"),
+        ("current unique known_true_addr count", "current_unique_known_true_addr_count"),
+        ("coverage delta", "coverage_delta"),
+        ("repeated known_true_addr list with counts", "repeated_known_true_addr"),
+        ("top repeated addr", "top_repeated_addr"),
+        ("estimated new distinct addr needed under rolling latest-N window", "estimated_new_distinct_addr_needed"),
+        ("conclusion", "conclusion"),
+        ("recommendation", "recommendation"),
+    ]
+    rows = []
+    for label, key in field_labels:
+        value = data.get(key)
+        if key == "repeated_known_true_addr":
+            value = _format_repeated_addr_inline(value)
+        rows.append((label, _display_value(value)))
+
+    width = max(len(label) for label, _ in rows)
+    lines = ["Case Coverage Summary", "Field".ljust(width) + "  Value", "-".ljust(width, "-") + "  -----"]
+    for label, value in rows:
+        lines.append(f"{label.ljust(width)}  {value}")
+
+    repeated = data.get("repeated_known_true_addr") or []
+    if repeated:
+        lines.append("")
+        lines.append("Repeated known_true_addr")
+        lines.append("known_true_addr  count")
+        lines.append("---------------  -----")
+        for item in repeated:
+            lines.append(f"{str(item['known_true_addr']).ljust(15)}  {item['count']}")
+    return "\n".join(lines)
+
+
+def format_case_summary_parity(result: object) -> str:
+    data = result.to_dict()
+    rows = [
+        ("parity_status", data["parity_status"]),
+        ("mismatch_count", data["mismatch_count"]),
+    ]
+    width = max(len(label) for label, _ in rows)
+    lines = ["Case Summary Parity", "-------------------"]
+    for label, value in rows:
+        lines.append(f"{label.ljust(width)}  {_display_value(value)}")
+
+    mismatches = data["mismatches"]
+    if mismatches:
+        headers = ["field", "python", "powershell"]
+        table_rows = [
+            [
+                str(item.get("field") or "-"),
+                _display_value(item.get("python_value")),
+                _display_value(item.get("powershell_value")),
+            ]
+            for item in mismatches
+        ]
+        widths = [len(header) for header in headers]
+        for row in table_rows:
+            for index, value in enumerate(row):
+                widths[index] = max(widths[index], len(value))
+        lines.append("")
+        lines.append("Mismatches")
+        lines.append("----------")
+        lines.append(" ".join(header.ljust(widths[index]) for index, header in enumerate(headers)))
+        lines.append(" ".join("-" * widths[index] for index in range(len(headers))))
+        for row in table_rows:
+            lines.append(" ".join(value.ljust(widths[index]) for index, value in enumerate(row)))
+    return "\n".join(lines)
+
+
+def _format_repeated_addr_inline(value: object) -> str | None:
+    if not value:
+        return None
+    return "; ".join(f"{item['known_true_addr']} count {item['count']}" for item in value)
 
 
 def _display_value(value: object | None) -> str:
