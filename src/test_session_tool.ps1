@@ -74,6 +74,7 @@ function Write-CommandHelp {
     Write-Output "  baseline-current Show current default compare-full baseline"
     Write-Output "  baseline-save  Save latest baseline-eligible full batch snapshot"
     Write-Output "  baseline-compare Compare against a named or full-path baseline"
+    Write-Output "  case-library  Summarize tested known_true_addr library"
     Write-Output "  case-summary   Summarize baseline-eligible case coverage"
     Write-Output "  coverage-plan  Alias for case-summary"
     Write-Output "  inspect-latest Inspect the latest batch id from -LogRoot"
@@ -99,6 +100,7 @@ function Write-CommandHelp {
     Write-Output "  mark-write-resolved -BatchId <batch> -Reason <text>"
     Write-Output "  baseline-save -Name <safe-name> [-Latest 20]"
     Write-Output "  baseline-compare -Baseline <file-or-path> [-Latest 20]"
+    Write-Output "  case-library [-Latest 100] [-Profile full|quick]"
     Write-Output "  case-summary [-Latest 20] [-Profile full] [-Baseline <file-or-path>] [-TargetUnique 13]"
     Write-Output "  safe-reset [-TargetValueFloat 100.0]"
     Write-Output ""
@@ -1531,6 +1533,175 @@ function Get-CaseCoverageSummary {
     }
 }
 
+function Test-RecordClassificationSuccess {
+    param($Record)
+
+    $classification = Get-RecordField -Record $Record -Key "classification"
+    return $classification -eq "success" -or $classification -eq "quick_success"
+}
+
+function Test-RecordBaselineEligibleTrue {
+    param($Record)
+
+    $eligible = Get-RecordField -Record $Record -Key "baseline_eligible"
+    return "$eligible".Trim().ToLowerInvariant() -eq "true"
+}
+
+function Test-RecordExecutionBatch {
+    param($Record)
+
+    $transactionType = Get-RecordField -Record $Record -Key "transaction_type"
+    return (Test-LogPresent -Value $transactionType) -and $transactionType -ne "detect_only"
+}
+
+function Test-RecordWriteDependency {
+    param($Record)
+
+    $transactionType = Get-RecordField -Record $Record -Key "transaction_type"
+    return $transactionType -in @("write_success", "restore_success", "write_blocked", "restore_blocked", "execution_failed")
+}
+
+function Get-CaseLibraryConclusion {
+    param([object[]]$Records, [object[]]$AddressRows)
+
+    if ($Records.Count -eq 0 -or $AddressRows.Count -eq 0) {
+        return "INSUFFICIENT_DATA"
+    }
+    $duplicateHeavyRows = @($AddressRows | Where-Object { $_.total_cases -ge 5 -or $_.duplicate_count -ge 3 })
+    if ($duplicateHeavyRows.Count -gt 0) {
+        return "DUPLICATE_HEAVY"
+    }
+    $stableRows = @($AddressRows | Where-Object { $_.stable_case_candidate -eq $true })
+    if ($stableRows.Count -lt 3) {
+        return "NEED_MORE_FULL_CASES"
+    }
+    return "CASE_LIBRARY_OK"
+}
+
+function Get-CaseLibraryRecommendation {
+    param([string]$Conclusion)
+
+    switch ($Conclusion) {
+        "CASE_LIBRARY_OK" { return "Case library has stable full candidates for current planning." }
+        "NEED_MORE_FULL_CASES" { return "Collect more distinct full success cases with at least two clean full runs per address." }
+        "DUPLICATE_HEAVY" { return "Reduce repeated addresses and add new distinct full detect-only cases." }
+        "INSUFFICIENT_DATA" { return "Not enough classified logs found for case library planning." }
+        default { return "Review case library output before changing baselines." }
+    }
+}
+
+function Get-CaseLibrarySummary {
+    param([int]$RequestedLatest, [string]$RequestedProfile)
+
+    $classifierArgs = @("-Latest", "$RequestedLatest", "-Profile", $RequestedProfile, "-LogRoot", $LogRoot, "-ConsoleSummary")
+    $classifierResult = Invoke-WorkflowCommand -FilePath $ClassifierPath -Arguments $classifierArgs -Capture -Quiet
+    if ($classifierResult.exit_code -ne 0) {
+        $classifierResult.output | ForEach-Object { Write-Output $_ }
+        exit $classifierResult.exit_code
+    }
+
+    $records = @(Get-ClassifierConsoleRecords -OutputLines $classifierResult.output | Where-Object {
+        Test-LogPresent -Value (Get-RecordKnownTrueAddr -Record $_)
+    })
+    $groups = @($records | Group-Object { Get-RecordKnownTrueAddr -Record $_ } | Sort-Object Name)
+    $rows = @()
+    foreach ($group in $groups) {
+        $addrRecords = @($group.Group)
+        $successRecords = @($addrRecords | Where-Object { Test-RecordClassificationSuccess -Record $_ })
+        $fullSuccessRecords = @($addrRecords | Where-Object {
+            (Get-RecordField -Record $_ -Key "validation_profile") -eq "full" -and (Get-RecordField -Record $_ -Key "classification") -eq "success"
+        })
+        $profilesSeen = @(
+            $addrRecords |
+                ForEach-Object { Get-RecordField -Record $_ -Key "validation_profile" } |
+                Where-Object { Test-LogPresent -Value $_ } |
+                Select-Object -Unique |
+                Sort-Object
+        )
+        $batchIds = @(
+            $addrRecords |
+                ForEach-Object { Get-RecordField -Record $_ -Key "batch_id" } |
+                Where-Object { Test-LogPresent -Value $_ } |
+                Sort-Object
+        )
+        $baselineEligibleCount = @($addrRecords | Where-Object { Test-RecordBaselineEligibleTrue -Record $_ }).Count
+        $executionBatchCount = @($addrRecords | Where-Object { Test-RecordExecutionBatch -Record $_ }).Count
+        $writeDependencyCount = @($addrRecords | Where-Object { Test-RecordWriteDependency -Record $_ }).Count
+        $invalidConfigCount = @($addrRecords | Where-Object { (Get-RecordField -Record $_ -Key "classification") -eq "invalid_config_mismatch" }).Count
+        $stableCandidate = $fullSuccessRecords.Count -ge 2 -and $invalidConfigCount -eq 0 -and $writeDependencyCount -eq 0
+
+        $rows += [pscustomobject][ordered]@{
+            known_true_addr = $group.Name
+            total_cases = $addrRecords.Count
+            success_count = $successRecords.Count
+            full_success_count = $fullSuccessRecords.Count
+            first_seen_batch = $(if ($batchIds.Count -gt 0) { $batchIds[0] } else { "-" })
+            last_seen_batch = $(if ($batchIds.Count -gt 0) { $batchIds[$batchIds.Count - 1] } else { "-" })
+            profiles_seen = $(if ($profilesSeen.Count -gt 0) { $profilesSeen -join "/" } else { "-" })
+            baseline_eligible_count = $baselineEligibleCount
+            execution_batches_count = $executionBatchCount
+            invalid_config_count = $invalidConfigCount
+            stable_case_candidate = $stableCandidate
+            duplicate_count = [math]::Max(0, $addrRecords.Count - 1)
+        }
+    }
+
+    $stableCandidates = @($rows | Where-Object { $_.stable_case_candidate -eq $true })
+    $recommendedBaselineCandidates = @(
+        $stableCandidates |
+            Sort-Object -Property @{ Expression = "baseline_eligible_count"; Descending = $true }, @{ Expression = "full_success_count"; Descending = $true }, known_true_addr |
+            Select-Object -ExpandProperty known_true_addr
+    )
+    $conclusion = Get-CaseLibraryConclusion -Records $records -AddressRows $rows
+    $summary = [ordered]@{
+        "latest N" = $RequestedLatest
+        "profile" = $RequestedProfile
+        "total cases" = $records.Count
+        "unique known_true_addr count" = $rows.Count
+        "baseline eligible count" = @($records | Where-Object { Test-RecordBaselineEligibleTrue -Record $_ }).Count
+        "execution batches count" = @($records | Where-Object { Test-RecordExecutionBatch -Record $_ }).Count
+        "invalid config count" = @($records | Where-Object { (Get-RecordField -Record $_ -Key "classification") -eq "invalid_config_mismatch" }).Count
+        "stable case candidate count" = $stableCandidates.Count
+        "current recommended baseline candidates" = $(if ($recommendedBaselineCandidates.Count -gt 0) { $recommendedBaselineCandidates -join "; " } else { "none" })
+        "conclusion" = $conclusion
+        "recommendation" = Get-CaseLibraryRecommendation -Conclusion $conclusion
+    }
+
+    return [pscustomobject][ordered]@{
+        fields = $summary
+        rows = $rows
+        conclusion = $conclusion
+    }
+}
+
+function Write-CaseLibraryTable {
+    param([object[]]$Rows)
+
+    Write-Output ""
+    Write-Output "Case Library"
+    if (@($Rows).Count -eq 0) {
+        Write-Output "No known_true_addr records found."
+        return
+    }
+
+    Write-Output ("{0,-15} {1,5} {2,7} {3,9} {4,-19} {5,-19} {6,-10} {7,8} {8,5} {9,7} {10,6}" -f "known_true_addr", "cases", "success", "full_succ", "first_seen", "last_seen", "profiles", "eligible", "exec", "invalid", "stable")
+    Write-Output ("{0,-15} {1,5} {2,7} {3,9} {4,-19} {5,-19} {6,-10} {7,8} {8,5} {9,7} {10,6}" -f "---------------", "-----", "-------", "---------", "----------", "---------", "--------", "--------", "----", "-------", "------")
+    foreach ($row in @($Rows | Sort-Object -Property @{ Expression = "stable_case_candidate"; Descending = $true }, @{ Expression = "full_success_count"; Descending = $true }, known_true_addr)) {
+        Write-Output ("{0,-15} {1,5} {2,7} {3,9} {4,-19} {5,-19} {6,-10} {7,8} {8,5} {9,7} {10,6}" -f `
+            $row.known_true_addr,
+            $row.total_cases,
+            $row.success_count,
+            $row.full_success_count,
+            $row.first_seen_batch,
+            $row.last_seen_batch,
+            $row.profiles_seen,
+            $row.baseline_eligible_count,
+            $row.execution_batches_count,
+            $row.invalid_config_count,
+            $row.stable_case_candidate)
+    }
+}
+
 function New-WorkflowHelpItem {
     param(
         [string]$Category,
@@ -1577,6 +1748,7 @@ function Get-WorkflowHelpItems {
         New-WorkflowHelpItem "Baseline management" "baseline-current" "Show current default compare-full baseline" "test_session_tool.ps1 baseline-current" "$prefix baseline-current" "Read-only" "baseline-compare"
         New-WorkflowHelpItem "Baseline management" "baseline-save" "Save latest baseline-eligible full snapshot as a local baseline" "test_session_tool.ps1 baseline-save -Name <safe-name> [-Latest 20]" "$prefix baseline-save -Name `"full_clean_YYYYMMDD`" -Latest 20" "Writes ignored log/baselines/*.md; do not commit baseline files" "baseline-compare"
         New-WorkflowHelpItem "Baseline management" "baseline-compare" "Compare latest clean full batches against a chosen baseline" "test_session_tool.ps1 baseline-compare -Baseline <file-or-path> [-Latest 20]" "$prefix baseline-compare -Baseline `"baseline_compact_basic_20260613_latest20.md`"" "Read-only; rejects missing baseline file" "compare-full"
+        New-WorkflowHelpItem "Baseline management" "case-library" "Summarize tested known_true_addr matrix from recent logs" "test_session_tool.ps1 case-library [-Latest 100] [-Profile full|quick]" "$prefix case-library -Latest 100" "Read-only; does not run CE or write files" "case-summary"
         New-WorkflowHelpItem "Baseline management" "case-summary" "Summarize known_true_addr coverage for latest baseline-eligible batches" "test_session_tool.ps1 case-summary [-Latest 20] [-Profile full] [-Baseline <file-or-path>] [-TargetUnique 13]" "$prefix case-summary -Latest 20" "Read-only; does not run CE or write files" "collect new distinct full cases if coverage warns"
         New-WorkflowHelpItem "Baseline management" "coverage-plan" "Alias for case-summary" "test_session_tool.ps1 coverage-plan [-Latest 20] [-Profile full]" "$prefix coverage-plan" "Read-only; same output as case-summary" "collect new distinct full cases if coverage warns"
         New-WorkflowHelpItem "Diagnostics / inspection" "inspect-latest" "Inspect the latest batch id from LogRoot" "test_session_tool.ps1 inspect-latest" "$prefix inspect-latest" "Read-only; does not run CE" "doctor"
@@ -1658,6 +1830,7 @@ $availableCommands = @(
     "baseline-current",
     "baseline-save",
     "baseline-compare",
+    "case-library",
     "case-summary",
     "coverage-plan",
     "inspect-latest",
@@ -2475,6 +2648,19 @@ switch ($Action) {
         } elseif ($comparison.status -eq "FAIL" -or $comparison.status -eq "WARN") {
             Write-Output "- next step: inspect comparison details or use inspect-latest"
         }
+        exit 0
+    }
+
+    "case-library" {
+        $libraryLatest = if ($PSBoundParameters.ContainsKey("Latest")) { $Latest } else { 100 }
+        if ($libraryLatest -lt 1) {
+            Write-Output "ERROR: -Latest must be greater than 0 for case-library"
+            exit 1
+        }
+        $libraryProfile = if ($PSBoundParameters.ContainsKey("Profile")) { $Profile } else { "all" }
+        $library = Get-CaseLibrarySummary -RequestedLatest $libraryLatest -RequestedProfile $libraryProfile
+        Write-WorkflowSummary -Title "Case Library Summary" -Fields $library.fields
+        Write-CaseLibraryTable -Rows $library.rows
         exit 0
     }
 

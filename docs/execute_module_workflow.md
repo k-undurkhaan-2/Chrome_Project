@@ -125,6 +125,12 @@ Summarize case coverage for the rolling full baseline window:
 powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" case-summary
 ```
 
+Summarize the tested known-true-address library:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" case-library
+```
+
 ## Baseline Management
 
 Baseline files are local Markdown snapshots under:
@@ -179,6 +185,20 @@ It reports:
 - repeated addresses and top repeated address
 - baseline target coverage, when a baseline is available
 - estimated new distinct addresses needed for the rolling latest-N window
+
+## Case Library / Test Matrix
+
+Use `case-library` to review the recent tested address matrix from `log\auto_output`:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" case-library
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" case-library -Latest 200
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" case-library -Profile full
+```
+
+The command is read-only. It does not run CE, does not write files, and does not modify local config.
+
+It reports per-address first/last seen batch, profiles seen, success counts, baseline-eligible counts, execution batch counts, invalid config counts, and `stable_case_candidate`.
 
 ## Detect-Only Workflow
 
