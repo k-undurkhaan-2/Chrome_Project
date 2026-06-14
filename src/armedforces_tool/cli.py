@@ -10,6 +10,7 @@ from .case_library import analyze_case_library, case_library_parity
 from .case_summary import DEFAULT_BASELINE_PATH, analyze_case_summary, case_summary_parity
 from .logs import DEFAULT_LOG_ROOT, BatchSummaryRecord, LogParseError, parse_batch_summary, parse_latest_summaries
 from .parity import parity_latest
+from .sample_plan import analyze_retest_queue, analyze_sample_plan, retest_queue_parity, sample_plan_parity
 from .stable_cases import analyze_stable_cases, filter_stable_case_result, stable_cases_parity
 
 
@@ -122,6 +123,34 @@ def _add_case_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentPar
     _add_stable_cases_args(stable_parity, include_detail_filters=False)
     stable_parity.set_defaults(func=_run_case_stable_cases_parity)
 
+    retest = case_subparsers.add_parser(
+        "retest-queue",
+        help="Plan read-only retests from rejected stable-case evidence",
+    )
+    _add_sample_plan_args(retest)
+    retest.set_defaults(func=_run_case_retest_queue)
+
+    sample = case_subparsers.add_parser(
+        "sample-plan",
+        help="Build a read-only current-session sample acquisition plan",
+    )
+    _add_sample_plan_args(sample)
+    sample.set_defaults(func=_run_case_sample_plan)
+
+    retest_parity = case_subparsers.add_parser(
+        "retest-queue-parity",
+        help="Compare Python retest queue output with the read-only PowerShell retest-queue command",
+    )
+    _add_sample_plan_args(retest_parity, include_active_session=False)
+    retest_parity.set_defaults(func=_run_case_retest_queue_parity)
+
+    sample_parity = case_subparsers.add_parser(
+        "sample-plan-parity",
+        help="Compare Python sample-plan output with the read-only PowerShell sample-plan command",
+    )
+    _add_sample_plan_args(sample_parity, include_active_session=False)
+    sample_parity.set_defaults(func=_run_case_sample_plan_parity)
+
 
 def _add_case_summary_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--latest", type=int, default=20, help="Number of baseline-eligible batches to inspect")
@@ -194,6 +223,41 @@ def _add_stable_cases_args(parser: argparse.ArgumentParser, *, include_detail_fi
     if include_detail_filters:
         parser.add_argument("--show-rejected", action="store_true", help="Include rejected addresses in the table")
         parser.add_argument("--known-true-addr", default=None, help="Show detailed evaluation for one address")
+    parser.add_argument("--json", action="store_true", help="Emit JSON object")
+
+
+def _add_sample_plan_args(parser: argparse.ArgumentParser, *, include_active_session: bool = True) -> None:
+    parser.add_argument("--latest", type=int, default=100, help="Number of latest profile-matching batches to inspect")
+    parser.add_argument(
+        "--profile",
+        choices=("full", "quick"),
+        default="full",
+        help="Validation profile filter",
+    )
+    parser.add_argument(
+        "--target-unique",
+        type=int,
+        default=13,
+        help="Target stable unique known_true_addr count",
+    )
+    parser.add_argument(
+        "--min-full-success",
+        type=int,
+        default=2,
+        help="Minimum full success count required for a stable candidate",
+    )
+    parser.add_argument("--limit", type=int, default=10, help="Maximum rows to display")
+    parser.add_argument(
+        "--log-root",
+        default=str(DEFAULT_LOG_ROOT),
+        help="Directory containing batch log artifacts",
+    )
+    if include_active_session:
+        parser.add_argument(
+            "--active-session",
+            action="store_true",
+            help="Allow current-session reuse hints from read-only session/intake files",
+        )
     parser.add_argument("--json", action="store_true", help="Emit JSON object")
 
 
@@ -343,6 +407,72 @@ def _run_case_stable_cases_parity(args: argparse.Namespace) -> int:
     else:
         print(format_stable_cases_parity(result))
     return 0 if result.parity_status == "PASS" else 1
+
+
+def _run_case_retest_queue(args: argparse.Namespace) -> int:
+    result = analyze_retest_queue(
+        log_root=Path(args.log_root),
+        latest=args.latest,
+        profile=args.profile,
+        target_unique=args.target_unique,
+        min_full_success=args.min_full_success,
+        limit=args.limit,
+        active_session=bool(getattr(args, "active_session", False)),
+    )
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(format_retest_queue(result))
+    return 0
+
+
+def _run_case_sample_plan(args: argparse.Namespace) -> int:
+    result = analyze_sample_plan(
+        log_root=Path(args.log_root),
+        latest=args.latest,
+        profile=args.profile,
+        target_unique=args.target_unique,
+        min_full_success=args.min_full_success,
+        limit=args.limit,
+        active_session=bool(getattr(args, "active_session", False)),
+    )
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(format_sample_plan(result))
+    return 0
+
+
+def _run_case_retest_queue_parity(args: argparse.Namespace) -> int:
+    result = retest_queue_parity(
+        log_root=Path(args.log_root),
+        latest=args.latest,
+        profile=args.profile,
+        target_unique=args.target_unique,
+        min_full_success=args.min_full_success,
+        limit=args.limit,
+    )
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(format_planning_parity(result, title="Retest Queue Parity"))
+    return 0 if result.parity_status in {"PASS", "WARN"} else 1
+
+
+def _run_case_sample_plan_parity(args: argparse.Namespace) -> int:
+    result = sample_plan_parity(
+        log_root=Path(args.log_root),
+        latest=args.latest,
+        profile=args.profile,
+        target_unique=args.target_unique,
+        min_full_success=args.min_full_success,
+        limit=args.limit,
+    )
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(format_planning_parity(result, title="Sample Plan Parity"))
+    return 0 if result.parity_status in {"PASS", "WARN"} else 1
 
 
 def format_records_table(records: Sequence[BatchSummaryRecord]) -> str:
@@ -736,6 +866,158 @@ def format_stable_cases_parity(result: object) -> str:
         table_rows = [
             [
                 str(item.get("field") or "-"),
+                _display_value(item.get("python_value")),
+                _display_value(item.get("powershell_value")),
+            ]
+            for item in mismatches
+        ]
+        lines.append("")
+        lines.append("Mismatches")
+        lines.append("----------")
+        lines.extend(_format_table(headers, table_rows))
+    return "\n".join(lines)
+
+
+def format_retest_queue(result: object) -> str:
+    data = result.to_dict()
+    field_labels = [
+        ("latest N", "latest_n"),
+        ("profile", "profile"),
+        ("target unique", "target_unique"),
+        ("min full success", "min_full_success"),
+        ("display limit", "limit"),
+        ("total unique addr", "total_unique_addr"),
+        ("stable candidate count", "stable_candidate_count"),
+        ("queue size", "queue_size"),
+        ("need more clean full runs count", "need_more_clean_full_runs_count"),
+        ("blocked by quality issues count", "blocked_by_quality_issues_count"),
+        ("high priority retest count", "high_priority_count"),
+        ("medium priority retest count", "medium_priority_count"),
+        ("low priority retest count", "low_priority_count"),
+        ("blocked address count", "blocked_count"),
+        ("duplicate-heavy top addr", "duplicate_heavy_top_addr"),
+        ("active session detected", "active_session_detected"),
+        ("active session id", "active_session_id"),
+        ("current-session reusable address count", "current_session_reusable_address_count"),
+        ("active-session prepare command count", "active_session_prepare_command_count"),
+        ("conclusion", "conclusion"),
+        ("recommendation", "recommendation"),
+    ]
+    rows = [(label, _display_value(data.get(key))) for label, key in field_labels]
+    width = max(len(label) for label, _ in rows)
+    lines = ["Retest Queue Summary", "Field".ljust(width) + "  Value", "-".ljust(width, "-") + "  -----"]
+    for label, value in rows:
+        lines.append(f"{label.ljust(width)}  {value}")
+
+    records = data.get("records") or []
+    lines.append("")
+    lines.append("Retest Queue")
+    if not records:
+        lines.append("No retest rows found.")
+        return "\n".join(lines)
+
+    show_active = any(item.get("active_session_addr") for item in records)
+    headers = [
+        "known_true_addr",
+        "priority",
+        "full",
+        "eligible",
+        "latest_batch",
+        "latest_classification",
+        "rank_AWB",
+        "stable",
+        "missing",
+        "rejection_reasons",
+        "recommended_action",
+    ]
+    if show_active:
+        headers.extend(["active_session_source", "active_session_prepare"])
+    table_rows = []
+    for item in records:
+        row = [
+            str(item.get("known_true_addr") or "-"),
+            str(item.get("priority") or "-"),
+            str(item.get("full_success_count") or 0),
+            str(item.get("baseline_eligible_count") or 0),
+            str(item.get("latest_batch") or "-"),
+            str(item.get("latest_classification") or "-"),
+            str(item.get("latest_rank_AWB") or "-"),
+            str(item.get("latest_stable_rank") or "-"),
+            str(item.get("missing_clean_full_runs") or 0),
+            "; ".join(item.get("rejection_reasons") or []) or "-",
+            str(item.get("recommended_action") or "-"),
+        ]
+        if show_active:
+            row.extend([str(item.get("active_session_source") or "-"), str(item.get("active_session_prepare") or "-")])
+        table_rows.append(row)
+    lines.extend(_format_table(headers, table_rows))
+    return "\n".join(lines)
+
+
+def format_sample_plan(result: object) -> str:
+    data = result.to_dict()
+    field_labels = [
+        ("latest N", "latest_n"),
+        ("profile", "profile"),
+        ("target unique", "target_unique"),
+        ("min full success", "min_full_success"),
+        ("display limit", "limit"),
+        ("current stable candidate count", "current_stable_candidate_count"),
+        ("estimated new stable candidates needed", "estimated_new_stable_candidates_needed"),
+        ("recommended sample count", "recommended_sample_count"),
+        ("active session detected", "active_session_detected"),
+        ("active session requested", "active_session_requested"),
+        ("active session id", "active_session_id"),
+        ("current-session reusable address count", "current_session_reusable_address_count"),
+        ("plan item count", "plan_item_count"),
+        ("conclusion", "conclusion"),
+        ("recommendation", "recommendation"),
+    ]
+    rows = [(label, _display_value(data.get(key))) for label, key in field_labels]
+    width = max(len(label) for label, _ in rows)
+    lines = ["Sample Plan Summary", "Field".ljust(width) + "  Value", "-".ljust(width, "-") + "  -----"]
+    for label, value in rows:
+        lines.append(f"{label.ljust(width)}  {value}")
+
+    records = data.get("records") or []
+    lines.append("")
+    lines.append("Sample Plan")
+    if not records:
+        lines.append("No sample plan rows found.")
+        return "\n".join(lines)
+    headers = ["known_true_addr", "plan_type", "priority", "reason", "command_hint"]
+    table_rows = [
+        [
+            str(item.get("known_true_addr") or "-"),
+            str(item.get("plan_type") or "-"),
+            str(item.get("priority") or "-"),
+            str(item.get("reason") or "-"),
+            str(item.get("command_hint") or "-"),
+        ]
+        for item in records
+    ]
+    lines.extend(_format_table(headers, table_rows))
+    return "\n".join(lines)
+
+
+def format_planning_parity(result: object, *, title: str) -> str:
+    data = result.to_dict()
+    rows = [
+        ("parity_status", data["parity_status"]),
+        ("mismatch_count", data["mismatch_count"]),
+    ]
+    width = max(len(label) for label, _ in rows)
+    lines = [title, "-" * len(title)]
+    for label, value in rows:
+        lines.append(f"{label.ljust(width)}  {_display_value(value)}")
+
+    mismatches = data["mismatches"]
+    if mismatches:
+        headers = ["field", "status", "python", "powershell"]
+        table_rows = [
+            [
+                str(item.get("field") or "-"),
+                str(item.get("status") or "-"),
                 _display_value(item.get("python_value")),
                 _display_value(item.get("powershell_value")),
             ]

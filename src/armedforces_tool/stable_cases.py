@@ -52,6 +52,7 @@ class StableCaseAddressRecord:
     first_seen_batch: str
     last_seen_batch: str
     latest_full_batch: str
+    latest_classification: str
     latest_best_candidate: str
     latest_rank_AWB: str
     latest_stable_rank: str
@@ -69,6 +70,7 @@ class StableCaseAddressRecord:
             "first_seen_batch": self.first_seen_batch,
             "last_seen_batch": self.last_seen_batch,
             "latest_full_batch": self.latest_full_batch,
+            "latest_classification": self.latest_classification,
             "latest_best_candidate": self.latest_best_candidate,
             "latest_rank_AWB": self.latest_rank_AWB,
             "latest_stable_rank": self.latest_stable_rank,
@@ -330,6 +332,7 @@ def _stable_case_rows(
                 first_seen_batch=batch_ids[0] if batch_ids else "-",
                 last_seen_batch=batch_ids[-1] if batch_ids else "-",
                 latest_full_batch=latest_full.batch_id if latest_full else "-",
+                latest_classification=latest_full.classification if latest_full else "-",
                 latest_best_candidate=latest_full.best_candidate if latest_full and latest_full.best_candidate else "-",
                 latest_rank_AWB=latest_full.rank_AWB if latest_full else "-",
                 latest_stable_rank=latest_full.stable_rank if latest_full and latest_full.stable_rank else "-",
