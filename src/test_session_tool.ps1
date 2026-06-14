@@ -80,6 +80,8 @@ function Write-CommandHelp {
     Write-Output "  plan           Preview what the next manual CE/Lua run would do"
     Write-Output "  preview-next-run Alias for plan"
     Write-Output "  prepare        Set run_case_config.local.lua for the next manual CE/Lua run"
+    Write-Output "  prepare-current-case Guarded active-session prepare for current case collection"
+    Write-Output "  prepare-case   Alias for prepare-current-case"
     Write-Output "  post-quick     Classify latest quick batch and append registry"
     Write-Output "  post-full      Classify latest full batch and append registry"
     Write-Output "  compare-full   Compare latest 20 baseline-eligible full batches to compact baseline"
@@ -116,6 +118,8 @@ function Write-CommandHelp {
     Write-Output ""
     Write-Output "Prepare options:"
     Write-Output "  -KnownTrueAddr <addr> [-CaseId <id>] [-Profile quick|full] [-DiagnosticLevel basic|debug|trace]"
+    Write-Output "  prepare-current-case -KnownTrueAddr <addr> [-CaseId <id>] [-Profile quick|full]"
+    Write-Output "  prepare-case -KnownTrueAddr <addr> [-CaseId <id>] [-Profile quick|full]"
     Write-Output "  set-diagnostic -Level basic|debug|trace"
     Write-Output "  prepare-dry-run-write -KnownTrueAddr <addr> -WriteValueFloat <float>"
     Write-Output "  prepare-guarded-write -KnownTrueAddr <addr> -WriteValueFloat <float> -ConfirmWrite"
@@ -2623,7 +2627,7 @@ function Get-RetestQueueSummary {
             retest_priority = $priority
             priority_rank = $priorityRank
             recommended_action = Get-RetestRecommendedAction -Priority $priority -MissingCleanFullRuns $missing -ActiveSessionConfirmed $ActiveSessionConfirmed
-            active_session_prepare = $(if ($ActiveSessionConfirmed -and $priority -in @("HIGH", "MEDIUM", "LOW")) { "prepare -KnownTrueAddr `"$($row.known_true_addr)`" -Profile full" } else { "-" })
+            active_session_prepare = $(if ($ActiveSessionConfirmed -and $priority -in @("HIGH", "MEDIUM", "LOW")) { "prepare-current-case -KnownTrueAddr `"$($row.known_true_addr)`" -Profile full" } else { "-" })
         }
     }
 
@@ -3076,7 +3080,7 @@ function Get-CollectionFlowSteps {
             return @(
                 [pscustomobject][ordered]@{ Step = "1"; Action = "$prefix session-start -Label `"case collection`"" },
                 [pscustomobject][ordered]@{ Step = "2"; Action = "Manually verify a current-session known_true_addr" },
-                [pscustomobject][ordered]@{ Step = "3"; Action = "$prefix prepare -KnownTrueAddr `"<current_addr>`" -Profile full" },
+                [pscustomobject][ordered]@{ Step = "3"; Action = "$prefix prepare-current-case -KnownTrueAddr `"<current_addr>`" -Profile full" },
                 [pscustomobject][ordered]@{ Step = "4"; Action = "Run CE: $ceCommand" },
                 [pscustomobject][ordered]@{ Step = "5"; Action = "$prefix post-full" }
             )
@@ -3085,7 +3089,7 @@ function Get-CollectionFlowSteps {
             return @(
                 [pscustomobject][ordered]@{ Step = "1"; Action = "$prefix session-start -Label `"case collection`"" },
                 [pscustomobject][ordered]@{ Step = "2"; Action = "Collect new current-session addresses; do not reuse old addresses unless freshly verified" },
-                [pscustomobject][ordered]@{ Step = "3"; Action = "$prefix prepare -KnownTrueAddr `"<current_addr>`" -Profile full" },
+                [pscustomobject][ordered]@{ Step = "3"; Action = "$prefix prepare-current-case -KnownTrueAddr `"<current_addr>`" -Profile full" },
                 [pscustomobject][ordered]@{ Step = "4"; Action = "Run CE: $ceCommand" },
                 [pscustomobject][ordered]@{ Step = "5"; Action = "$prefix post-full" }
             )
@@ -3102,7 +3106,7 @@ function Get-CollectionFlowSteps {
             return @(
                 [pscustomobject][ordered]@{ Step = "1"; Action = "$prefix sample-plan -ActiveSession" },
                 [pscustomobject][ordered]@{ Step = "2"; Action = "Choose a currently valid known_true_addr from the active session" },
-                [pscustomobject][ordered]@{ Step = "3"; Action = "$prefix prepare -KnownTrueAddr `"<current_addr>`" -Profile full" },
+                [pscustomobject][ordered]@{ Step = "3"; Action = "$prefix prepare-current-case -KnownTrueAddr `"<current_addr>`" -Profile full" },
                 [pscustomobject][ordered]@{ Step = "4"; Action = "Run CE: $ceCommand" },
                 [pscustomobject][ordered]@{ Step = "5"; Action = "$prefix post-full" },
                 [pscustomobject][ordered]@{ Step = "6"; Action = "$prefix case-summary" }
@@ -3127,6 +3131,186 @@ function Write-CollectionFlowSteps {
     foreach ($row in @($Rows)) {
         Write-Output ("{0,-6} {1}" -f $row.Step, $row.Action)
     }
+}
+
+function Write-PrepareCurrentCaseFailure {
+    param(
+        [string]$CommandName,
+        [string]$Reason,
+        [string]$Details,
+        [string]$RecommendedFix
+    )
+
+    Write-WorkflowSummary -Title "Prepare Current Case Rejected" -Fields ([ordered]@{
+        "command" = $CommandName
+        "result" = "rejected before config write"
+        "reason" = $Reason
+        "details" = $Details
+        "recommended fix" = $RecommendedFix
+        "config modified" = $false
+        "ce runtime run" = $false
+    })
+}
+
+function Test-PrepareCurrentCasePreconditions {
+    param([string]$CommandName, [string]$Address)
+
+    if (-not (Test-KnownTrueAddr -Value $Address)) {
+        return [pscustomobject][ordered]@{
+            ok = $false
+            reason = "invalid_known_true_addr"
+            details = "KnownTrueAddr must match ^0x[0-9A-Fa-f]+$ and must not be a placeholder."
+            recommended_fix = "Use a current-session hex address such as 0x25A061C7D48."
+            session = $null
+            plan = $null
+            config = $null
+        }
+    }
+
+    $session = Read-ActiveTestSession
+    if (-not (Test-ActiveTestSession -Session $session)) {
+        return [pscustomobject][ordered]@{
+            ok = $false
+            reason = "no_active_session"
+            details = ("session status = {0}" -f (Get-ObjectField -Object $session -Key "status" -Default "none"))
+            recommended_fix = 'test_session_tool.ps1 session-start -Label "case collection"'
+            session = $session
+            plan = $null
+            config = $null
+        }
+    }
+
+    $trackedState = Get-TrackedProcessState -Session $session
+    if ($trackedState.process_tracking_enabled -eq $true -and (-not $trackedState.tracked_process_alive -or -not $trackedState.tracked_process_match)) {
+        return [pscustomobject][ordered]@{
+            ok = $false
+            reason = "stale_tracked_session"
+            details = $(if ($trackedState.failure_reason) { $trackedState.failure_reason } else { "tracked process is not valid" })
+            recommended_fix = 'test_session_tool.ps1 session-end -Reason "tracked process changed"; then start a new session'
+            session = $session
+            plan = $null
+            config = $null
+        }
+    }
+
+    $config = Read-CaseConfigMap -Path $CaseConfigPath
+    $writeCapable = (Test-ExecutionConfigWriteCapable -Config $config) -or (Test-ExecutionArmPresent -Config $config)
+    if ($writeCapable) {
+        return [pscustomobject][ordered]@{
+            ok = $false
+            reason = "write_capable_config"
+            details = ("execution_mode={0}; write_enabled={1}; confirm_present={2}; arm_present={3}" -f `
+                (Get-ConfigDisplayValue -Config $config -Key "execution_mode" -Default "disabled"),
+                (Test-ConfigBooleanTrue -Config $config -Key "write_enabled"),
+                (Test-LogPresent -Value (Get-ConfigField -Config $config -Key "execution_confirm")),
+                (Test-ExecutionArmPresent -Config $config))
+            recommended_fix = "test_session_tool.ps1 safe-reset -TargetValueFloat 100.0"
+            session = $session
+            plan = $null
+            config = $config
+        }
+    }
+
+    $targetConsistency = Get-TargetConsistencyCheck -Config $config
+    $targetNormal = Test-NormalTargetConfig -Config $config
+    if (-not $targetNormal -or -not [bool]$targetConsistency.matches) {
+        return [pscustomobject][ordered]@{
+            ok = $false
+            reason = "invalid_target_config"
+            details = ("target_value_float={0}; target_value_pattern={1}; expected_pattern_from_float={2}; consistent={3}" -f `
+                (Get-ConfigDisplayValue -Config $config -Key "target_value_float"),
+                (Get-ConfigDisplayValue -Config $config -Key "target_value_pattern"),
+                $targetConsistency.expected_pattern,
+                [bool]$targetConsistency.matches)
+            recommended_fix = "test_session_tool.ps1 safe-reset -TargetValueFloat 100.0"
+            session = $session
+            plan = $null
+            config = $config
+        }
+    }
+
+    $plan = Get-NextRunPlan
+    if ($plan.next_run_type -ne "detect_only" -or $plan.danger_level -ne "SAFE") {
+        return [pscustomobject][ordered]@{
+            ok = $false
+            reason = "plan_not_safe"
+            details = ("next_run_type={0}; danger_level={1}" -f $plan.next_run_type, $plan.danger_level)
+            recommended_fix = "test_session_tool.ps1 plan"
+            session = $session
+            plan = $plan
+            config = $config
+        }
+    }
+
+    return [pscustomobject][ordered]@{
+        ok = $true
+        reason = "ok"
+        details = "all preconditions passed"
+        recommended_fix = "-"
+        session = $session
+        plan = $plan
+        config = $config
+    }
+}
+
+function Invoke-PrepareCurrentCaseCommand {
+    param([string]$CommandName, [bool]$ProfileProvided)
+
+    if (-not $KnownTrueAddr) {
+        Write-PrepareCurrentCaseFailure `
+            -CommandName $CommandName `
+            -Reason "missing_known_true_addr" `
+            -Details "-KnownTrueAddr is required." `
+            -RecommendedFix "Pass -KnownTrueAddr with a current-session hex address."
+        exit 1
+    }
+
+    $prepareProfile = if ($ProfileProvided) { $Profile } else { "full" }
+    $precheck = Test-PrepareCurrentCasePreconditions -CommandName $CommandName -Address $KnownTrueAddr
+    if (-not $precheck.ok) {
+        Write-PrepareCurrentCaseFailure `
+            -CommandName $CommandName `
+            -Reason $precheck.reason `
+            -Details $precheck.details `
+            -RecommendedFix $precheck.recommended_fix
+        exit 1
+    }
+
+    $args = @(
+        "-Set",
+        "-KnownTrueAddr", $KnownTrueAddr,
+        "-TargetValuePattern", "0x42C80000",
+        "-TargetValueFloat", "100.0",
+        "-DiagnosticLevel", "basic",
+        "-ValidationProfile", $prepareProfile
+    )
+    if ($CaseId) {
+        $args = @("-Set", "-CaseId", $CaseId) + @($args | Select-Object -Skip 1)
+    }
+
+    $result = Invoke-DoctorPowerShellFile -FilePath $CaseConfigToolPath -Arguments $args
+    if ($result.exit_code -ne 0) {
+        $result.output | ForEach-Object { Write-Output $_ }
+        exit $result.exit_code
+    }
+
+    $updatedConfig = Read-CaseConfigMap -Path $CaseConfigPath
+    $afterCeCommand = if ($prepareProfile -eq "quick") { "test_session_tool.ps1 post-quick" } else { "test_session_tool.ps1 post-full" }
+    Write-WorkflowSummary -Title "Prepare Current Case Summary" -Fields ([ordered]@{
+        "command" = $CommandName
+        "session_id" = Get-ObjectField -Object $precheck.session -Key "session_id" -Default "-"
+        "known_true_addr" = Get-ConfigDisplayValue -Config $updatedConfig -Key "known_true_addr"
+        "profile" = Get-ConfigDisplayValue -Config $updatedConfig -Key "validation_profile"
+        "target_value_float" = Get-ConfigDisplayValue -Config $updatedConfig -Key "target_value_float"
+        "target_value_pattern" = Get-ConfigDisplayValue -Config $updatedConfig -Key "target_value_pattern"
+        "precheck next_run_type" = $precheck.plan.next_run_type
+        "precheck danger_level" = $precheck.plan.danger_level
+        "config modified" = $true
+        "ce runtime run" = $false
+        "next CE command" = "dofile([[D:\armedforces.io-v2\src\execute_module-v5.2.0_batch.lua]])"
+        "after CE command" = $afterCeCommand
+    })
+    exit 0
 }
 
 function New-WorkflowHelpItem {
@@ -3168,8 +3352,10 @@ function Get-WorkflowHelpItems {
         New-WorkflowHelpItem "Safety / Preflight" "session-end" "End local active manual test session marker" "test_session_tool.ps1 session-end [-Reason <text>]" "$prefix session-end -Reason `"manual validation complete`"" "Ends active-session reuse guidance; does not run CE or modify config" "sample-plan"
         New-WorkflowHelpItem "Safety / Preflight" "session-watch" "Foreground watch for a process-tracked active session" "test_session_tool.ps1 session-watch [-IntervalSeconds 10] [-Once]" "$prefix session-watch -Once" "Only works with -TrackProcess sessions; no default expiry is enabled" "session-end"
         New-WorkflowHelpItem "Detect-only workflow" "prepare" "Prepare local case config for a manual CE detect run" "test_session_tool.ps1 prepare -KnownTrueAddr <addr> [-CaseId <id>] [-Profile quick|full]" "$prefix prepare -KnownTrueAddr `"0x25A061C7D48`" -Profile full" "Writes local config; validates KnownTrueAddr; does not run CE" "run CE manually, then post-full or post-quick"
+        New-WorkflowHelpItem "Detect-only workflow" "prepare-current-case" "Guarded active-session prepare for current case collection" "test_session_tool.ps1 prepare-current-case -KnownTrueAddr <addr> [-CaseId <id>] [-Profile quick|full]" "$prefix prepare-current-case -KnownTrueAddr `"0x25A061C7D48`" -Profile full" "Requires active manual test session; checks plan SAFE, target 100.0/0x42C80000, and non-write-capable config before writing local config; does not run CE" "run CE manually, then post-full or post-quick"
+        New-WorkflowHelpItem "Detect-only workflow" "prepare-case" "Alias for prepare-current-case" "test_session_tool.ps1 prepare-case -KnownTrueAddr <addr> [-CaseId <id>] [-Profile quick|full]" "$prefix prepare-case -KnownTrueAddr `"0x25A061C7D48`" -Profile full" "Preferred alias/wrapper over raw prepare for normal case collection; writes local config only after guard checks; does not run CE" "run CE manually, then post-full or post-quick"
         New-WorkflowHelpItem "Detect-only workflow" "post-full" "Classify latest full batch and append registry" "test_session_tool.ps1 post-full" "$prefix post-full" "Does not run CE; appends registry record" "compare-full"
-        New-WorkflowHelpItem "Detect-only workflow" "post-quick" "Classify latest quick batch and append registry" "test_session_tool.ps1 post-quick" "$prefix post-quick" "Does not run CE; appends registry record" "prepare -Profile full"
+        New-WorkflowHelpItem "Detect-only workflow" "post-quick" "Classify latest quick batch and append registry" "test_session_tool.ps1 post-quick" "$prefix post-quick" "Does not run CE; appends registry record" "prepare-current-case -Profile full"
         New-WorkflowHelpItem "Detect-only workflow" "compare-full" "Compare latest clean full batches against the default baseline" "test_session_tool.ps1 compare-full" "$prefix compare-full" "Read-only; uses baseline-eligible full batches only" "baseline-current"
         New-WorkflowHelpItem "Execution workflow" "prepare-dry-run-write" "Prepare full/basic execution dry-run config" "test_session_tool.ps1 prepare-dry-run-write -KnownTrueAddr <addr> -WriteValueFloat <float>" "$prefix prepare-dry-run-write -KnownTrueAddr `"0x25A061C7D48`" -WriteValueFloat 999.0" "Writes local config but does not arm live write" "run CE manually, then post-full"
         New-WorkflowHelpItem "Execution workflow" "prepare-guarded-write" "Prepare guarded live write config with confirm and arm" "test_session_tool.ps1 prepare-guarded-write -KnownTrueAddr <addr> -WriteValueFloat <float> -ConfirmWrite" "$prefix prepare-guarded-write -KnownTrueAddr `"0x25A061C7D48`" -WriteValueFloat 999.0 -ConfirmWrite" "Writes live-memory capable config; run CE only when ready before arm expiry" "post-execution"
@@ -3184,8 +3370,8 @@ function Get-WorkflowHelpItems {
         New-WorkflowHelpItem "Baseline management" "case-library" "Summarize historical and active-session known_true_addr evidence" "test_session_tool.ps1 case-library [-Latest 100] [-Profile full|quick]" "$prefix case-library -Latest 100" "Read-only; known_true_addr is active-test-session scoped and reusable only before the manual session ends" "case-summary"
         New-WorkflowHelpItem "Baseline management" "stable-cases" "List stable evidence for baseline candidates and rejection reasons" "test_session_tool.ps1 stable-cases [-Latest 100] [-Profile full] [-MinFullSuccess 2] [-TargetUnique 13] [-ShowRejected] [-KnownTrueAddr <addr>]" "$prefix stable-cases -ShowRejected; $prefix stable-cases -KnownTrueAddr `"0x25A061C7D48`"" "Read-only; stable means evidence in logs, not permanent address validity; known_true_addr is active-test-session scoped" "baseline-save"
         New-WorkflowHelpItem "Baseline management" "baseline-candidates" "Alias for stable-cases" "test_session_tool.ps1 baseline-candidates [-Latest 100] [-Profile full] [-ShowRejected]" "$prefix baseline-candidates" "Read-only; same output as stable-cases; known_true_addr is active-test-session scoped" "baseline-save"
-        New-WorkflowHelpItem "Baseline management" "retest-queue" "Plan active-session retests or new current-session samples from rejected stable-cases" "test_session_tool.ps1 retest-queue [-Latest 200] [-Profile full] [-MinFullSuccess 2] [-TargetUnique 13] [-Limit 15] [-ActiveSession]" "$prefix retest-queue -Latest 200 -Limit 10; $prefix retest-queue -ActiveSession" "Read-only; use -ActiveSession only when the same CE/process/session/scene is still valid" "prepare"
-        New-WorkflowHelpItem "Baseline management" "sample-plan" "Alias for retest-queue" "test_session_tool.ps1 sample-plan [-Latest 200] [-Profile full] [-Limit 15] [-ActiveSession]" "$prefix sample-plan -ActiveSession" "Read-only; without -ActiveSession, treat addresses as historical evidence and collect current-session samples" "prepare"
+        New-WorkflowHelpItem "Baseline management" "retest-queue" "Plan active-session retests or new current-session samples from rejected stable-cases" "test_session_tool.ps1 retest-queue [-Latest 200] [-Profile full] [-MinFullSuccess 2] [-TargetUnique 13] [-Limit 15] [-ActiveSession]" "$prefix retest-queue -Latest 200 -Limit 10; $prefix retest-queue -ActiveSession" "Read-only; use -ActiveSession only when the same CE/process/session/scene is still valid" "prepare-current-case"
+        New-WorkflowHelpItem "Baseline management" "sample-plan" "Alias for retest-queue" "test_session_tool.ps1 sample-plan [-Latest 200] [-Profile full] [-Limit 15] [-ActiveSession]" "$prefix sample-plan -ActiveSession" "Read-only; without -ActiveSession, treat addresses as historical evidence and collect current-session samples" "prepare-current-case"
         New-WorkflowHelpItem "Baseline management" "case-summary" "Summarize known_true_addr coverage for latest baseline-eligible batches" "test_session_tool.ps1 case-summary [-Latest 20] [-Profile full] [-Baseline <file-or-path>] [-TargetUnique 13]" "$prefix case-summary -Latest 20" "Read-only; does not run CE or write files" "collect new distinct full cases if coverage warns"
         New-WorkflowHelpItem "Baseline management" "coverage-plan" "Alias for case-summary" "test_session_tool.ps1 coverage-plan [-Latest 20] [-Profile full]" "$prefix coverage-plan" "Read-only; same output as case-summary" "collect new distinct full cases if coverage warns"
         New-WorkflowHelpItem "Diagnostics / inspection" "inspect-latest" "Inspect the latest batch id from LogRoot" "test_session_tool.ps1 inspect-latest" "$prefix inspect-latest" "Read-only; does not run CE" "doctor"
@@ -3266,6 +3452,8 @@ $availableCommands = @(
     "session-end",
     "session-watch",
     "prepare",
+    "prepare-current-case",
+    "prepare-case",
     "post-quick",
     "post-full",
     "compare-full",
@@ -3459,6 +3647,14 @@ switch ($Action) {
     "diagnostic-status" {
         Write-DiagnosticStatus
         exit 0
+    }
+
+    "prepare-current-case" {
+        Invoke-PrepareCurrentCaseCommand -CommandName "prepare-current-case" -ProfileProvided ($PSBoundParameters.ContainsKey("Profile"))
+    }
+
+    "prepare-case" {
+        Invoke-PrepareCurrentCaseCommand -CommandName "prepare-case" -ProfileProvided ($PSBoundParameters.ContainsKey("Profile"))
     }
 
     "set-diagnostic" {

@@ -235,8 +235,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\te
 
 Typical conclusions:
 
-- `NO_ACTIVE_SESSION`: start a new manual session, manually verify a current-session address, then prepare a full detect-only case.
-- `READY_TO_COLLECT_CASE`: run `sample-plan -ActiveSession`, choose a currently valid address, prepare it, run CE manually, then `post-full`.
+- `NO_ACTIVE_SESSION`: start a new manual session, manually verify a current-session address, then prepare a full detect-only case with `prepare-current-case`.
+- `READY_TO_COLLECT_CASE`: run `sample-plan -ActiveSession`, choose a currently valid address, prepare it with `prepare-current-case`, run CE manually, then `post-full`.
 - `STALE_TRACKED_SESSION`: manually review or end the stale session before collecting new addresses.
 - `BLOCKED_WRITE_CAPABLE`: run `safe-reset -TargetValueFloat 100.0` before detect-only collection.
 - `BLOCKED_INVALID_CONFIG`: reset or fix target pattern/float consistency before CE.
@@ -246,6 +246,15 @@ The CE command remains:
 ```lua
 dofile([[D:\armedforces.io-v2\src\execute_module-v5.2.0_batch.lua]])
 ```
+
+For normal sampling, prefer the guarded active-session wrapper over raw `prepare`:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" prepare-current-case -KnownTrueAddr "0x25A061C7D48" -Profile full
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" prepare-case -KnownTrueAddr "0x25A061C7D48" -Profile quick
+```
+
+`prepare-current-case` requires an active manual test session and validates `KnownTrueAddr`, safe detect-only plan state, non-write-capable execution config, and normal target `100.0 / 0x42C80000` before writing `src\run_case_config.local.lua`. It writes local config only after those checks pass, does not run CE, and shows the correct `post-full` or `post-quick` command for after the manual CE run.
 
 ## Case Library / Test Matrix
 
@@ -302,51 +311,63 @@ If the current manual test session is still active, listed addresses may be reus
 powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" safe-reset -TargetValueFloat 100.0
 ```
 
-2. Prepare a quick case:
+2. Start an active manual session for current-session address collection:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" prepare -KnownTrueAddr "0x25A061C7D48" -Profile quick
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" session-start -Label "detect-only collection"
 ```
 
-3. Preview the next run:
+3. Prepare a quick case with the guarded wrapper:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" prepare-current-case -KnownTrueAddr "0x25A061C7D48" -Profile quick
+```
+
+4. Preview the next run:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" plan
 ```
 
-4. Run CE manually:
+5. Run CE manually:
 
 ```lua
 dofile([[D:\armedforces.io-v2\src\execute_module-v5.2.0_batch.lua]])
 ```
 
-5. Classify the quick result:
+6. Classify the quick result:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" post-quick
 ```
 
-6. Prepare a full case:
+7. Prepare a full case with the guarded wrapper:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" prepare -KnownTrueAddr "0x25A061C7D48" -Profile full
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" prepare-current-case -KnownTrueAddr "0x25A061C7D48" -Profile full
 ```
 
-7. Run `plan`, then run CE manually again with the same fixed `dofile(...)` command.
+8. Run `plan`, then run CE manually again with the same fixed `dofile(...)` command.
 
-8. Classify the full result:
+9. Classify the full result:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" post-full
 ```
 
-9. Compare clean full detect-only batches:
+10. Compare clean full detect-only batches:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" compare-full
 ```
 
 `compare-full` uses baseline-eligible full batches only, so execution batches and invalid config batches are skipped.
+
+End the manual session when CE/process/scene changes or sampling ends:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" session-end -Reason "detect-only collection complete"
+```
 
 ## Guarded Write Workflow
 
