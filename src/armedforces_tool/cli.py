@@ -10,6 +10,7 @@ from .case_library import analyze_case_library, case_library_parity
 from .case_summary import DEFAULT_BASELINE_PATH, analyze_case_summary, case_summary_parity
 from .logs import DEFAULT_LOG_ROOT, BatchSummaryRecord, LogParseError, parse_batch_summary, parse_latest_summaries
 from .parity import parity_latest
+from .stable_cases import analyze_stable_cases, filter_stable_case_result, stable_cases_parity
 
 
 def _add_logs_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -100,6 +101,27 @@ def _add_case_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentPar
     _add_case_library_args(library_parity)
     library_parity.set_defaults(func=_run_case_library_parity)
 
+    stable = case_subparsers.add_parser(
+        "stable-cases",
+        help="List stable baseline candidate evidence without writing files",
+    )
+    _add_stable_cases_args(stable, include_detail_filters=True)
+    stable.set_defaults(func=_run_case_stable_cases)
+
+    stable_alias = case_subparsers.add_parser(
+        "baseline-candidates",
+        help="Alias for stable-cases",
+    )
+    _add_stable_cases_args(stable_alias, include_detail_filters=True)
+    stable_alias.set_defaults(func=_run_case_stable_cases)
+
+    stable_parity = case_subparsers.add_parser(
+        "stable-cases-parity",
+        help="Compare Python stable-cases output with the read-only PowerShell stable-cases command",
+    )
+    _add_stable_cases_args(stable_parity, include_detail_filters=False)
+    stable_parity.set_defaults(func=_run_case_stable_cases_parity)
+
 
 def _add_case_summary_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--latest", type=int, default=20, help="Number of baseline-eligible batches to inspect")
@@ -141,6 +163,37 @@ def _add_case_library_args(parser: argparse.ArgumentParser) -> None:
         default=str(DEFAULT_LOG_ROOT),
         help="Directory containing batch log artifacts",
     )
+    parser.add_argument("--json", action="store_true", help="Emit JSON object")
+
+
+def _add_stable_cases_args(parser: argparse.ArgumentParser, *, include_detail_filters: bool) -> None:
+    parser.add_argument("--latest", type=int, default=100, help="Number of latest profile-matching batches to inspect")
+    parser.add_argument(
+        "--profile",
+        choices=("full", "quick"),
+        default="full",
+        help="Validation profile filter",
+    )
+    parser.add_argument(
+        "--min-full-success",
+        type=int,
+        default=2,
+        help="Minimum full success count required for a stable candidate",
+    )
+    parser.add_argument(
+        "--target-unique",
+        type=int,
+        default=13,
+        help="Target stable unique known_true_addr count",
+    )
+    parser.add_argument(
+        "--log-root",
+        default=str(DEFAULT_LOG_ROOT),
+        help="Directory containing batch log artifacts",
+    )
+    if include_detail_filters:
+        parser.add_argument("--show-rejected", action="store_true", help="Include rejected addresses in the table")
+        parser.add_argument("--known-true-addr", default=None, help="Show detailed evaluation for one address")
     parser.add_argument("--json", action="store_true", help="Emit JSON object")
 
 
@@ -251,6 +304,44 @@ def _run_case_library_parity(args: argparse.Namespace) -> int:
         print(json.dumps(result.to_dict(), indent=2))
     else:
         print(format_case_library_parity(result))
+    return 0 if result.parity_status == "PASS" else 1
+
+
+def _run_case_stable_cases(args: argparse.Namespace) -> int:
+    result = analyze_stable_cases(
+        log_root=Path(args.log_root),
+        latest=args.latest,
+        profile=args.profile,
+        min_full_success=args.min_full_success,
+        target_unique=args.target_unique,
+    )
+    known_true_addr = getattr(args, "known_true_addr", None)
+    if known_true_addr:
+        result = filter_stable_case_result(result, known_true_addr)
+
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        include_rejected = bool(getattr(args, "show_rejected", False) or known_true_addr)
+        title = "Stable Case Detail" if known_true_addr else (
+            "Stable and Rejected Cases" if include_rejected else "Stable Cases"
+        )
+        print(format_stable_cases(result, include_rejected=include_rejected, title=title))
+    return 0
+
+
+def _run_case_stable_cases_parity(args: argparse.Namespace) -> int:
+    result = stable_cases_parity(
+        log_root=Path(args.log_root),
+        latest=args.latest,
+        profile=args.profile,
+        min_full_success=args.min_full_success,
+        target_unique=args.target_unique,
+    )
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(format_stable_cases_parity(result))
     return 0 if result.parity_status == "PASS" else 1
 
 
@@ -540,6 +631,135 @@ def format_case_library_parity(result: object) -> str:
         for row in table_rows:
             lines.append(" ".join(value.ljust(widths[index]) for index, value in enumerate(row)))
     return "\n".join(lines)
+
+
+def format_stable_cases(result: object, *, include_rejected: bool, title: str) -> str:
+    data = result.to_dict()
+    field_labels = [
+        ("latest N", "latest_n"),
+        ("profile", "profile"),
+        ("min full success", "min_full_success"),
+        ("target unique", "target_unique"),
+        ("total unique addr", "total_unique_addr"),
+        ("stable candidate count", "stable_candidate_count"),
+        ("rejected address count", "rejected_address_count"),
+        ("addresses needing only more clean full runs", "addresses_needing_only_more_clean_full_runs"),
+        ("addresses blocked by quality issues", "addresses_blocked_by_quality_issues"),
+        ("coverage readiness", "coverage_readiness"),
+        ("top repeated addr", "duplicate_heavy_top_addr"),
+        ("duplicate-heavy warning", "duplicate_heavy_warning"),
+        ("recommended action", "recommended_action"),
+    ]
+    rows = [(label, _display_value(data.get(key))) for label, key in field_labels]
+    width = max(len(label) for label, _ in rows)
+    lines = ["Stable Baseline Candidates Summary", "Field".ljust(width) + "  Value", "-".ljust(width, "-") + "  -----"]
+    for label, value in rows:
+        lines.append(f"{label.ljust(width)}  {value}")
+
+    reason_rows = data.get("reason_summary") or []
+    lines.append("")
+    lines.append("Rejection Reason Summary")
+    if not reason_rows:
+        lines.append("No rejected addresses.")
+    else:
+        headers = ["rejection_reason", "addr_count"]
+        table_rows = [
+            [str(item["rejection_reason"]), str(item["affected_addr_count"])]
+            for item in sorted(reason_rows, key=lambda item: (-int(item["affected_addr_count"]), item["rejection_reason"]))
+        ]
+        lines.extend(_format_table(headers, table_rows))
+
+    address_rows = data.get("addresses") or []
+    if not include_rejected:
+        address_rows = [item for item in address_rows if item.get("stable_candidate") is True]
+
+    lines.append("")
+    lines.append(title)
+    if not address_rows:
+        lines.append("No matching known_true_addr rows found.")
+        return "\n".join(lines)
+
+    headers = [
+        "known_true_addr",
+        "full_succ",
+        "eligible",
+        "quick",
+        "first_seen",
+        "last_seen",
+        "latest_full",
+        "rank_AWB",
+        "stable",
+        "cand",
+        "rejection_reasons",
+        "recommended_action",
+    ]
+    table_rows = []
+    for item in sorted(
+        address_rows,
+        key=lambda row: (row.get("stable_candidate") is not True, -int(row.get("full_success_count") or 0), row.get("known_true_addr") or ""),
+    ):
+        reasons = item.get("rejection_reasons") or []
+        table_rows.append(
+            [
+                str(item.get("known_true_addr") or "-"),
+                str(item.get("full_success_count") or 0),
+                str(item.get("baseline_eligible_count") or 0),
+                str(item.get("quick_success_count") or 0),
+                str(item.get("first_seen_batch") or "-"),
+                str(item.get("last_seen_batch") or "-"),
+                str(item.get("latest_full_batch") or "-"),
+                str(item.get("latest_rank_AWB") or "-"),
+                str(item.get("latest_stable_rank") or "-"),
+                str(item.get("stable_candidate")),
+                "; ".join(str(reason) for reason in reasons) if reasons else "-",
+                str(item.get("recommended_action") or "-"),
+            ]
+        )
+    lines.extend(_format_table(headers, table_rows))
+    return "\n".join(lines)
+
+
+def format_stable_cases_parity(result: object) -> str:
+    data = result.to_dict()
+    rows = [
+        ("parity_status", data["parity_status"]),
+        ("mismatch_count", data["mismatch_count"]),
+    ]
+    width = max(len(label) for label, _ in rows)
+    lines = ["Stable Cases Parity", "-------------------"]
+    for label, value in rows:
+        lines.append(f"{label.ljust(width)}  {_display_value(value)}")
+
+    mismatches = data["mismatches"]
+    if mismatches:
+        headers = ["field", "python", "powershell"]
+        table_rows = [
+            [
+                str(item.get("field") or "-"),
+                _display_value(item.get("python_value")),
+                _display_value(item.get("powershell_value")),
+            ]
+            for item in mismatches
+        ]
+        lines.append("")
+        lines.append("Mismatches")
+        lines.append("----------")
+        lines.extend(_format_table(headers, table_rows))
+    return "\n".join(lines)
+
+
+def _format_table(headers: Sequence[str], rows: Sequence[Sequence[str]]) -> list[str]:
+    widths = [len(header) for header in headers]
+    for row in rows:
+        for index, value in enumerate(row):
+            widths[index] = max(widths[index], len(value))
+    lines = [
+        " ".join(header.ljust(widths[index]) for index, header in enumerate(headers)),
+        " ".join("-" * widths[index] for index in range(len(headers))),
+    ]
+    for row in rows:
+        lines.append(" ".join(str(value).ljust(widths[index]) for index, value in enumerate(row)))
+    return lines
 
 
 def _format_repeated_addr_inline(value: object) -> str | None:
