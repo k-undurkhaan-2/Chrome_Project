@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 from typing import Sequence
 
+from .case_library import analyze_case_library, case_library_parity
 from .case_summary import DEFAULT_BASELINE_PATH, analyze_case_summary, case_summary_parity
 from .logs import DEFAULT_LOG_ROOT, BatchSummaryRecord, LogParseError, parse_batch_summary, parse_latest_summaries
 from .parity import parity_latest
@@ -85,6 +86,20 @@ def _add_case_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentPar
     _add_case_summary_args(parity)
     parity.set_defaults(func=_run_case_summary_parity)
 
+    library = case_subparsers.add_parser(
+        "library",
+        help="Summarize historical known_true_addr evidence without writing files",
+    )
+    _add_case_library_args(library)
+    library.set_defaults(func=_run_case_library)
+
+    library_parity = case_subparsers.add_parser(
+        "library-parity",
+        help="Compare Python case library output with the read-only PowerShell case-library command",
+    )
+    _add_case_library_args(library_parity)
+    library_parity.set_defaults(func=_run_case_library_parity)
+
 
 def _add_case_summary_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--latest", type=int, default=20, help="Number of baseline-eligible batches to inspect")
@@ -109,6 +124,22 @@ def _add_case_summary_args(parser: argparse.ArgumentParser) -> None:
         "--log-root",
         default=str(DEFAULT_LOG_ROOT),
         help="Directory containing *_summary.txt batch logs",
+    )
+    parser.add_argument("--json", action="store_true", help="Emit JSON object")
+
+
+def _add_case_library_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--latest", type=int, default=100, help="Number of latest batches to inspect")
+    parser.add_argument(
+        "--profile",
+        choices=("all", "full", "quick"),
+        default="all",
+        help="Validation profile filter",
+    )
+    parser.add_argument(
+        "--log-root",
+        default=str(DEFAULT_LOG_ROOT),
+        help="Directory containing batch log artifacts",
     )
     parser.add_argument("--json", action="store_true", help="Emit JSON object")
 
@@ -194,6 +225,32 @@ def _run_case_summary_parity(args: argparse.Namespace) -> int:
         print(json.dumps(result.to_dict(), indent=2))
     else:
         print(format_case_summary_parity(result))
+    return 0 if result.parity_status == "PASS" else 1
+
+
+def _run_case_library(args: argparse.Namespace) -> int:
+    result = analyze_case_library(
+        log_root=Path(args.log_root),
+        latest=args.latest,
+        profile=args.profile,
+    )
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(format_case_library(result))
+    return 0
+
+
+def _run_case_library_parity(args: argparse.Namespace) -> int:
+    result = case_library_parity(
+        log_root=Path(args.log_root),
+        latest=args.latest,
+        profile=args.profile,
+    )
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(format_case_library_parity(result))
     return 0 if result.parity_status == "PASS" else 1
 
 
@@ -345,6 +402,118 @@ def format_case_summary_parity(result: object) -> str:
     ]
     width = max(len(label) for label, _ in rows)
     lines = ["Case Summary Parity", "-------------------"]
+    for label, value in rows:
+        lines.append(f"{label.ljust(width)}  {_display_value(value)}")
+
+    mismatches = data["mismatches"]
+    if mismatches:
+        headers = ["field", "python", "powershell"]
+        table_rows = [
+            [
+                str(item.get("field") or "-"),
+                _display_value(item.get("python_value")),
+                _display_value(item.get("powershell_value")),
+            ]
+            for item in mismatches
+        ]
+        widths = [len(header) for header in headers]
+        for row in table_rows:
+            for index, value in enumerate(row):
+                widths[index] = max(widths[index], len(value))
+        lines.append("")
+        lines.append("Mismatches")
+        lines.append("----------")
+        lines.append(" ".join(header.ljust(widths[index]) for index, header in enumerate(headers)))
+        lines.append(" ".join("-" * widths[index] for index in range(len(headers))))
+        for row in table_rows:
+            lines.append(" ".join(value.ljust(widths[index]) for index, value in enumerate(row)))
+    return "\n".join(lines)
+
+
+def format_case_library(result: object) -> str:
+    data = result.to_dict()
+    field_labels = [
+        ("latest N", "latest_n"),
+        ("profile", "profile"),
+        ("total cases", "total_cases"),
+        ("unique known_true_addr count", "unique_known_true_addr_count"),
+        ("baseline eligible count", "baseline_eligible_count"),
+        ("execution batches count", "execution_batches_count"),
+        ("invalid config count", "invalid_config_count"),
+        ("stable case candidate count", "stable_case_candidate_count"),
+        ("current recommended baseline candidates", "current_recommended_baseline_candidates"),
+        ("conclusion", "conclusion"),
+        ("recommendation", "recommendation"),
+    ]
+    rows = []
+    for label, key in field_labels:
+        value = data.get(key)
+        if key == "current_recommended_baseline_candidates":
+            value = "; ".join(value) if value else "none"
+        rows.append((label, _display_value(value)))
+
+    width = max(len(label) for label, _ in rows)
+    lines = ["Case Library Summary", "Field".ljust(width) + "  Value", "-".ljust(width, "-") + "  -----"]
+    for label, value in rows:
+        lines.append(f"{label.ljust(width)}  {value}")
+
+    address_rows = data.get("addresses") or []
+    lines.append("")
+    lines.append("Case Library")
+    if not address_rows:
+        lines.append("No known_true_addr records found.")
+        return "\n".join(lines)
+
+    headers = [
+        "known_true_addr",
+        "cases",
+        "success",
+        "full_succ",
+        "quick_succ",
+        "first_seen",
+        "last_seen",
+        "profiles",
+        "eligible",
+        "exec",
+        "invalid",
+        "stable",
+    ]
+    table_rows = [
+        [
+            str(item["known_true_addr"]),
+            str(item["cases"]),
+            str(item["success"]),
+            str(item["full_succ"]),
+            str(item["quick_succ"]),
+            str(item["first_seen"]),
+            str(item["last_seen"]),
+            str(item["profiles"]),
+            str(item["baseline_eligible_count"]),
+            str(item["execution_batches_count"]),
+            str(item["invalid_config_count"]),
+            str(item["stable_candidate"]),
+        ]
+        for item in address_rows
+    ]
+    widths = [len(header) for header in headers]
+    for row in table_rows:
+        for index, value in enumerate(row):
+            widths[index] = max(widths[index], len(value))
+    lines.append(" ".join(header.ljust(widths[index]) for index, header in enumerate(headers)))
+    lines.append(" ".join("-" * widths[index] for index in range(len(headers))))
+    for row in table_rows:
+        lines.append(" ".join(value.ljust(widths[index]) for index, value in enumerate(row)))
+    return "\n".join(lines)
+
+
+def format_case_library_parity(result: object) -> str:
+    data = result.to_dict()
+    rows = [
+        ("parity_status", data["parity_status"]),
+        ("mismatch_count", data["mismatch_count"]),
+    ]
+    width = max(len(label) for label, _ in rows)
+    lines = ["Case Library Parity", "-------------------"]
     for label, value in rows:
         lines.append(f"{label.ljust(width)}  {_display_value(value)}")
 
