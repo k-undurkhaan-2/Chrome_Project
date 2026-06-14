@@ -222,6 +222,31 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\te
 
 Use `sample-plan -ActiveSession` or `retest-queue -ActiveSession` only while the same CE/process/session/scene is still unchanged. After ending the session, or after any process/scene refresh, run `session-end` and treat old addresses as historical evidence only.
 
+## Case Collection Flow
+
+Use `collection-flow` before collecting a new current-session `known_true_addr`. It is a read-only navigator that checks the current project path, config safety, target consistency, active session marker, plan state, and coverage hints, then recommends the next operator step:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" collection-flow
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" collect-guide
+```
+
+`collect-guide` is an alias for the same output. These commands do not run CE, do not write `run_case_config.local.lua`, do not append registry records, do not save baselines, and do not auto-end active session markers. If a process-tracked session is stale, the guide reports `STALE_TRACKED_SESSION` and leaves the local session file unchanged.
+
+Typical conclusions:
+
+- `NO_ACTIVE_SESSION`: start a new manual session, manually verify a current-session address, then prepare a full detect-only case.
+- `READY_TO_COLLECT_CASE`: run `sample-plan -ActiveSession`, choose a currently valid address, prepare it, run CE manually, then `post-full`.
+- `STALE_TRACKED_SESSION`: manually review or end the stale session before collecting new addresses.
+- `BLOCKED_WRITE_CAPABLE`: run `safe-reset -TargetValueFloat 100.0` before detect-only collection.
+- `BLOCKED_INVALID_CONFIG`: reset or fix target pattern/float consistency before CE.
+
+The CE command remains:
+
+```lua
+dofile([[D:\armedforces.io-v2\src\execute_module-v5.2.0_batch.lua]])
+```
+
 ## Case Library / Test Matrix
 
 Use `case-library` to review historical `known_true_addr` coverage, active-session observations when the session is still valid, and the historical sample matrix from `log\auto_output`:

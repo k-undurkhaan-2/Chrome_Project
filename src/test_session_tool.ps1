@@ -111,6 +111,8 @@ function Write-CommandHelp {
     Write-Output "  session-status          Show local active manual test session state"
     Write-Output "  session-end             End local active manual test session marker"
     Write-Output "  session-watch           Foreground watch for process-tracked active session"
+    Write-Output "  collection-flow         Read-only guide for current-session case collection"
+    Write-Output "  collect-guide           Alias for collection-flow"
     Write-Output ""
     Write-Output "Prepare options:"
     Write-Output "  -KnownTrueAddr <addr> [-CaseId <id>] [-Profile quick|full] [-DiagnosticLevel basic|debug|trace]"
@@ -128,6 +130,8 @@ function Write-CommandHelp {
     Write-Output "  session-start [-Label <text>] [-TrackProcess -ProcessId <pid>|-ProcessName <name>]"
     Write-Output "  session-end [-Reason <text>]"
     Write-Output "  session-watch [-IntervalSeconds 10] [-Once]"
+    Write-Output "  collection-flow"
+    Write-Output "  collect-guide"
     Write-Output "  case-summary [-Latest 20] [-Profile full] [-Baseline <file-or-path>] [-TargetUnique 13]"
     Write-Output "  safe-reset [-TargetValueFloat 100.0]"
     Write-Output ""
@@ -2772,6 +2776,359 @@ function Invoke-RetestQueueCommand {
     exit 0
 }
 
+function Invoke-CollectionClassifierReadOnly {
+    param(
+        [int]$RequestedLatest,
+        [string]$RequestedProfile,
+        [switch]$OnlyBaselineEligible
+    )
+
+    $args = @("-Latest", "$RequestedLatest", "-Profile", $RequestedProfile)
+    if ($OnlyBaselineEligible) {
+        $args += "-OnlyBaselineEligible"
+    }
+    $args += @("-LogRoot", $LogRoot, "-ConsoleSummary")
+
+    $output = @(& powershell -NoProfile -ExecutionPolicy Bypass -File $ClassifierPath @args 2>&1)
+    $exitCode = $LASTEXITCODE
+    $records = @()
+    if ($exitCode -eq 0) {
+        $records = @(Get-ClassifierConsoleRecords -OutputLines $output)
+    }
+
+    return [pscustomobject][ordered]@{
+        exit_code = $exitCode
+        output = @($output | ForEach-Object { "$_" })
+        records = $records
+    }
+}
+
+function Get-CollectionDoctorConclusion {
+    $scriptPath = $PSCommandPath
+    if (-not (Test-LogPresent -Value $scriptPath)) {
+        $scriptPath = $MyInvocation.MyCommand.Path
+    }
+    if (-not (Test-LogPresent -Value $scriptPath)) {
+        return [pscustomobject][ordered]@{
+            conclusion = "not_available"
+            exit_code = "not_available"
+        }
+    }
+
+    $result = Invoke-DoctorPowerShellFile -FilePath $scriptPath -Arguments @(
+        "doctor",
+        "-Latest", "$Latest",
+        "-ProjectRoot", $ProjectRootPath,
+        "-LogRoot", $LogRoot
+    )
+    $conclusion = "not_available"
+    foreach ($line in @($result.output)) {
+        if ("$line" -match '^conclusion\s*=\s*(.+?)\s*$') {
+            $conclusion = $matches[1].Trim()
+        }
+    }
+
+    return [pscustomobject][ordered]@{
+        conclusion = $conclusion
+        exit_code = $result.exit_code
+    }
+}
+
+function Get-CollectionSessionState {
+    $session = Read-ActiveTestSession
+    $trackedState = Get-TrackedProcessState -Session $session
+    $status = Get-ObjectField -Object $session -Key "status" -Default "none"
+    $active = Test-ActiveTestSession -Session $session
+    $trackedStale = $false
+    if ($active -and $trackedState.process_tracking_enabled -eq $true) {
+        $trackedStale = ($trackedState.tracked_process_alive -ne $true) -or ($trackedState.tracked_process_match -ne $true)
+    }
+
+    $sessionConclusion = "SESSION_ENDED"
+    if ($null -eq $session) {
+        $sessionConclusion = "NO_ACTIVE_SESSION"
+    } elseif ($trackedStale) {
+        $sessionConclusion = "STALE_TRACKED_SESSION"
+    } elseif ($active) {
+        $sessionConclusion = "ACTIVE"
+    } elseif ($status -eq "ended") {
+        $sessionConclusion = "SESSION_ENDED"
+    }
+
+    return [pscustomobject][ordered]@{
+        session = $session
+        tracked_state = $trackedState
+        status = $status
+        active = $active
+        tracked_stale = $trackedStale
+        conclusion = $sessionConclusion
+    }
+}
+
+function Get-CollectionCoverageHint {
+    $latestCount = 20
+    $result = Invoke-CollectionClassifierReadOnly -RequestedLatest $latestCount -RequestedProfile "full" -OnlyBaselineEligible
+    if ($result.exit_code -ne 0) {
+        return [pscustomobject][ordered]@{
+            conclusion = "not_available"
+            detail = "classifier latest full baseline-eligible summary failed"
+        }
+    }
+
+    $records = @($result.records)
+    $baselineExists = Test-Path -LiteralPath $BaselinePath
+    $baselineUniqueCount = $null
+    if ($baselineExists) {
+        $baselineUniqueCount = Read-BaselineUniqueKnownTrueCount -Path $BaselinePath
+    }
+    $uniqueCount = Get-UniqueKnownTrueCount -Records $records
+    $targetUnique = if ($null -ne $baselineUniqueCount) { [int]$baselineUniqueCount } else { $null }
+
+    $conclusion = "NO_BASELINE"
+    if ($records.Count -eq 0) {
+        $conclusion = "INSUFFICIENT_DATA"
+    } elseif ($null -ne $targetUnique) {
+        if ($uniqueCount -ge $targetUnique) {
+            $conclusion = "COVERAGE_OK"
+        } else {
+            $conclusion = "COVERAGE_WARN"
+        }
+    }
+
+    return [pscustomobject][ordered]@{
+        conclusion = $conclusion
+        detail = ("latest={0}; eligible={1}; unique={2}; baseline_unique={3}" -f `
+            $latestCount,
+            $records.Count,
+            $uniqueCount,
+            $(if ($null -ne $baselineUniqueCount) { $baselineUniqueCount } else { "not_available" }))
+    }
+}
+
+function Get-CollectionStableHint {
+    $latestCount = 100
+    $targetUniqueValue = 13
+    $minFullSuccessValue = 2
+    $result = Invoke-CollectionClassifierReadOnly -RequestedLatest $latestCount -RequestedProfile "full"
+    if ($result.exit_code -ne 0) {
+        return [pscustomobject][ordered]@{
+            stable_readiness = "not_available"
+            sample_plan_conclusion = "not_available"
+            detail = "classifier latest full summary failed"
+        }
+    }
+
+    $records = @($result.records | Where-Object { Test-LogPresent -Value (Get-RecordKnownTrueAddr -Record $_) })
+    for ($i = 0; $i -lt $records.Count; $i++) {
+        $records[$i] | Add-Member -NotePropertyName scan_order -NotePropertyValue ($i + 1) -Force
+    }
+
+    $stableCount = 0
+    $groups = @($records | Group-Object { Get-RecordKnownTrueAddr -Record $_ })
+    foreach ($group in $groups) {
+        $addrRecords = @($group.Group | Sort-Object scan_order)
+        $fullRecords = @($addrRecords | Where-Object { (Get-RecordField -Record $_ -Key "validation_profile") -eq "full" })
+        $latestFull = @($fullRecords | Sort-Object scan_order | Select-Object -First 1)
+        $latestFullRecord = if ($latestFull.Count -gt 0) { $latestFull[0] } else { $null }
+        $fullSuccessCount = @($addrRecords | Where-Object { Test-RecordFullSuccess -Record $_ }).Count
+        $baselineEligibleSuccessCount = @($addrRecords | Where-Object { Test-RecordBaselineEligibleSuccess -Record $_ }).Count
+        $qualityIssueCount = @($addrRecords | Where-Object {
+            (Get-RecordField -Record $_ -Key "classification") -in @(
+                "invalid_config_mismatch",
+                "known_true_value_mismatch",
+                "ranking_issue",
+                "selected_quota_issue"
+            )
+        }).Count
+        $executionBatchCount = @($addrRecords | Where-Object { (Test-RecordExecutionBatch -Record $_) -or (Test-RecordWriteDependency -Record $_) }).Count
+
+        $latestFullOk = $false
+        if ($latestFullRecord) {
+            $latestFullOk = (Test-RecordFullSuccess -Record $latestFullRecord) -and `
+                (Test-LogTrue (Get-RecordField -Record $latestFullRecord -Key "final_hit")) -and `
+                (Test-RankAwbOne -Value (Get-RecordField -Record $latestFullRecord -Key "rank_A/W/B")) -and `
+                (Test-StableRankOne -Value (Get-RecordField -Record $latestFullRecord -Key "stable_rank"))
+        }
+
+        if ($fullSuccessCount -ge $minFullSuccessValue -and `
+            $baselineEligibleSuccessCount -ge $minFullSuccessValue -and `
+            $qualityIssueCount -eq 0 -and `
+            $executionBatchCount -eq 0 -and `
+            $latestFullOk) {
+            $stableCount += 1
+        }
+    }
+
+    $stableReadiness = if ($stableCount -ge $targetUniqueValue) { "READY_FOR_BASELINE" } else { "NEED_MORE_STABLE_CASES" }
+    $sampleConclusion = if ($stableReadiness -eq "READY_FOR_BASELINE") { "READY_FOR_BASELINE" } else { "COLLECT_MORE_DISTINCT_CASES" }
+
+    return [pscustomobject][ordered]@{
+        stable_readiness = $stableReadiness
+        sample_plan_conclusion = $sampleConclusion
+        detail = ("latest={0}; unique={1}; stable_candidates={2}; target_unique={3}" -f `
+            $latestCount,
+            $groups.Count,
+            $stableCount,
+            $targetUniqueValue)
+    }
+}
+
+function Get-CollectionFlowState {
+    $config = Read-CaseConfigMap -Path $CaseConfigPath
+    $configExists = Test-Path -LiteralPath $CaseConfigPath
+    $targetConsistency = Get-TargetConsistencyCheck -Config $config
+    $targetFloatPresent = Test-LogPresent -Value (Get-ConfigField -Config $config -Key "target_value_float")
+    $targetPatternPresent = Test-LogPresent -Value (Get-ConfigField -Config $config -Key "target_value_pattern")
+    $targetConfigValid = $configExists -and $targetFloatPresent -and $targetPatternPresent -and [bool]$targetConsistency.matches
+    $plan = Get-NextRunPlan
+    $sessionState = Get-CollectionSessionState
+    $doctor = Get-CollectionDoctorConclusion
+    $coverage = Get-CollectionCoverageHint
+    $stable = Get-CollectionStableHint
+
+    $gitStatus = @(& git -C $ProjectRootPath status --short 2>&1 | ForEach-Object { "$_" })
+    $projectPathOk = [string]::Equals($ProjectRootPath, $ExpectedProjectRoot, [System.StringComparison]::OrdinalIgnoreCase)
+    $executionMode = Get-ConfigDisplayValue -Config $config -Key "execution_mode" -Default "disabled"
+    $executionModeLower = "$executionMode".Trim().ToLowerInvariant()
+    $writeEnabled = Test-ConfigBooleanTrue -Config $config -Key "write_enabled"
+    $confirmPresent = Test-LogPresent -Value (Get-ConfigField -Config $config -Key "execution_confirm")
+    $armPresent = Test-ExecutionArmPresent -Config $config
+    $writeCapable = (Test-ExecutionConfigWriteCapable -Config $config) -or $armPresent -or ($plan.danger_level -eq "WRITE_CAPABLE") -or ($executionModeLower -notin @("", "disabled"))
+
+    $conclusion = "SESSION_ENDED"
+    if ($writeCapable) {
+        $conclusion = "BLOCKED_WRITE_CAPABLE"
+    } elseif (-not $targetConfigValid) {
+        $conclusion = "BLOCKED_INVALID_CONFIG"
+    } elseif ($sessionState.conclusion -eq "NO_ACTIVE_SESSION") {
+        $conclusion = "NO_ACTIVE_SESSION"
+    } elseif ($sessionState.conclusion -eq "STALE_TRACKED_SESSION") {
+        $conclusion = "STALE_TRACKED_SESSION"
+    } elseif ($sessionState.conclusion -eq "SESSION_ENDED") {
+        $conclusion = "SESSION_ENDED"
+    } elseif ($sessionState.active -and $plan.next_run_type -eq "detect_only" -and $plan.danger_level -eq "SAFE") {
+        $conclusion = "READY_TO_COLLECT_CASE"
+    } else {
+        $conclusion = "BLOCKED_INVALID_CONFIG"
+    }
+
+    return [pscustomobject][ordered]@{
+        conclusion = $conclusion
+        fields = [ordered]@{
+            "project root" = $ProjectRootPath
+            "project path is v2 path" = $projectPathOk
+            "git status" = $(if ($gitStatus.Count -eq 0) { "clean" } else { "{0} entries" -f $gitStatus.Count })
+            "doctor conclusion" = $doctor.conclusion
+            "doctor exit code" = $doctor.exit_code
+            "plan next_run_type" = $plan.next_run_type
+            "plan danger_level" = $plan.danger_level
+            "config path" = $CaseConfigPath
+            "config exists" = $configExists
+            "validation_profile" = Get-ConfigDisplayValue -Config $config -Key "validation_profile"
+            "diagnostic_level" = Get-ConfigDisplayValue -Config $config -Key "diagnostic_level"
+            "target_value_float" = Get-ConfigDisplayValue -Config $config -Key "target_value_float"
+            "target_value_pattern" = Get-ConfigDisplayValue -Config $config -Key "target_value_pattern"
+            "expected pattern from float" = $targetConsistency.expected_pattern
+            "target config consistent" = [bool]$targetConsistency.matches
+            "target config valid" = $targetConfigValid
+            "execution_mode" = $executionMode
+            "write_enabled" = $writeEnabled
+            "execution_confirm present" = $confirmPresent
+            "execution arm present" = $armPresent
+            "execution write-capable" = $writeCapable
+            "session status" = $sessionState.status
+            "session id" = Get-ObjectField -Object $sessionState.session -Key "session_id" -Default "-"
+            "session conclusion" = $sessionState.conclusion
+            "process_tracking_enabled" = $sessionState.tracked_state.process_tracking_enabled
+            "tracked_process_alive" = $sessionState.tracked_state.tracked_process_alive
+            "tracked_process_match" = $sessionState.tracked_state.tracked_process_match
+            "tracked process note" = $(if ($sessionState.tracked_state.failure_reason) { $sessionState.tracked_state.failure_reason } else { "no tracked process issue detected" })
+            "case-summary conclusion" = $coverage.conclusion
+            "case-summary detail" = $coverage.detail
+            "stable-cases readiness" = $stable.stable_readiness
+            "stable-cases detail" = $stable.detail
+            "sample-plan conclusion" = $stable.sample_plan_conclusion
+            "collection conclusion" = $conclusion
+            "collection-flow mutates files" = $false
+        }
+    }
+}
+
+function Get-CollectionFlowSteps {
+    param([string]$Conclusion)
+
+    $ceCommand = 'dofile([[D:\armedforces.io-v2\src\execute_module-v5.2.0_batch.lua]])'
+    $prefix = 'powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1"'
+    switch ($Conclusion) {
+        "BLOCKED_WRITE_CAPABLE" {
+            return @(
+                [pscustomobject][ordered]@{ Step = "1"; Action = "$prefix safe-reset -TargetValueFloat 100.0" },
+                [pscustomobject][ordered]@{ Step = "2"; Action = "$prefix collection-flow" }
+            )
+        }
+        "BLOCKED_INVALID_CONFIG" {
+            return @(
+                [pscustomobject][ordered]@{ Step = "1"; Action = "$prefix safe-reset -TargetValueFloat 100.0" },
+                [pscustomobject][ordered]@{ Step = "2"; Action = "$prefix collection-flow" }
+            )
+        }
+        "NO_ACTIVE_SESSION" {
+            return @(
+                [pscustomobject][ordered]@{ Step = "1"; Action = "$prefix session-start -Label `"case collection`"" },
+                [pscustomobject][ordered]@{ Step = "2"; Action = "Manually verify a current-session known_true_addr" },
+                [pscustomobject][ordered]@{ Step = "3"; Action = "$prefix prepare -KnownTrueAddr `"<current_addr>`" -Profile full" },
+                [pscustomobject][ordered]@{ Step = "4"; Action = "Run CE: $ceCommand" },
+                [pscustomobject][ordered]@{ Step = "5"; Action = "$prefix post-full" }
+            )
+        }
+        "SESSION_ENDED" {
+            return @(
+                [pscustomobject][ordered]@{ Step = "1"; Action = "$prefix session-start -Label `"case collection`"" },
+                [pscustomobject][ordered]@{ Step = "2"; Action = "Collect new current-session addresses; do not reuse old addresses unless freshly verified" },
+                [pscustomobject][ordered]@{ Step = "3"; Action = "$prefix prepare -KnownTrueAddr `"<current_addr>`" -Profile full" },
+                [pscustomobject][ordered]@{ Step = "4"; Action = "Run CE: $ceCommand" },
+                [pscustomobject][ordered]@{ Step = "5"; Action = "$prefix post-full" }
+            )
+        }
+        "STALE_TRACKED_SESSION" {
+            return @(
+                [pscustomobject][ordered]@{ Step = "1"; Action = "Review the tracked session; collection-flow does not auto-end it" },
+                [pscustomobject][ordered]@{ Step = "2"; Action = "$prefix session-end -Reason `"tracked process changed`"" },
+                [pscustomobject][ordered]@{ Step = "3"; Action = "$prefix session-start -Label `"case collection`"" },
+                [pscustomobject][ordered]@{ Step = "4"; Action = "Manually verify a fresh current-session known_true_addr" }
+            )
+        }
+        "READY_TO_COLLECT_CASE" {
+            return @(
+                [pscustomobject][ordered]@{ Step = "1"; Action = "$prefix sample-plan -ActiveSession" },
+                [pscustomobject][ordered]@{ Step = "2"; Action = "Choose a currently valid known_true_addr from the active session" },
+                [pscustomobject][ordered]@{ Step = "3"; Action = "$prefix prepare -KnownTrueAddr `"<current_addr>`" -Profile full" },
+                [pscustomobject][ordered]@{ Step = "4"; Action = "Run CE: $ceCommand" },
+                [pscustomobject][ordered]@{ Step = "5"; Action = "$prefix post-full" },
+                [pscustomobject][ordered]@{ Step = "6"; Action = "$prefix case-summary" }
+            )
+        }
+        default {
+            return @(
+                [pscustomobject][ordered]@{ Step = "1"; Action = "$prefix doctor" },
+                [pscustomobject][ordered]@{ Step = "2"; Action = "$prefix plan" }
+            )
+        }
+    }
+}
+
+function Write-CollectionFlowSteps {
+    param([object[]]$Rows)
+
+    Write-Output ""
+    Write-Output "Recommended Steps"
+    Write-Output ("{0,-6} {1}" -f "Step", "Action")
+    Write-Output ("{0,-6} {1}" -f "----", "------")
+    foreach ($row in @($Rows)) {
+        Write-Output ("{0,-6} {1}" -f $row.Step, $row.Action)
+    }
+}
+
 function New-WorkflowHelpItem {
     param(
         [string]$Category,
@@ -2800,6 +3157,8 @@ function Get-WorkflowHelpItems {
         New-WorkflowHelpItem "Safety / Preflight" "plan" "Preview what the next manual CE run would do" "test_session_tool.ps1 plan" "$prefix plan" "Read-only; does not run CE or modify local config" "run CE manually only if the plan is acceptable"
         New-WorkflowHelpItem "Safety / Preflight" "preview-next-run" "Alias for plan" "test_session_tool.ps1 preview-next-run" "$prefix preview-next-run" "Read-only; same output as plan" "run CE manually only if the plan is acceptable"
         New-WorkflowHelpItem "Safety / Preflight" "doctor" "Run read-only preflight and safety checks" "test_session_tool.ps1 doctor [-Latest 50]" "$prefix doctor" "Read-only; does not run CE or write registry" "status"
+        New-WorkflowHelpItem "Safety / Preflight" "collection-flow" "Guide current-session case collection without mutating config or session state" "test_session_tool.ps1 collection-flow" "$prefix collection-flow" "Strictly read-only; does not run CE, write config, write logs, append registry, save baselines, or auto-end sessions" "session-start or sample-plan -ActiveSession"
+        New-WorkflowHelpItem "Safety / Preflight" "collect-guide" "Alias for collection-flow" "test_session_tool.ps1 collect-guide" "$prefix collect-guide" "Strictly read-only; same output as collection-flow" "session-start or sample-plan -ActiveSession"
         New-WorkflowHelpItem "Safety / Preflight" "status" "Show config, recent classifier output, registry summary, and git status" "test_session_tool.ps1 status" "$prefix status" "Read-only; may print current write-capable warnings" "execution-status -IncludeResolved"
         New-WorkflowHelpItem "Safety / Preflight" "diagnostic-status" "Show current diagnostic/logging level and latest log size" "test_session_tool.ps1 diagnostic-status" "$prefix diagnostic-status" "Read-only; does not run CE or modify config" "set-diagnostic -Level basic"
         New-WorkflowHelpItem "Safety / Preflight" "set-diagnostic" "Set local diagnostic level to basic, debug, or trace" "test_session_tool.ps1 set-diagnostic -Level basic|debug|trace" "$prefix set-diagnostic -Level debug" "Writes ignored local config only; trace can produce large logs" "diagnostic-status"
@@ -2900,6 +3259,8 @@ $availableCommands = @(
     "help",
     "plan",
     "preview-next-run",
+    "collection-flow",
+    "collect-guide",
     "session-start",
     "session-status",
     "session-end",
@@ -3073,6 +3434,26 @@ switch ($Action) {
         $plan = Get-NextRunPlan
         Write-NextRunPlan -Plan $plan
         exit $plan.exit_code
+    }
+
+    "collection-flow" {
+        $flow = Get-CollectionFlowState
+        Write-WorkflowSummary -Title "Collection Flow Summary" -Fields $flow.fields
+        Write-CollectionFlowSteps -Rows (Get-CollectionFlowSteps -Conclusion $flow.conclusion)
+        Write-Output ""
+        Write-Output "CE Runtime Command"
+        Write-Output "dofile([[D:\armedforces.io-v2\src\execute_module-v5.2.0_batch.lua]])"
+        exit 0
+    }
+
+    "collect-guide" {
+        $flow = Get-CollectionFlowState
+        Write-WorkflowSummary -Title "Collection Flow Summary" -Fields $flow.fields
+        Write-CollectionFlowSteps -Rows (Get-CollectionFlowSteps -Conclusion $flow.conclusion)
+        Write-Output ""
+        Write-Output "CE Runtime Command"
+        Write-Output "dofile([[D:\armedforces.io-v2\src\execute_module-v5.2.0_batch.lua]])"
+        exit 0
     }
 
     "diagnostic-status" {
