@@ -200,6 +200,18 @@ The command is read-only. It does not run CE, does not write files, and does not
 
 It reports per-address first/last seen batch, profiles seen, success counts, baseline-eligible counts, execution batch counts, invalid config counts, and `stable_case_candidate`.
 
+## Stable Cases / Baseline Candidates
+
+Use `stable-cases` to select baseline candidate addresses from historical logs:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" stable-cases
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" stable-cases -Latest 200
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" stable-cases -MinFullSuccess 1 -TargetUnique 13
+```
+
+`baseline-candidates` is an alias for the same read-only view. These commands do not run CE, do not write files, do not modify local config, and do not save a baseline. Use `baseline-save` separately when you intentionally want to write a local baseline snapshot under ignored `log\baselines`.
+
 ## Detect-Only Workflow
 
 1. Reset to a safe detect-only target:
