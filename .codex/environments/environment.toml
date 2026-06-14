@@ -1,0 +1,23 @@
+# Codex local environment actions for armedforces.io-v2.
+# Keep these aligned with the existing PowerShell/Python validation flow.
+# Do not add cpp-build/cpp-test until a real CMakeLists.txt exists.
+
+[[actions]]
+name = "post-quick"
+command = 'powershell -NoProfile -ExecutionPolicy Bypass -File .\src\test_session_tool.ps1 post-quick'
+
+[[actions]]
+name = "post-full"
+command = 'powershell -NoProfile -ExecutionPolicy Bypass -File .\src\test_session_tool.ps1 post-full'
+
+[[actions]]
+name = "classify-latest-full"
+command = 'powershell -NoProfile -ExecutionPolicy Bypass -File .\src\batch_log_classifier.ps1 -Latest 5 -Profile full -ConsoleSummary'
+
+[[actions]]
+name = "pytest"
+command = '.\.venv\Scripts\python.exe -m pytest'
+
+[[actions]]
+name = "verify-cpp-toolchain"
+command = 'powershell -NoProfile -ExecutionPolicy Bypass -Command "where.exe cl 2>`$null; where.exe g++ 2>`$null; where.exe cmake 2>`$null; where.exe ninja 2>`$null; python --version"'

@@ -12,6 +12,17 @@ build/
 dist/
 *.egg-info/
 
+# C/C++ build artifacts
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+*.obj
+*.o
+*.exe
+*.dll
+*.lib
+*.pdb
+
 # Local runtime logs / generated reports
 log/
 *.log
