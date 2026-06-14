@@ -21,7 +21,8 @@ param(
     [switch]$IncludeResolved,
     [string]$Reason,
     [string]$Name,
-    [string]$Baseline
+    [string]$Baseline,
+    [string]$Level
 )
 
 Set-StrictMode -Version 2.0
@@ -74,6 +75,8 @@ function Write-CommandHelp {
     Write-Output "  baseline-compare Compare against a named or full-path baseline"
     Write-Output "  inspect-latest Inspect the latest batch id from -LogRoot"
     Write-Output "  status         Show config, latest 5 classifier summary, registry summary, and git status"
+    Write-Output "  diagnostic-status       Show current diagnostic/logging level"
+    Write-Output "  set-diagnostic          Set local diagnostic level: basic, debug, or trace"
     Write-Output "  disable-execution       Disable execution/write in local case config"
     Write-Output "  safe-reset              Disable execution and optionally reset target float"
     Write-Output "  prepare-dry-run-write   Prepare full/basic dry-run write config"
@@ -86,6 +89,7 @@ function Write-CommandHelp {
     Write-Output ""
     Write-Output "Prepare options:"
     Write-Output "  -KnownTrueAddr <addr> [-CaseId <id>] [-Profile quick|full] [-DiagnosticLevel basic|debug|trace]"
+    Write-Output "  set-diagnostic -Level basic|debug|trace"
     Write-Output "  prepare-dry-run-write -KnownTrueAddr <addr> -WriteValueFloat <float>"
     Write-Output "  prepare-guarded-write -KnownTrueAddr <addr> -WriteValueFloat <float> -ConfirmWrite"
     Write-Output "  prepare-restore -BatchId <batch> [-EnableWrite -ConfirmWrite]"
@@ -438,6 +442,7 @@ function Get-NextRunPlan {
     $config = Read-CaseConfigMap -Path $CaseConfigPath
     $targetConsistency = Get-TargetConsistencyCheck -Config $config
 
+    $diagnosticLevel = Get-ConfigDisplayValue -Config $config -Key "diagnostic_level"
     $executionMode = Get-ConfigDisplayValue -Config $config -Key "execution_mode" -Default "disabled"
     $executionModeLower = "$executionMode".Trim().ToLowerInvariant()
     $writeEnabled = Test-ConfigBooleanTrue -Config $config -Key "write_enabled"
@@ -489,11 +494,15 @@ function Get-NextRunPlan {
         $recommendedNextStep = "Run safe-reset or prepare the write/restore again."
     }
 
+    if ([string]::Equals($diagnosticLevel, "trace", [System.StringComparison]::OrdinalIgnoreCase)) {
+        $recommendedNextStep = "{0} Trace diagnostics are enabled; reset to basic after this investigation." -f $recommendedNextStep
+    }
+
     $fields = [ordered]@{
         "config path" = $CaseConfigPath
         "config exists" = $configExists
         "validation_profile" = Get-ConfigDisplayValue -Config $config -Key "validation_profile"
-        "diagnostic_level" = Get-ConfigDisplayValue -Config $config -Key "diagnostic_level"
+        "diagnostic_level" = $diagnosticLevel
         "known_true_addr" = Get-ConfigDisplayValue -Config $config -Key "known_true_addr"
         "target_value_float" = Get-ConfigDisplayValue -Config $config -Key "target_value_float"
         "target_value_pattern" = Get-ConfigDisplayValue -Config $config -Key "target_value_pattern"
@@ -534,6 +543,111 @@ function Write-NextRunPlan {
     param($Plan)
 
     Write-WorkflowSummary -Title "Next Run Plan" -Fields $Plan.fields
+}
+
+function Get-DiagnosticRecommendation {
+    param([string]$LevelValue)
+
+    if ([string]::Equals($LevelValue, "basic", [System.StringComparison]::OrdinalIgnoreCase)) {
+        return "OK for daily runs."
+    }
+    if ([string]::Equals($LevelValue, "debug", [System.StringComparison]::OrdinalIgnoreCase)) {
+        return "Use only for targeted investigation; reset to basic after diagnosis."
+    }
+    if ([string]::Equals($LevelValue, "trace", [System.StringComparison]::OrdinalIgnoreCase)) {
+        return "High verbosity; trace logs can be large. Reset to basic after diagnosis."
+    }
+    return "Unknown diagnostic level; use set-diagnostic -Level basic."
+}
+
+function Get-DiagnosticDoctorStatus {
+    param([string]$LevelValue)
+
+    if ([string]::Equals($LevelValue, "basic", [System.StringComparison]::OrdinalIgnoreCase)) {
+        return [pscustomobject][ordered]@{ status = "PASS"; detail = "basic daily logging" }
+    }
+    if ([string]::Equals($LevelValue, "debug", [System.StringComparison]::OrdinalIgnoreCase)) {
+        return [pscustomobject][ordered]@{ status = "WARN"; detail = "debug enabled; use only for investigation" }
+    }
+    if ([string]::Equals($LevelValue, "trace", [System.StringComparison]::OrdinalIgnoreCase)) {
+        return [pscustomobject][ordered]@{ status = "WARN"; detail = "trace enabled; reset to basic after investigation" }
+    }
+    return [pscustomobject][ordered]@{ status = "FAIL"; detail = "invalid diagnostic_level" }
+}
+
+function Get-LatestLogSizeSummary {
+    param([string]$Root)
+
+    $empty = [pscustomobject][ordered]@{
+        latest_batch_id = "not_available"
+        latest_batch_file_count = 0
+        latest_batch_log_size_bytes = "not_available"
+        latest_batch_last_write_time = "not_available"
+    }
+
+    if (-not (Test-Path -LiteralPath $Root)) {
+        return $empty
+    }
+
+    $files = @(Get-ChildItem -LiteralPath $Root -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -match "^(\d{8}-\d{6})__" })
+    if ($files.Count -eq 0) {
+        return $empty
+    }
+
+    $latestGroup = $files |
+        ForEach-Object {
+            if ($_.Name -match "^(\d{8}-\d{6})__") {
+                [pscustomobject]@{
+                    BatchId = $matches[1]
+                    File = $_
+                    LastWriteTime = $_.LastWriteTime
+                }
+            }
+        } |
+        Group-Object BatchId |
+        ForEach-Object {
+            [pscustomobject]@{
+                BatchId = $_.Name
+                Files = @($_.Group | ForEach-Object { $_.File })
+                LastWriteTime = ($_.Group | Sort-Object LastWriteTime -Descending | Select-Object -First 1).LastWriteTime
+            }
+        } |
+        Sort-Object LastWriteTime -Descending |
+        Select-Object -First 1
+
+    if (-not $latestGroup) {
+        return $empty
+    }
+
+    $sizeBytes = 0L
+    foreach ($file in @($latestGroup.Files)) {
+        $sizeBytes += [int64]$file.Length
+    }
+
+    return [pscustomobject][ordered]@{
+        latest_batch_id = $latestGroup.BatchId
+        latest_batch_file_count = @($latestGroup.Files).Count
+        latest_batch_log_size_bytes = $sizeBytes
+        latest_batch_last_write_time = $latestGroup.LastWriteTime
+    }
+}
+
+function Write-DiagnosticStatus {
+    $config = Read-CaseConfigMap -Path $CaseConfigPath
+    $diagnosticLevelValue = Get-ConfigDisplayValue -Config $config -Key "diagnostic_level"
+    $logSummary = Get-LatestLogSizeSummary -Root $LogRoot
+
+    Write-WorkflowSummary -Title "Diagnostic Status" -Fields ([ordered]@{
+        "current diagnostic_level" = $diagnosticLevelValue
+        "validation_profile" = Get-ConfigDisplayValue -Config $config -Key "validation_profile"
+        "execution_mode" = Get-ConfigDisplayValue -Config $config -Key "execution_mode" -Default "disabled"
+        "log root" = $LogRoot
+        "latest batch id" = $logSummary.latest_batch_id
+        "latest batch file count" = $logSummary.latest_batch_file_count
+        "latest batch log_size_bytes" = $logSummary.latest_batch_log_size_bytes
+        "latest batch last_write_time" = $logSummary.latest_batch_last_write_time
+        "recommendation" = Get-DiagnosticRecommendation -LevelValue $diagnosticLevelValue
+    })
 }
 
 function New-DoctorCheck {
@@ -1243,6 +1357,8 @@ function Get-WorkflowHelpItems {
         New-WorkflowHelpItem "Safety / Preflight" "preview-next-run" "Alias for plan" "test_session_tool.ps1 preview-next-run" "$prefix preview-next-run" "Read-only; same output as plan" "run CE manually only if the plan is acceptable"
         New-WorkflowHelpItem "Safety / Preflight" "doctor" "Run read-only preflight and safety checks" "test_session_tool.ps1 doctor [-Latest 50]" "$prefix doctor" "Read-only; does not run CE or write registry" "status"
         New-WorkflowHelpItem "Safety / Preflight" "status" "Show config, recent classifier output, registry summary, and git status" "test_session_tool.ps1 status" "$prefix status" "Read-only; may print current write-capable warnings" "execution-status -IncludeResolved"
+        New-WorkflowHelpItem "Safety / Preflight" "diagnostic-status" "Show current diagnostic/logging level and latest log size" "test_session_tool.ps1 diagnostic-status" "$prefix diagnostic-status" "Read-only; does not run CE or modify config" "set-diagnostic -Level basic"
+        New-WorkflowHelpItem "Safety / Preflight" "set-diagnostic" "Set local diagnostic level to basic, debug, or trace" "test_session_tool.ps1 set-diagnostic -Level basic|debug|trace" "$prefix set-diagnostic -Level debug" "Writes ignored local config only; trace can produce large logs" "diagnostic-status"
         New-WorkflowHelpItem "Safety / Preflight" "safe-reset" "Disable execution and optionally reset target to safe value" "test_session_tool.ps1 safe-reset [-TargetValueFloat 100.0]" "$prefix safe-reset -TargetValueFloat 100.0" "Writes local config; does not run CE" "doctor"
         New-WorkflowHelpItem "Detect-only workflow" "prepare" "Prepare local case config for a manual CE detect run" "test_session_tool.ps1 prepare -KnownTrueAddr <addr> [-CaseId <id>] [-Profile quick|full]" "$prefix prepare -KnownTrueAddr `"0x25A061C7D48`" -Profile full" "Writes local config; validates KnownTrueAddr; does not run CE" "run CE manually, then post-full or post-quick"
         New-WorkflowHelpItem "Detect-only workflow" "post-full" "Classify latest full batch and append registry" "test_session_tool.ps1 post-full" "$prefix post-full" "Does not run CE; appends registry record" "compare-full"
@@ -1339,6 +1455,8 @@ $availableCommands = @(
     "baseline-compare",
     "inspect-latest",
     "status",
+    "diagnostic-status",
+    "set-diagnostic",
     "disable-execution",
     "safe-reset",
     "prepare-dry-run-write",
@@ -1394,6 +1512,51 @@ switch ($Action) {
         $plan = Get-NextRunPlan
         Write-NextRunPlan -Plan $plan
         exit $plan.exit_code
+    }
+
+    "diagnostic-status" {
+        Write-DiagnosticStatus
+        exit 0
+    }
+
+    "set-diagnostic" {
+        $requestedLevel = $Level
+        if (-not $requestedLevel -and $PSBoundParameters.ContainsKey("DiagnosticLevel")) {
+            $requestedLevel = $DiagnosticLevel
+        }
+        if (-not $requestedLevel) {
+            Write-Output "ERROR: -Level is required for set-diagnostic. Allowed values: basic, debug, trace."
+            exit 1
+        }
+
+        $normalizedLevel = "$requestedLevel".Trim().ToLowerInvariant()
+        if (-not (@("basic", "debug", "trace") -contains $normalizedLevel)) {
+            Write-Output ("ERROR: invalid diagnostic level: {0}" -f $requestedLevel)
+            Write-Output "Allowed values: basic, debug, trace."
+            Write-Output "No config changes were written."
+            exit 1
+        }
+
+        $result = Invoke-WorkflowCommand -FilePath $CaseConfigToolPath -Arguments @("-SetDiagnosticLevel", $normalizedLevel) -Capture -Quiet
+        if ($result.exit_code -ne 0) {
+            $result.output | ForEach-Object { Write-Output $_ }
+            exit $result.exit_code
+        }
+
+        $config = Read-CaseConfigMap -Path $CaseConfigPath
+        Write-WorkflowSummary -Title "Set Diagnostic Summary" -Fields ([ordered]@{
+            "diagnostic_level" = Get-ConfigDisplayValue -Config $config -Key "diagnostic_level"
+            "validation_profile" = Get-ConfigDisplayValue -Config $config -Key "validation_profile"
+            "execution_mode" = Get-ConfigDisplayValue -Config $config -Key "execution_mode" -Default "disabled"
+            "config_path" = $CaseConfigPath
+            "config modified" = $true
+            "ce runtime run" = $false
+            "recommendation" = Get-DiagnosticRecommendation -LevelValue $normalizedLevel
+        })
+        if ($normalizedLevel -eq "trace") {
+            Write-Warning "trace logs can be large; reset to basic after diagnosis"
+        }
+        exit 0
     }
 
     "prepare" {
@@ -1846,6 +2009,12 @@ switch ($Action) {
             -Check "execution config is safe" `
             -Status $(if ($writeCapable -or $armPresent) { "WARN" } else { "PASS" }) `
             -Details $executionDetails
+
+        $diagnosticStatus = Get-DiagnosticDoctorStatus -LevelValue (Get-ConfigField -Config $currentConfig -Key "diagnostic_level")
+        $checks += New-DoctorCheck `
+            -Check "diagnostic level policy" `
+            -Status $diagnosticStatus.status `
+            -Details $diagnosticStatus.detail
 
         $targetConsistency = Get-TargetConsistencyCheck -Config $currentConfig
         $checks += New-DoctorCheck `

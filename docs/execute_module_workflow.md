@@ -95,6 +95,12 @@ Preview what the next manual CE run would do:
 powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" plan
 ```
 
+Show current diagnostic/logging level:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" diagnostic-status
+```
+
 Check write/restore transaction safety:
 
 ```powershell
@@ -304,6 +310,35 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\te
 
 Use manual resolution only after confirming the live value was restored.
 
+## Diagnostic Levels
+
+Default daily runs should use compact/basic diagnostics:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" set-diagnostic -Level basic
+```
+
+Check the current diagnostic and logging state:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" diagnostic-status
+```
+
+Available levels:
+
+- `basic`: default daily mode, compact output.
+- `debug`: targeted investigation only; reset to `basic` afterward.
+- `trace`: deep investigation only; logs can be large, reset to `basic` afterward.
+
+Enable investigation diagnostics explicitly:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" set-diagnostic -Level debug
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" set-diagnostic -Level trace
+```
+
+Diagnostic logs are local runtime output under `log/` and must not be committed.
+
 ## Doctor / Preflight
 
 Run:
@@ -319,6 +354,7 @@ The doctor checks:
 - local config presence and ignore status
 - config validation
 - execution write/confirm/arm safety
+- diagnostic level policy
 - target float/pattern consistency
 - active unpaired writes
 - baseline comparison status
