@@ -119,6 +119,12 @@ Compare recent clean full batches to the baseline:
 powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" compare-full
 ```
 
+Summarize case coverage for the rolling full baseline window:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" case-summary
+```
+
 ## Baseline Management
 
 Baseline files are local Markdown snapshots under:
@@ -154,6 +160,25 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\te
 ```
 
 `baseline-save` rejects path traversal and writes only under `log\baselines`.
+
+## Coverage / Case Summary
+
+Use `case-summary` when `compare-full` reports a coverage warning, or before saving a new baseline:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" case-summary -Latest 20
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" coverage-plan -Latest 20 -TargetUnique 13
+```
+
+The command is read-only. It does not run CE, does not write registry or baseline files, and does not modify local config.
+
+It reports:
+
+- current baseline-eligible batch count
+- current unique `known_true_addr` count
+- repeated addresses and top repeated address
+- baseline target coverage, when a baseline is available
+- estimated new distinct addresses needed for the rolling latest-N window
 
 ## Detect-Only Workflow
 

@@ -22,7 +22,8 @@ param(
     [string]$Reason,
     [string]$Name,
     [string]$Baseline,
-    [string]$Level
+    [string]$Level,
+    [int]$TargetUnique = 0
 )
 
 Set-StrictMode -Version 2.0
@@ -73,6 +74,8 @@ function Write-CommandHelp {
     Write-Output "  baseline-current Show current default compare-full baseline"
     Write-Output "  baseline-save  Save latest baseline-eligible full batch snapshot"
     Write-Output "  baseline-compare Compare against a named or full-path baseline"
+    Write-Output "  case-summary   Summarize baseline-eligible case coverage"
+    Write-Output "  coverage-plan  Alias for case-summary"
     Write-Output "  inspect-latest Inspect the latest batch id from -LogRoot"
     Write-Output "  status         Show config, latest 5 classifier summary, registry summary, and git status"
     Write-Output "  diagnostic-status       Show current diagnostic/logging level"
@@ -96,6 +99,7 @@ function Write-CommandHelp {
     Write-Output "  mark-write-resolved -BatchId <batch> -Reason <text>"
     Write-Output "  baseline-save -Name <safe-name> [-Latest 20]"
     Write-Output "  baseline-compare -Baseline <file-or-path> [-Latest 20]"
+    Write-Output "  case-summary [-Latest 20] [-Profile full] [-Baseline <file-or-path>] [-TargetUnique 13]"
     Write-Output "  safe-reset [-TargetValueFloat 100.0]"
     Write-Output ""
     Write-Output "Common options:"
@@ -1328,6 +1332,205 @@ function Write-BaselineList {
     }
 }
 
+function Read-BaselineUniqueKnownTrueCount {
+    param([string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return $null
+    }
+
+    foreach ($line in Get-Content -LiteralPath $Path) {
+        if ($line -match "^- unique known_true_addr count:\s*(\d+)\s*$") {
+            return [int]$matches[1]
+        }
+        if ($line -match "^\|\s*unique known_true_addr count\s*\|\s*(\d+)\s*\|") {
+            return [int]$matches[1]
+        }
+    }
+    return $null
+}
+
+function Get-RecordKnownTrueAddr {
+    param($Record)
+
+    $addr = Get-RecordField -Record $Record -Key "known_true_addr"
+    if (Test-LogPresent -Value $addr) {
+        return "$addr"
+    }
+    return $null
+}
+
+function Get-RepeatedKnownTrueGroups {
+    param([object[]]$Records)
+
+    return @(
+        $Records |
+            ForEach-Object { Get-RecordKnownTrueAddr -Record $_ } |
+            Where-Object { Test-LogPresent -Value $_ } |
+            Group-Object |
+            Where-Object { $_.Count -gt 1 } |
+            Sort-Object -Property @{ Expression = "Count"; Descending = $true }, Name
+    )
+}
+
+function Format-RepeatedKnownTrueList {
+    param($Groups)
+
+    $items = @(
+        $Groups |
+            ForEach-Object { "{0} count {1}" -f $_.Name, $_.Count }
+    )
+    if ($items.Count -eq 0) {
+        return "none"
+    }
+    return ($items -join "; ")
+}
+
+function Get-UniqueKnownTrueCount {
+    param([object[]]$Records)
+
+    return @(
+        $Records |
+            ForEach-Object { Get-RecordKnownTrueAddr -Record $_ } |
+            Where-Object { Test-LogPresent -Value $_ } |
+            Select-Object -Unique
+    ).Count
+}
+
+function Get-RollingDistinctNeeded {
+    param([object[]]$Records, [int]$WindowSize, [int]$Target)
+
+    if ($Target -le 0) {
+        return "not_available"
+    }
+    if ($Target -gt $WindowSize) {
+        return "not_possible_target_exceeds_window"
+    }
+
+    for ($k = 0; $k -le $WindowSize; $k++) {
+        $dropCount = [math]::Max(0, $Records.Count + $k - $WindowSize)
+        $keepCount = [math]::Max(0, $Records.Count - $dropCount)
+        $kept = @()
+        if ($keepCount -gt 0) {
+            $kept = @($Records | Select-Object -First $keepCount)
+        }
+
+        $uniqueAfter = (Get-UniqueKnownTrueCount -Records $kept) + $k
+        if ($uniqueAfter -ge $Target) {
+            return $k
+        }
+    }
+    return "not_possible"
+}
+
+function Write-RepeatedKnownTrueTable {
+    param($Groups)
+
+    Write-Output ""
+    Write-Output "Repeated known_true_addr"
+    if (@($Groups).Count -eq 0) {
+        Write-Output "none"
+        return
+    }
+
+    $addrWidth = 24
+    Write-Output ("{0,-$addrWidth} {1}" -f "known_true_addr", "count")
+    Write-Output ("{0,-$addrWidth} {1}" -f "---------------", "-----")
+    foreach ($group in @($Groups)) {
+        Write-Output ("{0,-$addrWidth} {1}" -f $group.Name, $group.Count)
+    }
+}
+
+function Get-CaseCoverageSummary {
+    param([int]$RequestedLatest, [string]$RequestedProfile, [string]$RequestedBaseline, [int]$RequestedTargetUnique)
+
+    $baselinePathValue = if ($RequestedBaseline) { $RequestedBaseline } else { $BaselinePath }
+    $resolvedBaseline = Resolve-BaselinePath -Value $baselinePathValue
+    if (-not $resolvedBaseline.ok) {
+        Write-Output ("ERROR: invalid baseline: {0}" -f $resolvedBaseline.error)
+        exit 1
+    }
+
+    $baselineExists = Test-Path -LiteralPath $resolvedBaseline.path
+    $baselineUniqueCount = $null
+    if ($baselineExists) {
+        $baselineUniqueCount = Read-BaselineUniqueKnownTrueCount -Path $resolvedBaseline.path
+    }
+
+    $targetUniqueValue = $null
+    $targetSource = "none"
+    if ($null -ne $baselineUniqueCount) {
+        $targetUniqueValue = [int]$baselineUniqueCount
+        $targetSource = "baseline"
+    } elseif ($RequestedTargetUnique -gt 0) {
+        $targetUniqueValue = $RequestedTargetUnique
+        $targetSource = "TargetUnique"
+    }
+
+    $classifierArgs = @("-Latest", "$RequestedLatest", "-Profile", $RequestedProfile, "-OnlyBaselineEligible", "-LogRoot", $LogRoot, "-ConsoleSummary")
+    $classifierResult = Invoke-WorkflowCommand -FilePath $ClassifierPath -Arguments $classifierArgs -Capture -Quiet
+    if ($classifierResult.exit_code -ne 0) {
+        $classifierResult.output | ForEach-Object { Write-Output $_ }
+        exit $classifierResult.exit_code
+    }
+
+    $records = @(Get-ClassifierConsoleRecords -OutputLines $classifierResult.output)
+    $uniqueCount = Get-UniqueKnownTrueCount -Records $records
+    $successCount = @($records | Where-Object {
+        $classification = Get-RecordField -Record $_ -Key "classification"
+        $classification -eq "success" -or $classification -eq "quick_success"
+    }).Count
+    $repeatedGroups = @(Get-RepeatedKnownTrueGroups -Records $records)
+    $topRepeated = if ($repeatedGroups.Count -gt 0) { "{0} count {1}" -f $repeatedGroups[0].Name, $repeatedGroups[0].Count } else { "none" }
+
+    $coverageDelta = "not_available"
+    $rollingNeeded = "not_available"
+    $conclusion = "NO_BASELINE"
+    $recommendation = "No baseline target is available; review current coverage only."
+
+    if ($records.Count -eq 0) {
+        $conclusion = "INSUFFICIENT_DATA"
+        $recommendation = "No eligible batches were found for this window."
+    } elseif ($null -ne $targetUniqueValue) {
+        $coverageDelta = $uniqueCount - $targetUniqueValue
+        $rollingNeeded = Get-RollingDistinctNeeded -Records $records -WindowSize $RequestedLatest -Target $targetUniqueValue
+        if ($uniqueCount -ge $targetUniqueValue) {
+            $conclusion = "COVERAGE_OK"
+            $recommendation = "Coverage is sufficient for the selected baseline."
+        } else {
+            $conclusion = "COVERAGE_WARN"
+            $recommendation = "Collect at least {0} new distinct {1} detect-only baseline-eligible batches." -f $rollingNeeded, $RequestedProfile
+        }
+    }
+
+    if ($repeatedGroups.Count -gt 0 -and $conclusion -ne "INSUFFICIENT_DATA") {
+        $recommendation = "{0} Avoid repeating top repeated addr unless intentionally checking stability." -f $recommendation
+    }
+
+    return [pscustomobject][ordered]@{
+        fields = [ordered]@{
+            "latest N" = $RequestedLatest
+            "profile" = $RequestedProfile
+            "baseline path" = $resolvedBaseline.path
+            "baseline exists" = $baselineExists
+            "baseline unique known_true_addr count" = $(if ($null -ne $baselineUniqueCount) { $baselineUniqueCount } else { "not_available" })
+            "target unique source" = $targetSource
+            "target unique known_true_addr count" = $(if ($null -ne $targetUniqueValue) { $targetUniqueValue } else { "not_available" })
+            "current eligible batch count" = $records.Count
+            "current success count" = $successCount
+            "current unique known_true_addr count" = $uniqueCount
+            "coverage delta" = $coverageDelta
+            "repeated known_true_addr list with counts" = Format-RepeatedKnownTrueList -Groups $repeatedGroups
+            "top repeated addr" = $topRepeated
+            "estimated new distinct addr needed under rolling latest-N window" = $rollingNeeded
+            "conclusion" = $conclusion
+            "recommendation" = $recommendation
+        }
+        repeated_groups = $repeatedGroups
+        conclusion = $conclusion
+    }
+}
+
 function New-WorkflowHelpItem {
     param(
         [string]$Category,
@@ -1374,6 +1577,8 @@ function Get-WorkflowHelpItems {
         New-WorkflowHelpItem "Baseline management" "baseline-current" "Show current default compare-full baseline" "test_session_tool.ps1 baseline-current" "$prefix baseline-current" "Read-only" "baseline-compare"
         New-WorkflowHelpItem "Baseline management" "baseline-save" "Save latest baseline-eligible full snapshot as a local baseline" "test_session_tool.ps1 baseline-save -Name <safe-name> [-Latest 20]" "$prefix baseline-save -Name `"full_clean_YYYYMMDD`" -Latest 20" "Writes ignored log/baselines/*.md; do not commit baseline files" "baseline-compare"
         New-WorkflowHelpItem "Baseline management" "baseline-compare" "Compare latest clean full batches against a chosen baseline" "test_session_tool.ps1 baseline-compare -Baseline <file-or-path> [-Latest 20]" "$prefix baseline-compare -Baseline `"baseline_compact_basic_20260613_latest20.md`"" "Read-only; rejects missing baseline file" "compare-full"
+        New-WorkflowHelpItem "Baseline management" "case-summary" "Summarize known_true_addr coverage for latest baseline-eligible batches" "test_session_tool.ps1 case-summary [-Latest 20] [-Profile full] [-Baseline <file-or-path>] [-TargetUnique 13]" "$prefix case-summary -Latest 20" "Read-only; does not run CE or write files" "collect new distinct full cases if coverage warns"
+        New-WorkflowHelpItem "Baseline management" "coverage-plan" "Alias for case-summary" "test_session_tool.ps1 coverage-plan [-Latest 20] [-Profile full]" "$prefix coverage-plan" "Read-only; same output as case-summary" "collect new distinct full cases if coverage warns"
         New-WorkflowHelpItem "Diagnostics / inspection" "inspect-latest" "Inspect the latest batch id from LogRoot" "test_session_tool.ps1 inspect-latest" "$prefix inspect-latest" "Read-only; does not run CE" "doctor"
         New-WorkflowHelpItem "Diagnostics / inspection" "help" "List workflow commands or show command-specific help" "test_session_tool.ps1 help [-Command <name>]" "$prefix help -Command prepare-restore" "Read-only" "doctor"
     )
@@ -1453,6 +1658,8 @@ $availableCommands = @(
     "baseline-current",
     "baseline-save",
     "baseline-compare",
+    "case-summary",
+    "coverage-plan",
     "inspect-latest",
     "status",
     "diagnostic-status",
@@ -2268,6 +2475,32 @@ switch ($Action) {
         } elseif ($comparison.status -eq "FAIL" -or $comparison.status -eq "WARN") {
             Write-Output "- next step: inspect comparison details or use inspect-latest"
         }
+        exit 0
+    }
+
+    "case-summary" {
+        $summaryLatest = if ($PSBoundParameters.ContainsKey("Latest")) { $Latest } else { 20 }
+        if ($summaryLatest -lt 1) {
+            Write-Output "ERROR: -Latest must be greater than 0 for case-summary"
+            exit 1
+        }
+        $summaryProfile = if ($PSBoundParameters.ContainsKey("Profile")) { $Profile } else { "full" }
+        $summary = Get-CaseCoverageSummary -RequestedLatest $summaryLatest -RequestedProfile $summaryProfile -RequestedBaseline $Baseline -RequestedTargetUnique $TargetUnique
+        Write-WorkflowSummary -Title "Case Coverage Summary" -Fields $summary.fields
+        Write-RepeatedKnownTrueTable -Groups $summary.repeated_groups
+        exit 0
+    }
+
+    "coverage-plan" {
+        $summaryLatest = if ($PSBoundParameters.ContainsKey("Latest")) { $Latest } else { 20 }
+        if ($summaryLatest -lt 1) {
+            Write-Output "ERROR: -Latest must be greater than 0 for coverage-plan"
+            exit 1
+        }
+        $summaryProfile = if ($PSBoundParameters.ContainsKey("Profile")) { $Profile } else { "full" }
+        $summary = Get-CaseCoverageSummary -RequestedLatest $summaryLatest -RequestedProfile $summaryProfile -RequestedBaseline $Baseline -RequestedTargetUnique $TargetUnique
+        Write-WorkflowSummary -Title "Case Coverage Summary" -Fields $summary.fields
+        Write-RepeatedKnownTrueTable -Groups $summary.repeated_groups
         exit 0
     }
 
