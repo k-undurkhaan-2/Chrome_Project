@@ -31,6 +31,7 @@ $ClassificationOrder = @(
     "collector_runtime_empty",
     "incomplete_output",
     "invalid_config_mismatch",
+    "stale_known_true_addr",
     "known_true_value_mismatch",
     "suspected_filter_bug",
     "selected_quota_issue",
@@ -1185,6 +1186,9 @@ function Test-BaselineEligibleRecord {
     if ($Record.classification -eq "invalid_config_mismatch" -or $Record.config_mismatch -eq "true") {
         return $false
     }
+    if ($Record.classification -eq "stale_known_true_addr") {
+        return $false
+    }
     if ($Record.execution_baseline_eligible -eq "false") {
         return $false
     }
@@ -1308,6 +1312,16 @@ function Get-DropStageDiagnosis {
             return [pscustomobject][ordered]@{
                 drop_stage = "invalid_config_mismatch"
                 likely_cause = "target_value_pattern does not match target_value_float"
+                algorithm_failure = "no"
+                replacement_sample_recommended = "yes"
+                trace_rerun_recommended = "no"
+                code_change_recommended = "no"
+            }
+        }
+        "stale_known_true_addr" {
+            return [pscustomobject][ordered]@{
+                drop_stage = "known_true_session_mismatch"
+                likely_cause = "known_true_addr does not match current final best_candidate"
                 algorithm_failure = "no"
                 replacement_sample_recommended = "yes"
                 trace_rerun_recommended = "no"
@@ -1552,6 +1566,18 @@ function Get-BatchRecord {
                 }
             }
         }
+        if ($classification -eq "other" `
+            -and -not $isQuickProfile `
+            -and $runValid -eq "true" `
+            -and $collectorEmpty -ne "true" `
+            -and $executionOutcome -eq "execution_disabled" `
+            -and -not $targetConfigConsistency.config_mismatch `
+            -and (Test-TextPresent -Value $knownTrue) `
+            -and (Test-TextPresent -Value $bestCandidate) `
+            -and -not [string]::Equals("$bestCandidate", "$knownTrue", [System.StringComparison]::OrdinalIgnoreCase)) {
+            $classification = "stale_known_true_addr"
+            $details += "final best_candidate=$bestCandidate differs from known_true_addr=$knownTrue; verify current-session known_true_addr"
+        }
         if ($classification -eq "other" -and $isQuickProfile) {
             if ($noProbeA.known_true_rank_position -eq "1" -and $bestCandidate -and $knownTrue -and $bestCandidate -eq $knownTrue) {
                 $classification = "quick_success"
@@ -1569,11 +1595,16 @@ function Get-BatchRecord {
     if ($targetConfigConsistency.config_mismatch) {
         $baselineEligible = "false"
     }
+    if ($classification -eq "stale_known_true_addr") {
+        $baselineEligible = "false"
+    }
     if ($executionBaselineEligible -eq "false") {
         $baselineEligible = "false"
     }
     if ($targetConfigConsistency.config_mismatch) {
         $recommendation = "fix target pattern/float consistency and rerun"
+    } elseif ($classification -eq "stale_known_true_addr") {
+        $recommendation = "verify current-session known_true_addr and rerun"
     }
 
     $restoreSourceBatchId = Get-ExecutionFieldValue -Fields $executionFields -Name "restore_source_batch_id"
@@ -1809,6 +1840,13 @@ function Get-InspectionLines {
         } else {
             $lines += "- filter_known_true detail: missing_diagnostic_detail"
         }
+    } elseif ($Record.classification -eq "stale_known_true_addr") {
+        $lines += ("- known_true_addr: {0}" -f (Format-Cell $Record.known_true_addr))
+        $lines += ("- final_best_candidate: {0}" -f (Format-Cell $Record.final_best_candidate))
+        $lines += ("- final_hit_true_addr: {0}" -f (Format-Cell $Record.final_hit_true_addr))
+        $lines += ("- config_mismatch: {0}" -f (Format-Cell $Record.config_mismatch))
+        $lines += ("- execution_outcome: {0}" -f (Format-Cell $Record.execution_outcome))
+        $lines += "- recommendation: verify current-session known_true_addr and rerun"
     } elseif ($Record.classification -eq "selected_quota_issue") {
         $lines += ("- known_true_prescore_rank: {0}" -f (Format-Cell $problemMode.known_true_prescore_rank))
         $lines += ("- known_true_prescore_score: {0}" -f (Format-Cell $problemMode.known_true_prescore_score))
@@ -2462,6 +2500,7 @@ function Get-RegistryLikelyReason {
         "incomplete_output" { return "missing expected output files" }
         "collector_runtime_empty" { return "collector produced empty runtime sample" }
         "invalid_config_mismatch" { return "target_value_pattern does not match target_value_float" }
+        "stale_known_true_addr" { return "known_true_addr does not match current final best_candidate" }
         "known_true_value_mismatch" { return "truth_value_mismatch" }
         "suspected_filter_bug" { return "suspected_filter_bug" }
         "selected_quota_issue" { return "known_true reached filtered but did not enter selected" }
@@ -2500,6 +2539,7 @@ function Get-RegistryRecommendation {
         "incomplete_output" { return "rerun or inspect output persistence" }
         "collector_runtime_empty" { return "rerun sample; do not count as algorithm failure" }
         "invalid_config_mismatch" { return "fix target pattern/float consistency and rerun" }
+        "stale_known_true_addr" { return "verify current-session known_true_addr and rerun" }
         "known_true_value_mismatch" { return "trace rerun recommended; verify sampled known_true value" }
         "suspected_filter_bug" { return "trace rerun and code review recommended" }
         "selected_quota_issue" { return "trace rerun recommended; inspect selected cap and cutoff diagnostics" }
@@ -2669,6 +2709,7 @@ function Add-RegistrySummaryLines {
     $Lines += ("| collector_runtime_empty count | {0} |" -f (Get-RegistryClassificationCount -Records $Records -Classification "collector_runtime_empty"))
     $Lines += ("| incomplete_output count | {0} |" -f (Get-RegistryClassificationCount -Records $Records -Classification "incomplete_output"))
     $Lines += ("| invalid_config_mismatch count | {0} |" -f (Get-RegistryClassificationCount -Records $Records -Classification "invalid_config_mismatch"))
+    $Lines += ("| stale_known_true_addr count | {0} |" -f (Get-RegistryClassificationCount -Records $Records -Classification "stale_known_true_addr"))
     $Lines += ("| known_true_value_mismatch count | {0} |" -f (Get-RegistryClassificationCount -Records $Records -Classification "known_true_value_mismatch"))
     $Lines += ("| selected_quota_issue count | {0} |" -f (Get-RegistryClassificationCount -Records $Records -Classification "selected_quota_issue"))
     $Lines += ("| ranking_issue count | {0} |" -f (Get-RegistryClassificationCount -Records $Records -Classification "ranking_issue"))
