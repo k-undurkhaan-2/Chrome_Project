@@ -1,0 +1,45 @@
+=== Batch Summary ===
+batch_id = 20260614-010101
+output_dir = D:\armedforces.io-v2\log\auto_output
+
+--- collector-test / no_probe_A ---
+validation_profile = full
+baseline_eligible = true
+known_true_addr = 0xABC061C7D48
+run_valid = true
+failure_class = nil
+collector_empty = false
+target_value_pattern = 0x42C80000
+target_value_float = 100.0
+best_candidate = 0xABC061C7D48
+known_true_rank_position = 1
+execution_mode = disabled
+write_attempted = false
+
+--- collector-test / with_probe ---
+validation_profile = full
+baseline_eligible = true
+known_true_addr = 0xABC061C7D48
+best_candidate = 0xABC061C7D48
+known_true_rank_position = 1
+
+--- collector-test / no_probe_B ---
+validation_profile = full
+baseline_eligible = true
+known_true_addr = 0xABC061C7D48
+best_candidate = 0xABC061C7D48
+known_true_rank_position = 1
+
+--- collector-test / stable_no_probe_intersection ---
+validation_profile = full
+baseline_eligible = true
+known_true_addr = 0xABC061C7D48
+run_valid = true
+failure_class = nil
+collector_empty = false
+target_value_pattern = 0x42C80000
+target_value_float = 100.0
+stable_intersection_known_true_rank_position = 1
+stable_intersection_best_candidate = 0xABC061C7D48
+execution_mode = disabled
+write_attempted = false
