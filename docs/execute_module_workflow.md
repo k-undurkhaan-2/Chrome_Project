@@ -186,9 +186,17 @@ It reports:
 - baseline target coverage, when a baseline is available
 - estimated new distinct addresses needed for the rolling latest-N window
 
+## Known True Address Lifetime
+
+`known_true_addr` is scoped to the active manual CE/process/session/scene. It can be reused for extra full clean confirmations only while the same manual test session is still valid.
+
+After the user stops the test, the process/session changes, the scene is refreshed, or the target address may no longer match the current runtime state, the address becomes historical evidence only. Historical addresses are useful for coverage analysis and baseline evidence, but they are not guaranteed reusable runtime targets.
+
+Use `retest-queue -ActiveSession` or `sample-plan -ActiveSession` only when the same manual session is still active. Without `-ActiveSession`, treat the planner output as a new-sample collection guide and collect fresh current-session addresses.
+
 ## Case Library / Test Matrix
 
-Use `case-library` to review the recent tested address matrix from `log\auto_output`:
+Use `case-library` to review historical `known_true_addr` coverage, active-session observations when the session is still valid, and the historical sample matrix from `log\auto_output`:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" case-library
@@ -196,13 +204,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\te
 powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" case-library -Profile full
 ```
 
-The command is read-only. It does not run CE, does not write files, and does not modify local config.
+The command is read-only. It does not run CE, does not write files, and does not modify local config. `known_true_addr` values in this report are reusable only within the same active manual test session; after the session ends, treat them as historical evidence only.
 
 It reports per-address first/last seen batch, profiles seen, success counts, baseline-eligible counts, execution batch counts, invalid config counts, and `stable_case_candidate`.
 
 ## Stable Cases / Baseline Candidates
 
-Use `stable-cases` to select baseline candidate addresses from historical logs:
+Use `stable-cases` to review stable evidence for baseline candidate coverage from collected logs:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" stable-cases
@@ -214,6 +222,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\te
 
 `baseline-candidates` is an alias for the same read-only view. These commands do not run CE, do not write files, do not modify local config, and do not save a baseline. Use `baseline-save` separately when you intentionally want to write a local baseline snapshot under ignored `log\baselines`.
 
+Stable here means stable evidence in collected logs, not permanent address validity. Old addresses are not guaranteed reusable after the manual session ends.
+
 Use `-ShowRejected` to plan retests for addresses that are not yet stable baseline candidates. The output includes compact rejection reason codes and recommended retest actions. Use `-KnownTrueAddr` to inspect one address in detail; placeholder values such as `0x...` are rejected before any log scan.
 
 ## Retest Queue / Sample Plan
@@ -224,9 +234,12 @@ Use `retest-queue` to choose the next known true addresses worth collecting as c
 powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" retest-queue
 powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" retest-queue -Latest 200 -Limit 10
 powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" sample-plan
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" retest-queue -ActiveSession
 ```
 
 `sample-plan` is an alias for the same read-only planner. These commands use rejected `stable-cases` data to rank addresses as `HIGH`, `MEDIUM`, `LOW`, or `BLOCKED`. They do not run CE, do not write files, do not modify local config, and do not save a baseline. Use `baseline-save` separately when you intentionally want to write a local baseline snapshot.
+
+If the current manual test session is still active, listed addresses may be reused for additional full clean confirmations. Pass `-ActiveSession` only in that case. If the manual session has ended, use the queue as a new-sample collection plan and collect new current-session addresses instead.
 
 ## Detect-Only Workflow
 

@@ -26,7 +26,8 @@ param(
     [int]$TargetUnique = 0,
     [int]$MinFullSuccess = 2,
     [int]$Limit = 0,
-    [switch]$ShowRejected
+    [switch]$ShowRejected,
+    [switch]$ActiveSession
 )
 
 Set-StrictMode -Version 2.0
@@ -77,10 +78,10 @@ function Write-CommandHelp {
     Write-Output "  baseline-current Show current default compare-full baseline"
     Write-Output "  baseline-save  Save latest baseline-eligible full batch snapshot"
     Write-Output "  baseline-compare Compare against a named or full-path baseline"
-    Write-Output "  case-library  Summarize tested known_true_addr library"
-    Write-Output "  stable-cases  List strict stable baseline candidate addresses"
+    Write-Output "  case-library  Summarize historical and active-session known_true_addr evidence"
+    Write-Output "  stable-cases  List stable evidence for baseline candidates"
     Write-Output "  baseline-candidates Alias for stable-cases"
-    Write-Output "  retest-queue  Plan next clean full detect-only retests"
+    Write-Output "  retest-queue  Plan active-session retests or new current-session samples"
     Write-Output "  sample-plan   Alias for retest-queue"
     Write-Output "  case-summary   Summarize baseline-eligible case coverage"
     Write-Output "  coverage-plan  Alias for case-summary"
@@ -109,7 +110,8 @@ function Write-CommandHelp {
     Write-Output "  baseline-compare -Baseline <file-or-path> [-Latest 20]"
     Write-Output "  case-library [-Latest 100] [-Profile full|quick]"
     Write-Output "  stable-cases [-Latest 100] [-Profile full] [-MinFullSuccess 2] [-TargetUnique 13] [-ShowRejected] [-KnownTrueAddr <addr>]"
-    Write-Output "  retest-queue [-Latest 200] [-Profile full] [-MinFullSuccess 2] [-TargetUnique 13] [-Limit 15]"
+    Write-Output "  retest-queue [-Latest 200] [-Profile full] [-MinFullSuccess 2] [-TargetUnique 13] [-Limit 15] [-ActiveSession]"
+    Write-Output "  sample-plan [-Latest 200] [-Profile full] [-Limit 15] [-ActiveSession]"
     Write-Output "  case-summary [-Latest 20] [-Profile full] [-Baseline <file-or-path>] [-TargetUnique 13]"
     Write-Output "  safe-reset [-TargetValueFloat 100.0]"
     Write-Output ""
@@ -1254,6 +1256,31 @@ function Write-WorkflowSummary {
     }
 }
 
+function Write-AddressLifetimeNote {
+    param(
+        [string]$Mode = "historical",
+        [bool]$ActiveSessionConfirmed = $false
+    )
+
+    Write-Output ""
+    Write-Output "Known True Address Lifetime"
+    Write-Output ("{0,-36} {1}" -f "Field", "Value")
+    Write-Output ("{0,-36} {1}" -f "-----", "-----")
+    Write-Output ("{0,-36} {1}" -f "active session confirmed", $ActiveSessionConfirmed)
+    Write-Output ("{0,-36} {1}" -f "scope", "known_true_addr values are reusable only within the same active manual test session")
+    if ($Mode -eq "retest") {
+        if ($ActiveSessionConfirmed) {
+            Write-Output ("{0,-36} {1}" -f "planner mode", "active-session reuse guidance is enabled")
+        } else {
+            Write-Output ("{0,-36} {1}" -f "planner mode", "historical evidence mode; collect new current-session addresses if the session ended")
+        }
+    } elseif ($Mode -eq "stable") {
+        Write-Output ("{0,-36} {1}" -f "stable meaning", "stable evidence in collected logs, not permanent address validity")
+    } else {
+        Write-Output ("{0,-36} {1}" -f "after session end", "treat addresses as historical evidence only")
+    }
+}
+
 function Get-SafeBaselineFileName {
     param([string]$Value)
 
@@ -2077,6 +2104,7 @@ function Invoke-StableCasesCommand {
     }
 
     Write-WorkflowSummary -Title "Stable Baseline Candidates Summary" -Fields $stable.fields
+    Write-AddressLifetimeNote -Mode "stable" -ActiveSessionConfirmed:$false
     Write-StableRejectionReasonSummary -Rows $reasonRows
     Write-StableCasesTable -Rows $rows -IncludeRejected:$includeRejectedRows -Title $tableTitle
     exit 0
@@ -2157,13 +2185,23 @@ function Get-RetestPriority {
 }
 
 function Get-RetestRecommendedAction {
-    param([string]$Priority, [int]$MissingCleanFullRuns)
+    param([string]$Priority, [int]$MissingCleanFullRuns, [bool]$ActiveSessionConfirmed)
 
     switch ($Priority) {
-        "HIGH" { return "Collect 1 more full detect-only baseline-eligible success run." }
-        "MEDIUM" { return ("Collect {0} more full detect-only clean runs." -f [Math]::Max($MissingCleanFullRuns, 1)) }
-        "LOW" { return "Retest only if additional stability confirmation is needed." }
-        "BLOCKED" { return "Inspect failed batches before using this address." }
+        "HIGH" {
+            if ($ActiveSessionConfirmed) {
+                return "Reuse this active-session addr for 1 more full detect-only baseline-eligible run."
+            }
+            return "If the same manual test session is still active, rerun this addr once; otherwise collect a new distinct current-session addr."
+        }
+        "MEDIUM" { return "Collect more full clean confirmations; reuse only if the same active session is still valid." }
+        "LOW" {
+            if ($ActiveSessionConfirmed) {
+                return "Reuse only if additional active-session stability confirmation is needed."
+            }
+            return "Collect a new current-session addr; keep this addr only as historical evidence unless the same session is still active."
+        }
+        "BLOCKED" { return "Use as diagnostic evidence first; do not reuse until issue is understood." }
         default { return "Review this address before scheduling retest." }
     }
 }
@@ -2199,7 +2237,8 @@ function Get-RetestQueueSummary {
         [string]$RequestedProfile,
         [int]$MinimumFullSuccess,
         [int]$RequestedTargetUnique,
-        [int]$RequestedLimit
+        [int]$RequestedLimit,
+        [bool]$ActiveSessionConfirmed
     )
 
     $stable = Get-StableCasesSummary -RequestedLatest $RequestedLatest -RequestedProfile $RequestedProfile -MinimumFullSuccess $MinimumFullSuccess -RequestedTargetUnique $RequestedTargetUnique
@@ -2226,7 +2265,8 @@ function Get-RetestQueueSummary {
             missing_clean_full_runs = $missing
             retest_priority = $priority
             priority_rank = $priorityRank
-            recommended_action = Get-RetestRecommendedAction -Priority $priority -MissingCleanFullRuns $missing
+            recommended_action = Get-RetestRecommendedAction -Priority $priority -MissingCleanFullRuns $missing -ActiveSessionConfirmed $ActiveSessionConfirmed
+            active_session_prepare = $(if ($ActiveSessionConfirmed -and $priority -in @("HIGH", "MEDIUM", "LOW")) { "prepare -KnownTrueAddr `"$($row.known_true_addr)`" -Profile full" } else { "-" })
         }
     }
 
@@ -2256,6 +2296,7 @@ function Get-RetestQueueSummary {
             "min full success" = $MinimumFullSuccess
             "target unique" = $RequestedTargetUnique
             "display limit" = $RequestedLimit
+            "active session confirmed" = $ActiveSessionConfirmed
             "total unique addr" = $stable.fields["total unique addr"]
             "stable candidate count" = $stable.stable_count
             "high priority retest count" = $highCount
@@ -2275,7 +2316,7 @@ function Get-RetestQueueSummary {
 }
 
 function Write-RetestQueueTable {
-    param([object[]]$Rows)
+    param([object[]]$Rows, [bool]$ActiveSessionConfirmed = $false)
 
     Write-Output ""
     Write-Output "Retest Queue"
@@ -2284,21 +2325,41 @@ function Write-RetestQueueTable {
         return
     }
 
-    Write-Output ("{0,-15} {1,8} {2,8} {3,5} {4,-15} {5,-9} {6,-6} {7,7} {8,-8} {9,-34} {10}" -f "known_true_addr", "full", "eligible", "quick", "latest_full", "rank_AWB", "stable", "missing", "priority", "rejection_reasons", "recommended_action")
-    Write-Output ("{0,-15} {1,8} {2,8} {3,5} {4,-15} {5,-9} {6,-6} {7,7} {8,-8} {9,-34} {10}" -f "---------------", "----", "--------", "-----", "-----------", "--------", "------", "-------", "--------", "-----------------", "------------------")
-    foreach ($row in @($Rows)) {
-        Write-Output ("{0,-15} {1,8} {2,8} {3,5} {4,-15} {5,-9} {6,-6} {7,7} {8,-8} {9,-34} {10}" -f `
-            $row.known_true_addr,
-            $row.full_success_count,
-            $row.baseline_eligible_count,
-            $row.quick_success_count,
-            $row.latest_full_batch,
-            $row.latest_rank_AWB,
-            $row.latest_stable_rank,
-            $row.missing_clean_full_runs,
-            $row.retest_priority,
-            $row.rejection_reasons,
-            $row.recommended_action)
+    if ($ActiveSessionConfirmed) {
+        Write-Output ("{0,-15} {1,8} {2,8} {3,5} {4,-15} {5,-9} {6,-6} {7,7} {8,-8} {9,-34} {10,-96} {11}" -f "known_true_addr", "full", "eligible", "quick", "latest_full", "rank_AWB", "stable", "missing", "priority", "rejection_reasons", "recommended_action", "active_session_prepare")
+        Write-Output ("{0,-15} {1,8} {2,8} {3,5} {4,-15} {5,-9} {6,-6} {7,7} {8,-8} {9,-34} {10,-96} {11}" -f "---------------", "----", "--------", "-----", "-----------", "--------", "------", "-------", "--------", "-----------------", "------------------", "----------------------")
+        foreach ($row in @($Rows)) {
+            Write-Output ("{0,-15} {1,8} {2,8} {3,5} {4,-15} {5,-9} {6,-6} {7,7} {8,-8} {9,-34} {10,-96} {11}" -f `
+                $row.known_true_addr,
+                $row.full_success_count,
+                $row.baseline_eligible_count,
+                $row.quick_success_count,
+                $row.latest_full_batch,
+                $row.latest_rank_AWB,
+                $row.latest_stable_rank,
+                $row.missing_clean_full_runs,
+                $row.retest_priority,
+                $row.rejection_reasons,
+                $row.recommended_action,
+                $row.active_session_prepare)
+        }
+    } else {
+        Write-Output ("{0,-15} {1,8} {2,8} {3,5} {4,-15} {5,-9} {6,-6} {7,7} {8,-8} {9,-34} {10}" -f "known_true_addr", "full", "eligible", "quick", "latest_full", "rank_AWB", "stable", "missing", "priority", "rejection_reasons", "recommended_action")
+        Write-Output ("{0,-15} {1,8} {2,8} {3,5} {4,-15} {5,-9} {6,-6} {7,7} {8,-8} {9,-34} {10}" -f "---------------", "----", "--------", "-----", "-----------", "--------", "------", "-------", "--------", "-----------------", "------------------")
+        foreach ($row in @($Rows)) {
+            Write-Output ("{0,-15} {1,8} {2,8} {3,5} {4,-15} {5,-9} {6,-6} {7,7} {8,-8} {9,-34} {10}" -f `
+                $row.known_true_addr,
+                $row.full_success_count,
+                $row.baseline_eligible_count,
+                $row.quick_success_count,
+                $row.latest_full_batch,
+                $row.latest_rank_AWB,
+                $row.latest_stable_rank,
+                $row.missing_clean_full_runs,
+                $row.retest_priority,
+                $row.rejection_reasons,
+                $row.recommended_action)
+        }
     }
 }
 
@@ -2333,10 +2394,12 @@ function Invoke-RetestQueueCommand {
         -RequestedProfile $queueProfile `
         -MinimumFullSuccess $MinFullSuccess `
         -RequestedTargetUnique $queueTargetUnique `
-        -RequestedLimit $queueLimit
+        -RequestedLimit $queueLimit `
+        -ActiveSessionConfirmed $ActiveSession
 
     Write-WorkflowSummary -Title "Retest Queue Summary" -Fields $queue.fields
-    Write-RetestQueueTable -Rows $queue.rows
+    Write-AddressLifetimeNote -Mode "retest" -ActiveSessionConfirmed $ActiveSession
+    Write-RetestQueueTable -Rows $queue.rows -ActiveSessionConfirmed $ActiveSession
     exit 0
 }
 
@@ -2386,11 +2449,11 @@ function Get-WorkflowHelpItems {
         New-WorkflowHelpItem "Baseline management" "baseline-current" "Show current default compare-full baseline" "test_session_tool.ps1 baseline-current" "$prefix baseline-current" "Read-only" "baseline-compare"
         New-WorkflowHelpItem "Baseline management" "baseline-save" "Save latest baseline-eligible full snapshot as a local baseline" "test_session_tool.ps1 baseline-save -Name <safe-name> [-Latest 20]" "$prefix baseline-save -Name `"full_clean_YYYYMMDD`" -Latest 20" "Writes ignored log/baselines/*.md; do not commit baseline files" "baseline-compare"
         New-WorkflowHelpItem "Baseline management" "baseline-compare" "Compare latest clean full batches against a chosen baseline" "test_session_tool.ps1 baseline-compare -Baseline <file-or-path> [-Latest 20]" "$prefix baseline-compare -Baseline `"baseline_compact_basic_20260613_latest20.md`"" "Read-only; rejects missing baseline file" "compare-full"
-        New-WorkflowHelpItem "Baseline management" "case-library" "Summarize tested known_true_addr matrix from recent logs" "test_session_tool.ps1 case-library [-Latest 100] [-Profile full|quick]" "$prefix case-library -Latest 100" "Read-only; does not run CE or write files" "case-summary"
-        New-WorkflowHelpItem "Baseline management" "stable-cases" "List strict stable baseline candidate addresses and rejection reasons" "test_session_tool.ps1 stable-cases [-Latest 100] [-Profile full] [-MinFullSuccess 2] [-TargetUnique 13] [-ShowRejected] [-KnownTrueAddr <addr>]" "$prefix stable-cases -ShowRejected; $prefix stable-cases -KnownTrueAddr `"0x25A061C7D48`"" "Read-only; does not run CE or write files; rejects placeholder addresses" "baseline-save"
-        New-WorkflowHelpItem "Baseline management" "baseline-candidates" "Alias for stable-cases" "test_session_tool.ps1 baseline-candidates [-Latest 100] [-Profile full] [-ShowRejected]" "$prefix baseline-candidates" "Read-only; same output as stable-cases" "baseline-save"
-        New-WorkflowHelpItem "Baseline management" "retest-queue" "Plan next clean full detect-only retests from rejected stable-cases" "test_session_tool.ps1 retest-queue [-Latest 200] [-Profile full] [-MinFullSuccess 2] [-TargetUnique 13] [-Limit 15]" "$prefix retest-queue -Latest 200 -Limit 10" "Read-only; does not run CE, write files, save baselines, or modify config" "prepare"
-        New-WorkflowHelpItem "Baseline management" "sample-plan" "Alias for retest-queue" "test_session_tool.ps1 sample-plan [-Latest 200] [-Profile full] [-Limit 15]" "$prefix sample-plan" "Read-only; same output as retest-queue" "prepare"
+        New-WorkflowHelpItem "Baseline management" "case-library" "Summarize historical and active-session known_true_addr evidence" "test_session_tool.ps1 case-library [-Latest 100] [-Profile full|quick]" "$prefix case-library -Latest 100" "Read-only; known_true_addr is active-test-session scoped and reusable only before the manual session ends" "case-summary"
+        New-WorkflowHelpItem "Baseline management" "stable-cases" "List stable evidence for baseline candidates and rejection reasons" "test_session_tool.ps1 stable-cases [-Latest 100] [-Profile full] [-MinFullSuccess 2] [-TargetUnique 13] [-ShowRejected] [-KnownTrueAddr <addr>]" "$prefix stable-cases -ShowRejected; $prefix stable-cases -KnownTrueAddr `"0x25A061C7D48`"" "Read-only; stable means evidence in logs, not permanent address validity; known_true_addr is active-test-session scoped" "baseline-save"
+        New-WorkflowHelpItem "Baseline management" "baseline-candidates" "Alias for stable-cases" "test_session_tool.ps1 baseline-candidates [-Latest 100] [-Profile full] [-ShowRejected]" "$prefix baseline-candidates" "Read-only; same output as stable-cases; known_true_addr is active-test-session scoped" "baseline-save"
+        New-WorkflowHelpItem "Baseline management" "retest-queue" "Plan active-session retests or new current-session samples from rejected stable-cases" "test_session_tool.ps1 retest-queue [-Latest 200] [-Profile full] [-MinFullSuccess 2] [-TargetUnique 13] [-Limit 15] [-ActiveSession]" "$prefix retest-queue -Latest 200 -Limit 10; $prefix retest-queue -ActiveSession" "Read-only; use -ActiveSession only when the same CE/process/session/scene is still valid" "prepare"
+        New-WorkflowHelpItem "Baseline management" "sample-plan" "Alias for retest-queue" "test_session_tool.ps1 sample-plan [-Latest 200] [-Profile full] [-Limit 15] [-ActiveSession]" "$prefix sample-plan -ActiveSession" "Read-only; without -ActiveSession, treat addresses as historical evidence and collect current-session samples" "prepare"
         New-WorkflowHelpItem "Baseline management" "case-summary" "Summarize known_true_addr coverage for latest baseline-eligible batches" "test_session_tool.ps1 case-summary [-Latest 20] [-Profile full] [-Baseline <file-or-path>] [-TargetUnique 13]" "$prefix case-summary -Latest 20" "Read-only; does not run CE or write files" "collect new distinct full cases if coverage warns"
         New-WorkflowHelpItem "Baseline management" "coverage-plan" "Alias for case-summary" "test_session_tool.ps1 coverage-plan [-Latest 20] [-Profile full]" "$prefix coverage-plan" "Read-only; same output as case-summary" "collect new distinct full cases if coverage warns"
         New-WorkflowHelpItem "Diagnostics / inspection" "inspect-latest" "Inspect the latest batch id from LogRoot" "test_session_tool.ps1 inspect-latest" "$prefix inspect-latest" "Read-only; does not run CE" "doctor"
@@ -3306,6 +3369,7 @@ switch ($Action) {
         $libraryProfile = if ($PSBoundParameters.ContainsKey("Profile")) { $Profile } else { "all" }
         $library = Get-CaseLibrarySummary -RequestedLatest $libraryLatest -RequestedProfile $libraryProfile
         Write-WorkflowSummary -Title "Case Library Summary" -Fields $library.fields
+        Write-AddressLifetimeNote -Mode "historical" -ActiveSessionConfirmed:$false
         Write-CaseLibraryTable -Rows $library.rows
         exit 0
     }
