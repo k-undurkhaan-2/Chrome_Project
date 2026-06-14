@@ -17,9 +17,15 @@ param(
     [string]$BatchId,
     [switch]$EnableWrite,
     [switch]$ConfirmWrite,
+    [switch]$TrackProcess,
+    [int]$ProcessId = 0,
+    [string]$ProcessName,
+    [int]$IntervalSeconds = 10,
+    [switch]$Once,
     [int]$Latest = 50,
     [switch]$IncludeResolved,
     [string]$Reason,
+    [string]$Label,
     [string]$Name,
     [string]$Baseline,
     [string]$Level,
@@ -41,6 +47,9 @@ $CaseConfigPath = Join-Path (Join-Path $ProjectRootPath "src") "run_case_config.
 $BaselineRoot = Join-Path (Join-Path $ProjectRootPath "log") "baselines"
 $BaselinePath = Join-Path $BaselineRoot "baseline_compact_basic_20260613_latest20.md"
 $ResolvedWritesPath = Join-Path (Join-Path $ProjectRootPath "log") "execution_resolved_writes.local.jsonl"
+$LocalLogRoot = Join-Path $ProjectRootPath "log"
+$ActiveTestSessionPath = Join-Path $LocalLogRoot "active_test_session.local.json"
+$TestSessionHistoryPath = Join-Path $LocalLogRoot "test_session_history.local.jsonl"
 $ExecutionConfirmText = "I_ACCEPT_WRITE_TO_LIVE_MEMORY"
 
 function Format-CommandPart {
@@ -98,6 +107,10 @@ function Write-CommandHelp {
     Write-Output "  execution-status        Show write/restore transaction safety status"
     Write-Output "  mark-write-resolved     Mark a historical write_success as manually restored"
     Write-Output "  doctor                  Run read-only preflight and safety checks"
+    Write-Output "  session-start           Start local active manual test session marker"
+    Write-Output "  session-status          Show local active manual test session state"
+    Write-Output "  session-end             End local active manual test session marker"
+    Write-Output "  session-watch           Foreground watch for process-tracked active session"
     Write-Output ""
     Write-Output "Prepare options:"
     Write-Output "  -KnownTrueAddr <addr> [-CaseId <id>] [-Profile quick|full] [-DiagnosticLevel basic|debug|trace]"
@@ -112,6 +125,9 @@ function Write-CommandHelp {
     Write-Output "  stable-cases [-Latest 100] [-Profile full] [-MinFullSuccess 2] [-TargetUnique 13] [-ShowRejected] [-KnownTrueAddr <addr>]"
     Write-Output "  retest-queue [-Latest 200] [-Profile full] [-MinFullSuccess 2] [-TargetUnique 13] [-Limit 15] [-ActiveSession]"
     Write-Output "  sample-plan [-Latest 200] [-Profile full] [-Limit 15] [-ActiveSession]"
+    Write-Output "  session-start [-Label <text>] [-TrackProcess -ProcessId <pid>|-ProcessName <name>]"
+    Write-Output "  session-end [-Reason <text>]"
+    Write-Output "  session-watch [-IntervalSeconds 10] [-Once]"
     Write-Output "  case-summary [-Latest 20] [-Profile full] [-Baseline <file-or-path>] [-TargetUnique 13]"
     Write-Output "  safe-reset [-TargetValueFloat 100.0]"
     Write-Output ""
@@ -1281,6 +1297,343 @@ function Write-AddressLifetimeNote {
     }
 }
 
+function Get-UtcTimestampText {
+    return (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ", [System.Globalization.CultureInfo]::InvariantCulture)
+}
+
+function Format-UtcTimestamp {
+    param([datetime]$Value)
+
+    return $Value.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ", [System.Globalization.CultureInfo]::InvariantCulture)
+}
+
+function Get-ObjectField {
+    param($Object, [string]$Key, $Default = $null)
+
+    if ($null -eq $Object) {
+        return $Default
+    }
+    $property = $Object.PSObject.Properties[$Key]
+    if ($property) {
+        return $property.Value
+    }
+    return $Default
+}
+
+function Test-ObjectBooleanTrue {
+    param($Object, [string]$Key)
+
+    $value = Get-ObjectField -Object $Object -Key $Key -Default $false
+    if ($value -is [bool]) {
+        return [bool]$value
+    }
+    if ($null -eq $value) {
+        return $false
+    }
+    return "$value".Trim().ToLowerInvariant() -eq "true"
+}
+
+function Get-SessionAgeText {
+    param($Session)
+
+    $startedAt = Convert-ConfigUtcDateTime -Value (Get-ObjectField -Object $Session -Key "started_at_utc")
+    if (-not $startedAt) {
+        return "-"
+    }
+    $age = (Get-Date).ToUniversalTime() - $startedAt
+    if ($age.TotalSeconds -lt 0) {
+        return "0s"
+    }
+    return ("{0}d {1:00}:{2:00}:{3:00}" -f [int]$age.TotalDays, $age.Hours, $age.Minutes, $age.Seconds)
+}
+
+function Ensure-LocalLogRoot {
+    if (-not (Test-Path -LiteralPath $LocalLogRoot)) {
+        New-Item -ItemType Directory -Path $LocalLogRoot -Force | Out-Null
+    }
+}
+
+function Read-ActiveTestSession {
+    if (-not (Test-Path -LiteralPath $ActiveTestSessionPath)) {
+        return $null
+    }
+    try {
+        return (Get-Content -LiteralPath $ActiveTestSessionPath -Raw | ConvertFrom-Json)
+    } catch {
+        return [pscustomobject][ordered]@{
+            status = "invalid"
+            session_id = "-"
+            started_at_utc = $null
+            ended_at_utc = $null
+            label = "-"
+            reason = "invalid session json"
+            tool = "test_session_tool.ps1"
+        }
+    }
+}
+
+function Test-ActiveTestSession {
+    param($Session)
+
+    return (Get-ObjectField -Object $Session -Key "status") -eq "active"
+}
+
+function Write-ActiveTestSession {
+    param($Session)
+
+    Ensure-LocalLogRoot
+    $json = $Session | ConvertTo-Json -Depth 5
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
+        try {
+            $json | Set-Content -LiteralPath $ActiveTestSessionPath -Encoding UTF8
+            return
+        } catch {
+            if ($attempt -eq 3) {
+                throw
+            }
+            Start-Sleep -Milliseconds 200
+        }
+    }
+}
+
+function Append-TestSessionHistory {
+    param($Session)
+
+    Ensure-LocalLogRoot
+    $line = $Session | ConvertTo-Json -Depth 5 -Compress
+    Add-Content -LiteralPath $TestSessionHistoryPath -Value $line -Encoding UTF8
+}
+
+function New-ActiveTestSession {
+    param([string]$SessionLabel, $TrackedProcess)
+
+    $now = Get-UtcTimestampText
+    $idStamp = (Get-Date).ToUniversalTime().ToString("yyyyMMdd_HHmmss", [System.Globalization.CultureInfo]::InvariantCulture)
+    $suffix = ([guid]::NewGuid().ToString("N")).Substring(0, 8)
+    $session = [ordered]@{
+        session_id = "session_{0}_{1}" -f $idStamp, $suffix
+        status = "active"
+        started_at_utc = $now
+        ended_at_utc = $null
+        label = $(if (Test-LogPresent -Value $SessionLabel) { $SessionLabel } else { "" })
+        reason = $null
+        tool = "test_session_tool.ps1"
+        process_tracking_enabled = $false
+    }
+    if ($TrackedProcess) {
+        $session["process_tracking_enabled"] = $true
+        $session["process_id"] = $TrackedProcess.process_id
+        $session["process_name"] = $TrackedProcess.process_name
+        $session["process_start_time"] = $TrackedProcess.process_start_time
+    }
+    return [pscustomobject]$session
+}
+
+function Resolve-TrackedProcess {
+    if (-not $TrackProcess) {
+        return $null
+    }
+
+    if ($ProcessId -le 0 -and -not (Test-LogPresent -Value $ProcessName)) {
+        Write-Output "ERROR: -TrackProcess requires -ProcessId or -ProcessName."
+        exit 1
+    }
+
+    $process = $null
+    if ($ProcessId -gt 0) {
+        try {
+            $process = Get-Process -Id $ProcessId -ErrorAction Stop
+        } catch {
+            Write-Output ("ERROR: tracked process id does not exist: {0}" -f $ProcessId)
+            exit 1
+        }
+    } else {
+        $matches = @(Get-Process | Where-Object { $_.ProcessName -eq $ProcessName })
+        if ($matches.Count -eq 0) {
+            Write-Output ("ERROR: tracked process name does not exist: {0}" -f $ProcessName)
+            exit 1
+        }
+        if ($matches.Count -gt 1) {
+            Write-Output ("ERROR: process name matched multiple processes: {0}" -f $ProcessName)
+            Write-Output "Use -ProcessId to choose one process explicitly."
+            exit 1
+        }
+        $process = $matches[0]
+    }
+
+    try {
+        $startTime = Format-UtcTimestamp -Value $process.StartTime
+    } catch {
+        Write-Output ("ERROR: unable to read process start time for process id {0}" -f $process.Id)
+        exit 1
+    }
+
+    return [pscustomobject][ordered]@{
+        process_id = [int]$process.Id
+        process_name = $process.ProcessName
+        process_start_time = $startTime
+    }
+}
+
+function Get-TrackedProcessState {
+    param($Session)
+
+    $enabled = Test-ObjectBooleanTrue -Object $Session -Key "process_tracking_enabled"
+    $processIdValue = Get-ObjectField -Object $Session -Key "process_id" -Default $null
+    $expectedStart = Get-ObjectField -Object $Session -Key "process_start_time" -Default $null
+    $processName = Get-ObjectField -Object $Session -Key "process_name" -Default "-"
+    $alive = $false
+    $match = $false
+    $currentStart = "-"
+    $failureReason = $null
+
+    if (-not $enabled) {
+        return [pscustomobject][ordered]@{
+            process_tracking_enabled = $false
+            process_id = $(if ($processIdValue) { $processIdValue } else { "-" })
+            process_name = $processName
+            process_start_time = $(if ($expectedStart) { $expectedStart } else { "-" })
+            tracked_process_alive = "-"
+            tracked_process_match = "-"
+            current_process_start_time = "-"
+            failure_reason = $null
+        }
+    }
+
+    try {
+        $processId = [int]$processIdValue
+        $process = Get-Process -Id $processId -ErrorAction Stop
+        $alive = $true
+        try {
+            $currentStart = Format-UtcTimestamp -Value $process.StartTime
+            $match = [string]::Equals("$expectedStart", "$currentStart", [System.StringComparison]::OrdinalIgnoreCase)
+            if (-not $match) {
+                $failureReason = "tracked process restarted or pid reused"
+            }
+        } catch {
+            $match = $false
+            $failureReason = "tracked process start time unavailable"
+        }
+    } catch {
+        $failureReason = "tracked process exited"
+    }
+
+    return [pscustomobject][ordered]@{
+        process_tracking_enabled = $true
+        process_id = $(if ($processIdValue) { $processIdValue } else { "-" })
+        process_name = $processName
+        process_start_time = $(if ($expectedStart) { $expectedStart } else { "-" })
+        tracked_process_alive = $alive
+        tracked_process_match = $match
+        current_process_start_time = $currentStart
+        failure_reason = $failureReason
+    }
+}
+
+function Complete-ActiveTestSession {
+    param($Session, [string]$EndReason)
+
+    if (-not $Session) {
+        return $null
+    }
+
+    $ended = [ordered]@{
+        session_id = Get-ObjectField -Object $Session -Key "session_id" -Default "-"
+        status = "ended"
+        started_at_utc = Get-ObjectField -Object $Session -Key "started_at_utc" -Default $null
+        ended_at_utc = Get-UtcTimestampText
+        label = Get-ObjectField -Object $Session -Key "label" -Default ""
+        reason = $(if (Test-LogPresent -Value $EndReason) { $EndReason } else { "" })
+        tool = "test_session_tool.ps1"
+        process_tracking_enabled = (Test-ObjectBooleanTrue -Object $Session -Key "process_tracking_enabled")
+    }
+    foreach ($key in @("process_id", "process_name", "process_start_time")) {
+        $value = Get-ObjectField -Object $Session -Key $key -Default $null
+        if (Test-LogPresent -Value $value) {
+            $ended[$key] = $value
+        }
+    }
+
+    $endedSession = [pscustomobject]$ended
+    Write-ActiveTestSession -Session $endedSession
+    Append-TestSessionHistory -Session $endedSession
+    return $endedSession
+}
+
+function Update-TrackedSessionIfInvalid {
+    param($Session)
+
+    if (-not (Test-ActiveTestSession -Session $Session)) {
+        return $Session
+    }
+    $state = Get-TrackedProcessState -Session $Session
+    if ($state.process_tracking_enabled -eq $true -and (-not $state.tracked_process_alive -or -not $state.tracked_process_match)) {
+        return Complete-ActiveTestSession -Session $Session -EndReason $state.failure_reason
+    }
+    return $Session
+}
+
+function Get-SessionConfigContext {
+    $config = Read-CaseConfigMap -Path $CaseConfigPath
+    return [ordered]@{
+        "known_true_addr" = Get-ConfigDisplayValue -Config $config -Key "known_true_addr"
+        "target_value_float" = Get-ConfigDisplayValue -Config $config -Key "target_value_float"
+        "target_value_pattern" = Get-ConfigDisplayValue -Config $config -Key "target_value_pattern"
+        "execution_mode" = Get-ConfigDisplayValue -Config $config -Key "execution_mode" -Default "disabled"
+        "write_enabled" = Get-ConfigDisplayValue -Config $config -Key "write_enabled" -Default "false"
+    }
+}
+
+function Get-TestSessionSummaryFields {
+    param($Session, [string]$Action, [string]$RecommendedNextStep)
+
+    $active = Test-ActiveTestSession -Session $Session
+    $fields = [ordered]@{
+        "action" = $Action
+        "active session" = $active
+        "session id" = Get-ObjectField -Object $Session -Key "session_id" -Default "-"
+        "status" = Get-ObjectField -Object $Session -Key "status" -Default "none"
+        "started_at_utc" = Get-ObjectField -Object $Session -Key "started_at_utc" -Default "-"
+        "ended_at_utc" = Get-ObjectField -Object $Session -Key "ended_at_utc" -Default "-"
+        "session age" = Get-SessionAgeText -Session $Session
+        "label" = Get-ObjectField -Object $Session -Key "label" -Default "-"
+        "reason" = Get-ObjectField -Object $Session -Key "reason" -Default "-"
+        "process_tracking_enabled" = Test-ObjectBooleanTrue -Object $Session -Key "process_tracking_enabled"
+        "session path" = $ActiveTestSessionPath
+        "history path" = $TestSessionHistoryPath
+    }
+    $trackedState = Get-TrackedProcessState -Session $Session
+    $fields["process_id"] = $trackedState.process_id
+    $fields["process_name"] = $trackedState.process_name
+    $fields["process_start_time"] = $trackedState.process_start_time
+    $fields["tracked_process_alive"] = $trackedState.tracked_process_alive
+    $fields["tracked_process_match"] = $trackedState.tracked_process_match
+    $fields["process status note"] = $(if ($trackedState.process_tracking_enabled) { $(if ($trackedState.failure_reason) { $trackedState.failure_reason } else { "tracked process is valid" }) } else { "Process tracking disabled; manually run session-end when testing ends." })
+    foreach ($entry in (Get-SessionConfigContext).GetEnumerator()) {
+        $fields[$entry.Key] = $entry.Value
+    }
+    $fields["recommended next step"] = $RecommendedNextStep
+    return $fields
+}
+
+function Assert-ActiveTestSessionForReuse {
+    param([string]$CommandName)
+
+    $session = Update-TrackedSessionIfInvalid -Session (Read-ActiveTestSession)
+    if (-not (Test-ActiveTestSession -Session $session)) {
+        Write-WorkflowSummary -Title "Active Session Required" -Fields ([ordered]@{
+            "command" = $CommandName
+            "active session" = $false
+            "session path" = $ActiveTestSessionPath
+            "status" = Get-ObjectField -Object $session -Key "status" -Default "none"
+            "warning" = "No active test session is recorded. Run session-start only if the same CE/process/scene is still active."
+            "recommended next step" = "Use sample-plan without -ActiveSession and collect new current-session addresses."
+        })
+        exit 1
+    }
+    return $session
+}
+
 function Get-SafeBaselineFileName {
     param([string]$Value)
 
@@ -2388,6 +2741,10 @@ function Invoke-RetestQueueCommand {
     }
     $queueTargetUnique = if ($TargetUniqueProvided -and $TargetUnique -gt 0) { $TargetUnique } else { 13 }
     $queueProfile = if ($ProfileProvided) { $Profile } else { "full" }
+    $activeSessionRecord = $null
+    if ($ActiveSession) {
+        $activeSessionRecord = Assert-ActiveTestSessionForReuse -CommandName $CommandName
+    }
 
     $queue = Get-RetestQueueSummary `
         -RequestedLatest $queueLatest `
@@ -2396,6 +2753,18 @@ function Invoke-RetestQueueCommand {
         -RequestedTargetUnique $queueTargetUnique `
         -RequestedLimit $queueLimit `
         -ActiveSessionConfirmed $ActiveSession
+    if ($ActiveSession -and $activeSessionRecord) {
+        $trackedState = Get-TrackedProcessState -Session $activeSessionRecord
+        $queue.fields["active session id"] = Get-ObjectField -Object $activeSessionRecord -Key "session_id" -Default "-"
+        $queue.fields["active session started_at_utc"] = Get-ObjectField -Object $activeSessionRecord -Key "started_at_utc" -Default "-"
+        $queue.fields["active session label"] = Get-ObjectField -Object $activeSessionRecord -Key "label" -Default "-"
+        $queue.fields["process tracking enabled"] = $trackedState.process_tracking_enabled
+        $queue.fields["tracked process id"] = $trackedState.process_id
+        $queue.fields["tracked process name"] = $trackedState.process_name
+        $queue.fields["tracked process alive"] = $trackedState.tracked_process_alive
+        $queue.fields["tracked process match"] = $trackedState.tracked_process_match
+        $queue.fields["active-session warning"] = $(if ($trackedState.process_tracking_enabled) { "Tracked process is valid for this local marker." } else { "Manual session marker; process changes are not auto-detected." })
+    }
 
     Write-WorkflowSummary -Title "Retest Queue Summary" -Fields $queue.fields
     Write-AddressLifetimeNote -Mode "retest" -ActiveSessionConfirmed $ActiveSession
@@ -2435,6 +2804,10 @@ function Get-WorkflowHelpItems {
         New-WorkflowHelpItem "Safety / Preflight" "diagnostic-status" "Show current diagnostic/logging level and latest log size" "test_session_tool.ps1 diagnostic-status" "$prefix diagnostic-status" "Read-only; does not run CE or modify config" "set-diagnostic -Level basic"
         New-WorkflowHelpItem "Safety / Preflight" "set-diagnostic" "Set local diagnostic level to basic, debug, or trace" "test_session_tool.ps1 set-diagnostic -Level basic|debug|trace" "$prefix set-diagnostic -Level debug" "Writes ignored local config only; trace can produce large logs" "diagnostic-status"
         New-WorkflowHelpItem "Safety / Preflight" "safe-reset" "Disable execution and optionally reset target to safe value" "test_session_tool.ps1 safe-reset [-TargetValueFloat 100.0]" "$prefix safe-reset -TargetValueFloat 100.0" "Writes local config; does not run CE" "doctor"
+        New-WorkflowHelpItem "Safety / Preflight" "session-start" "Create local active manual test session marker" "test_session_tool.ps1 session-start [-Label <text>] [-TrackProcess -ProcessId <pid>|-ProcessName <name>]" "$prefix session-start -Label `"baseline collection`"; $prefix session-start -Label `"tracked`" -TrackProcess -ProcessId 12345" "Manual-only by default; optional process tracking; no default expiry; operator marker only" "sample-plan -ActiveSession"
+        New-WorkflowHelpItem "Safety / Preflight" "session-status" "Show local active manual test session state and config context" "test_session_tool.ps1 session-status" "$prefix session-status" "Read-only; -ActiveSession depends on this local session record" "sample-plan"
+        New-WorkflowHelpItem "Safety / Preflight" "session-end" "End local active manual test session marker" "test_session_tool.ps1 session-end [-Reason <text>]" "$prefix session-end -Reason `"manual validation complete`"" "Ends active-session reuse guidance; does not run CE or modify config" "sample-plan"
+        New-WorkflowHelpItem "Safety / Preflight" "session-watch" "Foreground watch for a process-tracked active session" "test_session_tool.ps1 session-watch [-IntervalSeconds 10] [-Once]" "$prefix session-watch -Once" "Only works with -TrackProcess sessions; no default expiry is enabled" "session-end"
         New-WorkflowHelpItem "Detect-only workflow" "prepare" "Prepare local case config for a manual CE detect run" "test_session_tool.ps1 prepare -KnownTrueAddr <addr> [-CaseId <id>] [-Profile quick|full]" "$prefix prepare -KnownTrueAddr `"0x25A061C7D48`" -Profile full" "Writes local config; validates KnownTrueAddr; does not run CE" "run CE manually, then post-full or post-quick"
         New-WorkflowHelpItem "Detect-only workflow" "post-full" "Classify latest full batch and append registry" "test_session_tool.ps1 post-full" "$prefix post-full" "Does not run CE; appends registry record" "compare-full"
         New-WorkflowHelpItem "Detect-only workflow" "post-quick" "Classify latest quick batch and append registry" "test_session_tool.ps1 post-quick" "$prefix post-quick" "Does not run CE; appends registry record" "prepare -Profile full"
@@ -2527,6 +2900,10 @@ $availableCommands = @(
     "help",
     "plan",
     "preview-next-run",
+    "session-start",
+    "session-status",
+    "session-end",
+    "session-watch",
     "prepare",
     "post-quick",
     "post-full",
@@ -2589,6 +2966,101 @@ switch ($Action) {
             Write-WorkflowCommandIndex
         }
         exit 0
+    }
+
+    "session-start" {
+        $existingSession = Read-ActiveTestSession
+        if (Test-ActiveTestSession -Session $existingSession) {
+            Write-WorkflowSummary -Title "Active Test Session Summary" -Fields (Get-TestSessionSummaryFields `
+                -Session $existingSession `
+                -Action "already active" `
+                -RecommendedNextStep "Use sample-plan -ActiveSession only if CE/process/scene is still unchanged.")
+            exit 0
+        }
+
+        $trackedProcess = Resolve-TrackedProcess
+        $session = New-ActiveTestSession -SessionLabel $Label -TrackedProcess $trackedProcess
+        Write-ActiveTestSession -Session $session
+        Write-WorkflowSummary -Title "Active Test Session Summary" -Fields (Get-TestSessionSummaryFields `
+            -Session $session `
+            -Action "started" `
+            -RecommendedNextStep "You may use sample-plan -ActiveSession only if CE/process/scene is still unchanged.")
+        if (-not $TrackProcess) {
+            Write-Output "WARNING: Manual session marker only. Run session-end when CE/process/scene changes or testing ends."
+        }
+        exit 0
+    }
+
+    "session-status" {
+        $session = Update-TrackedSessionIfInvalid -Session (Read-ActiveTestSession)
+        $nextStep = if (Test-ActiveTestSession -Session $session) {
+            "You may use sample-plan -ActiveSession only if CE/process/scene is still unchanged."
+        } else {
+            "Use sample-plan without -ActiveSession and collect new current-session addresses."
+        }
+        Write-WorkflowSummary -Title "Active Test Session Summary" -Fields (Get-TestSessionSummaryFields `
+            -Session $session `
+            -Action "status" `
+            -RecommendedNextStep $nextStep)
+        exit 0
+    }
+
+    "session-end" {
+        $session = Update-TrackedSessionIfInvalid -Session (Read-ActiveTestSession)
+        if (-not (Test-ActiveTestSession -Session $session)) {
+            Write-WorkflowSummary -Title "Active Test Session Summary" -Fields (Get-TestSessionSummaryFields `
+                -Session $session `
+                -Action "no active session" `
+                -RecommendedNextStep "Use sample-plan without -ActiveSession and collect new current-session addresses.")
+            exit 0
+        }
+
+        $endedSession = Complete-ActiveTestSession -Session $session -EndReason $Reason
+        Write-WorkflowSummary -Title "Active Test Session Summary" -Fields (Get-TestSessionSummaryFields `
+            -Session $endedSession `
+            -Action "ended" `
+            -RecommendedNextStep "Use sample-plan without -ActiveSession and collect new current-session addresses.")
+        exit 0
+    }
+
+    "session-watch" {
+        if ($IntervalSeconds -lt 1) {
+            Write-Output "ERROR: -IntervalSeconds must be greater than 0 for session-watch."
+            exit 1
+        }
+        $session = Update-TrackedSessionIfInvalid -Session (Read-ActiveTestSession)
+        if (-not (Test-ActiveTestSession -Session $session)) {
+            Write-WorkflowSummary -Title "Session Watch Summary" -Fields (Get-TestSessionSummaryFields `
+                -Session $session `
+                -Action "no active tracked session" `
+                -RecommendedNextStep "Start a tracked session with session-start -TrackProcess before using session-watch.")
+            exit 1
+        }
+        $trackedState = Get-TrackedProcessState -Session $session
+        if (-not $trackedState.process_tracking_enabled) {
+            Write-WorkflowSummary -Title "Session Watch Summary" -Fields (Get-TestSessionSummaryFields `
+                -Session $session `
+                -Action "process tracking disabled" `
+                -RecommendedNextStep "session-watch requires session-start -TrackProcess. Manual sessions do not auto-end.")
+            exit 1
+        }
+
+        Write-Output "Session watch started. Press Ctrl+C to stop foreground polling."
+        while ($true) {
+            $session = Update-TrackedSessionIfInvalid -Session (Read-ActiveTestSession)
+            $trackedState = Get-TrackedProcessState -Session $session
+            Write-WorkflowSummary -Title "Session Watch Poll" -Fields (Get-TestSessionSummaryFields `
+                -Session $session `
+                -Action "poll" `
+                -RecommendedNextStep $(if (Test-ActiveTestSession -Session $session) { "Process still matches; continue only while CE/process/scene is unchanged." } else { "Session ended; use sample-plan without -ActiveSession." }))
+            if (-not (Test-ActiveTestSession -Session $session)) {
+                exit 0
+            }
+            if ($Once) {
+                exit 0
+            }
+            Start-Sleep -Seconds $IntervalSeconds
+        }
     }
 
     "plan" {

@@ -194,6 +194,34 @@ After the user stops the test, the process/session changes, the scene is refresh
 
 Use `retest-queue -ActiveSession` or `sample-plan -ActiveSession` only when the same manual session is still active. Without `-ActiveSession`, treat the planner output as a new-sample collection guide and collect fresh current-session addresses.
 
+## Active Manual Test Session
+
+Use the local session marker when you are deliberately keeping the same CE/process/session/scene alive while collecting additional confirmations:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" session-start -Label "baseline collection"
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" session-status
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" sample-plan -ActiveSession
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" session-end -Reason "collection complete"
+```
+
+By default, `session-start` creates a manual-only marker. It does not bind to a process, does not run CE, does not set an expiry, and does not auto-end. Expiry is intentionally disabled by default in the engineering build. Run `session-end` when CE/process/scene changes or testing ends.
+
+Optional process tracking can be enabled when you want the tool to auto-end the marker if the tracked process exits or restarts:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" session-start -Label "tracked collection" -TrackProcess -ProcessId 12345
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" session-start -Label "tracked collection" -TrackProcess -ProcessName "target-process-name"
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" session-watch -IntervalSeconds 10
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" session-watch -Once
+```
+
+`session-watch` is optional foreground polling for process-tracked sessions. It does not run CE and only writes ignored local session state under `log\`.
+
+`session-start` is only a local operator marker stored under ignored `log\`. It does not prove permanent address validity, and it does not make historical addresses safe after the process or scene changes.
+
+Use `sample-plan -ActiveSession` or `retest-queue -ActiveSession` only while the same CE/process/session/scene is still unchanged. After ending the session, or after any process/scene refresh, run `session-end` and treat old addresses as historical evidence only.
+
 ## Case Library / Test Matrix
 
 Use `case-library` to review historical `known_true_addr` coverage, active-session observations when the session is still valid, and the historical sample matrix from `log\auto_output`:
