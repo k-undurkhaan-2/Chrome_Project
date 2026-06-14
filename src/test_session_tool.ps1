@@ -50,6 +50,7 @@ $ResolvedWritesPath = Join-Path (Join-Path $ProjectRootPath "log") "execution_re
 $LocalLogRoot = Join-Path $ProjectRootPath "log"
 $ActiveTestSessionPath = Join-Path $LocalLogRoot "active_test_session.local.json"
 $TestSessionHistoryPath = Join-Path $LocalLogRoot "test_session_history.local.jsonl"
+$CaseIntakePath = Join-Path $LocalLogRoot "case_intake.local.jsonl"
 $ExecutionConfirmText = "I_ACCEPT_WRITE_TO_LIVE_MEMORY"
 
 function Format-CommandPart {
@@ -82,6 +83,10 @@ function Write-CommandHelp {
     Write-Output "  prepare        Set run_case_config.local.lua for the next manual CE/Lua run"
     Write-Output "  prepare-current-case Guarded active-session prepare for current case collection"
     Write-Output "  prepare-case   Alias for prepare-current-case"
+    Write-Output "  case-intake-status Show local prepared/completed current-case intake journal"
+    Write-Output "  case-intake-abandon Abandon latest open prepared intake without running CE"
+    Write-Output "  abandon-current-case Alias for case-intake-abandon"
+    Write-Output "  post-current-case Safely complete the latest matching prepared current case"
     Write-Output "  post-quick     Classify latest quick batch and append registry"
     Write-Output "  post-full      Classify latest full batch and append registry"
     Write-Output "  compare-full   Compare latest 20 baseline-eligible full batches to compact baseline"
@@ -120,6 +125,10 @@ function Write-CommandHelp {
     Write-Output "  -KnownTrueAddr <addr> [-CaseId <id>] [-Profile quick|full] [-DiagnosticLevel basic|debug|trace]"
     Write-Output "  prepare-current-case -KnownTrueAddr <addr> [-CaseId <id>] [-Profile quick|full]"
     Write-Output "  prepare-case -KnownTrueAddr <addr> [-CaseId <id>] [-Profile quick|full]"
+    Write-Output "  case-intake-status"
+    Write-Output "  case-intake-abandon [-Reason <text>]"
+    Write-Output "  abandon-current-case [-Reason <text>]"
+    Write-Output "  post-current-case"
     Write-Output "  set-diagnostic -Level basic|debug|trace"
     Write-Output "  prepare-dry-run-write -KnownTrueAddr <addr> -WriteValueFloat <float>"
     Write-Output "  prepare-guarded-write -KnownTrueAddr <addr> -WriteValueFloat <float> -ConfirmWrite"
@@ -1410,6 +1419,99 @@ function Append-TestSessionHistory {
     Ensure-LocalLogRoot
     $line = $Session | ConvertTo-Json -Depth 5 -Compress
     Add-Content -LiteralPath $TestSessionHistoryPath -Value $line -Encoding UTF8
+}
+
+function New-CaseIntakeId {
+    $idStamp = (Get-Date).ToUniversalTime().ToString("yyyyMMdd_HHmmss", [System.Globalization.CultureInfo]::InvariantCulture)
+    $suffix = ([guid]::NewGuid().ToString("N")).Substring(0, 8)
+    return "intake_{0}_{1}" -f $idStamp, $suffix
+}
+
+function Add-CaseIntakeEvent {
+    param($Record)
+
+    Ensure-LocalLogRoot
+    $line = $Record | ConvertTo-Json -Depth 6 -Compress
+    Add-Content -LiteralPath $CaseIntakePath -Value $line -Encoding UTF8
+}
+
+function Read-CaseIntakeEvents {
+    param([string]$Path = $CaseIntakePath)
+
+    $records = @()
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return $records
+    }
+
+    $lineNumber = 0
+    foreach ($line in Get-Content -LiteralPath $Path) {
+        $lineNumber += 1
+        if ([string]::IsNullOrWhiteSpace($line)) {
+            continue
+        }
+        try {
+            $record = $line | ConvertFrom-Json
+            $record | Add-Member -NotePropertyName journal_line -NotePropertyValue $lineNumber -Force
+            $records += $record
+        } catch {
+            Write-Warning ("Skipping invalid case intake JSONL line {0}: {1}" -f $lineNumber, $Path)
+        }
+    }
+    return $records
+}
+
+function Get-CaseIntakePreparedEvents {
+    param([object[]]$Events)
+
+    return @($Events | Where-Object { (Get-ObjectField -Object $_ -Key "event_type") -eq "prepared" })
+}
+
+function Get-CaseIntakeCompletedEvents {
+    param([object[]]$Events)
+
+    return @($Events | Where-Object { (Get-ObjectField -Object $_ -Key "event_type") -eq "completed" })
+}
+
+function Get-CaseIntakeAbandonedEvents {
+    param([object[]]$Events)
+
+    return @($Events | Where-Object { (Get-ObjectField -Object $_ -Key "event_type") -eq "abandoned" })
+}
+
+function New-CaseIntakeClosedSet {
+    param([object[]]$Events)
+
+    $set = @{}
+    foreach ($event in @((Get-CaseIntakeCompletedEvents -Events $Events) + (Get-CaseIntakeAbandonedEvents -Events $Events))) {
+        $intakeId = Get-ObjectField -Object $event -Key "intake_id" -Default $null
+        if (Test-LogPresent -Value $intakeId) {
+            $set[$intakeId] = $true
+        }
+    }
+    return $set
+}
+
+function Get-CaseIntakeOpenPreparedEvents {
+    param([object[]]$Events)
+
+    $closedSet = New-CaseIntakeClosedSet -Events $Events
+    return @(
+        Get-CaseIntakePreparedEvents -Events $Events |
+            Where-Object {
+                $intakeId = Get-ObjectField -Object $_ -Key "intake_id" -Default $null
+                (Test-LogPresent -Value $intakeId) -and -not $closedSet.ContainsKey($intakeId)
+            }
+    )
+}
+
+function Get-LatestCaseIntakeEvent {
+    param([object[]]$Events, [string]$EventType)
+
+    $matches = @($Events | Where-Object { (Get-ObjectField -Object $_ -Key "event_type") -eq $EventType })
+    if ($matches.Count -eq 0) {
+        return $null
+    }
+    return $matches[$matches.Count - 1]
 }
 
 function New-ActiveTestSession {
@@ -2989,6 +3091,9 @@ function Get-CollectionFlowState {
     $doctor = Get-CollectionDoctorConclusion
     $coverage = Get-CollectionCoverageHint
     $stable = Get-CollectionStableHint
+    $intakeEvents = @(Read-CaseIntakeEvents)
+    $openIntakes = @(Get-CaseIntakeOpenPreparedEvents -Events $intakeEvents)
+    $latestOpenIntake = if ($openIntakes.Count -gt 0) { $openIntakes[$openIntakes.Count - 1] } else { $null }
 
     $gitStatus = @(& git -C $ProjectRootPath status --short 2>&1 | ForEach-Object { "$_" })
     $projectPathOk = [string]::Equals($ProjectRootPath, $ExpectedProjectRoot, [System.StringComparison]::OrdinalIgnoreCase)
@@ -3052,6 +3157,9 @@ function Get-CollectionFlowState {
             "stable-cases readiness" = $stable.stable_readiness
             "stable-cases detail" = $stable.detail
             "sample-plan conclusion" = $stable.sample_plan_conclusion
+            "open prepared intake count" = $openIntakes.Count
+            "latest open intake" = Get-ObjectField -Object $latestOpenIntake -Key "intake_id" -Default "-"
+            "case intake reminder" = $(if ($openIntakes.Count -gt 0) { "Open prepared case exists. Run CE and then post-current-case, or inspect case-intake-status." } else { "none" })
             "collection conclusion" = $conclusion
             "collection-flow mutates files" = $false
         }
@@ -3082,7 +3190,7 @@ function Get-CollectionFlowSteps {
                 [pscustomobject][ordered]@{ Step = "2"; Action = "Manually verify a current-session known_true_addr" },
                 [pscustomobject][ordered]@{ Step = "3"; Action = "$prefix prepare-current-case -KnownTrueAddr `"<current_addr>`" -Profile full" },
                 [pscustomobject][ordered]@{ Step = "4"; Action = "Run CE: $ceCommand" },
-                [pscustomobject][ordered]@{ Step = "5"; Action = "$prefix post-full" }
+                [pscustomobject][ordered]@{ Step = "5"; Action = "$prefix post-current-case" }
             )
         }
         "SESSION_ENDED" {
@@ -3091,7 +3199,7 @@ function Get-CollectionFlowSteps {
                 [pscustomobject][ordered]@{ Step = "2"; Action = "Collect new current-session addresses; do not reuse old addresses unless freshly verified" },
                 [pscustomobject][ordered]@{ Step = "3"; Action = "$prefix prepare-current-case -KnownTrueAddr `"<current_addr>`" -Profile full" },
                 [pscustomobject][ordered]@{ Step = "4"; Action = "Run CE: $ceCommand" },
-                [pscustomobject][ordered]@{ Step = "5"; Action = "$prefix post-full" }
+                [pscustomobject][ordered]@{ Step = "5"; Action = "$prefix post-current-case" }
             )
         }
         "STALE_TRACKED_SESSION" {
@@ -3108,7 +3216,7 @@ function Get-CollectionFlowSteps {
                 [pscustomobject][ordered]@{ Step = "2"; Action = "Choose a currently valid known_true_addr from the active session" },
                 [pscustomobject][ordered]@{ Step = "3"; Action = "$prefix prepare-current-case -KnownTrueAddr `"<current_addr>`" -Profile full" },
                 [pscustomobject][ordered]@{ Step = "4"; Action = "Run CE: $ceCommand" },
-                [pscustomobject][ordered]@{ Step = "5"; Action = "$prefix post-full" },
+                [pscustomobject][ordered]@{ Step = "5"; Action = "$prefix post-current-case" },
                 [pscustomobject][ordered]@{ Step = "6"; Action = "$prefix case-summary" }
             )
         }
@@ -3295,9 +3403,26 @@ function Invoke-PrepareCurrentCaseCommand {
     }
 
     $updatedConfig = Read-CaseConfigMap -Path $CaseConfigPath
-    $afterCeCommand = if ($prepareProfile -eq "quick") { "test_session_tool.ps1 post-quick" } else { "test_session_tool.ps1 post-full" }
+    $intakeId = New-CaseIntakeId
+    $preparedEvent = [ordered]@{
+        event_type = "prepared"
+        intake_id = $intakeId
+        session_id = Get-ObjectField -Object $precheck.session -Key "session_id" -Default "-"
+        known_true_addr = Get-ConfigDisplayValue -Config $updatedConfig -Key "known_true_addr"
+        profile = Get-ConfigDisplayValue -Config $updatedConfig -Key "validation_profile"
+        target_value_float = 100.0
+        target_value_pattern = "0x42C80000"
+        prepared_at_utc = Get-UtcTimestampText
+        config_case_id = Get-ConfigDisplayValue -Config $updatedConfig -Key "case_id"
+        status = "open"
+        tool = "test_session_tool.ps1"
+    }
+    Add-CaseIntakeEvent -Record ([pscustomobject]$preparedEvent)
+
+    $profilePostCommand = if ($prepareProfile -eq "quick") { "test_session_tool.ps1 post-quick" } else { "test_session_tool.ps1 post-full" }
     Write-WorkflowSummary -Title "Prepare Current Case Summary" -Fields ([ordered]@{
         "command" = $CommandName
+        "intake_id" = $intakeId
         "session_id" = Get-ObjectField -Object $precheck.session -Key "session_id" -Default "-"
         "known_true_addr" = Get-ConfigDisplayValue -Config $updatedConfig -Key "known_true_addr"
         "profile" = Get-ConfigDisplayValue -Config $updatedConfig -Key "validation_profile"
@@ -3306,9 +3431,255 @@ function Invoke-PrepareCurrentCaseCommand {
         "precheck next_run_type" = $precheck.plan.next_run_type
         "precheck danger_level" = $precheck.plan.danger_level
         "config modified" = $true
+        "intake journal appended" = $true
+        "intake journal path" = $CaseIntakePath
         "ce runtime run" = $false
         "next CE command" = "dofile([[D:\armedforces.io-v2\src\execute_module-v5.2.0_batch.lua]])"
-        "after CE command" = $afterCeCommand
+        "after CE command" = "test_session_tool.ps1 post-current-case"
+        "profile post fallback" = $profilePostCommand
+    })
+    exit 0
+}
+
+function Write-CaseIntakeOpenTable {
+    param([object[]]$Rows)
+
+    Write-Output ""
+    Write-Output "Open Prepared Cases"
+    if (@($Rows).Count -eq 0) {
+        Write-Output "none"
+        return
+    }
+
+    Write-Output ("{0,-28} {1,-20} {2,-15} {3,-6} {4,-15} {5}" -f "intake_id", "prepared_at_utc", "known_true_addr", "profile", "session", "config_case_id")
+    Write-Output ("{0,-28} {1,-20} {2,-15} {3,-6} {4,-15} {5}" -f "---------", "---------------", "---------------", "-------", "-------", "--------------")
+    foreach ($row in @($Rows)) {
+        Write-Output ("{0,-28} {1,-20} {2,-15} {3,-6} {4,-15} {5}" -f `
+            (Get-ObjectField -Object $row -Key "intake_id" -Default "-"),
+            (Get-ObjectField -Object $row -Key "prepared_at_utc" -Default "-"),
+            (Get-ObjectField -Object $row -Key "known_true_addr" -Default "-"),
+            (Get-ObjectField -Object $row -Key "profile" -Default "-"),
+            (Get-ObjectField -Object $row -Key "session_id" -Default "-"),
+            (Get-ObjectField -Object $row -Key "config_case_id" -Default "-"))
+    }
+}
+
+function Write-CaseIntakeStatus {
+    $events = @(Read-CaseIntakeEvents)
+    $prepared = @(Get-CaseIntakePreparedEvents -Events $events)
+    $completed = @(Get-CaseIntakeCompletedEvents -Events $events)
+    $abandoned = @(Get-CaseIntakeAbandonedEvents -Events $events)
+    $open = @(Get-CaseIntakeOpenPreparedEvents -Events $events)
+    $latestPrepared = Get-LatestCaseIntakeEvent -Events $events -EventType "prepared"
+    $latestCompleted = Get-LatestCaseIntakeEvent -Events $events -EventType "completed"
+    $latestAbandoned = Get-LatestCaseIntakeEvent -Events $events -EventType "abandoned"
+    $journalIgnored = Test-GitIgnoredPath -Path "log/case_intake.local.jsonl"
+
+    Write-WorkflowSummary -Title "Case Intake Status" -Fields ([ordered]@{
+        "journal path" = $CaseIntakePath
+        "journal exists" = (Test-Path -LiteralPath $CaseIntakePath)
+        "journal gitignored" = $journalIgnored
+        "prepared event count" = $prepared.Count
+        "open prepared case count" = $open.Count
+        "completed event count" = $completed.Count
+        "abandoned event count" = $abandoned.Count
+        "latest prepared intake" = Get-ObjectField -Object $latestPrepared -Key "intake_id" -Default "-"
+        "latest prepared addr" = Get-ObjectField -Object $latestPrepared -Key "known_true_addr" -Default "-"
+        "latest completed intake" = Get-ObjectField -Object $latestCompleted -Key "intake_id" -Default "-"
+        "latest completed batch" = Get-ObjectField -Object $latestCompleted -Key "batch_id" -Default "-"
+        "latest abandoned intake" = Get-ObjectField -Object $latestAbandoned -Key "intake_id" -Default "-"
+        "latest abandoned reason" = Get-ObjectField -Object $latestAbandoned -Key "reason" -Default "-"
+        "ce runtime run" = $false
+    })
+    Write-CaseIntakeOpenTable -Rows $open
+}
+
+function Get-LatestOpenCaseIntake {
+    param([object[]]$Events)
+
+    $open = @(Get-CaseIntakeOpenPreparedEvents -Events $Events)
+    if ($open.Count -eq 0) {
+        return $null
+    }
+    return $open[$open.Count - 1]
+}
+
+function Test-IntakeBatchNewerThanPrepare {
+    param($Intake, [string]$BatchId)
+
+    $preparedAt = Convert-ConfigUtcDateTime -Value (Get-ObjectField -Object $Intake -Key "prepared_at_utc")
+    if (-not $preparedAt) {
+        return [pscustomobject][ordered]@{
+            ok = $false
+            detail = "prepared_at_utc missing or invalid"
+        }
+    }
+
+    $summaryPath = Get-BatchSummaryPath -Root $LogRoot -Batch $BatchId
+    if (-not $summaryPath) {
+        return [pscustomobject][ordered]@{
+            ok = $false
+            detail = "latest batch summary/diagnostic file not found"
+        }
+    }
+
+    $batchFile = Get-Item -LiteralPath $summaryPath
+    $batchWriteUtc = $batchFile.LastWriteTimeUtc
+    return [pscustomobject][ordered]@{
+        ok = ($batchWriteUtc -gt $preparedAt)
+        detail = ("batch_file_utc={0}; prepared_at_utc={1}; path={2}" -f `
+            (Format-UtcTimestamp -Value $batchWriteUtc),
+            (Format-UtcTimestamp -Value $preparedAt),
+            $summaryPath)
+    }
+}
+
+function Invoke-PostCurrentCaseCommand {
+    $events = @(Read-CaseIntakeEvents)
+    $latestPrepared = Get-LatestCaseIntakeEvent -Events $events -EventType "prepared"
+    $openIntake = Get-LatestOpenCaseIntake -Events $events
+    if (-not $openIntake) {
+        $closedSet = New-CaseIntakeClosedSet -Events $events
+        $latestPreparedId = Get-ObjectField -Object $latestPrepared -Key "intake_id" -Default "-"
+        $latestCompleted = Get-LatestCaseIntakeEvent -Events $events -EventType "completed"
+        $latestAbandoned = Get-LatestCaseIntakeEvent -Events $events -EventType "abandoned"
+        $latestClosedType = if ((Get-ObjectField -Object $latestCompleted -Key "intake_id" -Default "") -eq $latestPreparedId) { "completed" } elseif ((Get-ObjectField -Object $latestAbandoned -Key "intake_id" -Default "") -eq $latestPreparedId) { "abandoned" } else { "closed" }
+        $status = if ($latestPrepared -and $closedSet.ContainsKey($latestPreparedId)) { "already $latestClosedType" } else { "no open prepared intake" }
+        Write-WorkflowSummary -Title "Post Current Case Summary" -Fields ([ordered]@{
+            "result" = $status
+            "latest prepared intake" = $latestPreparedId
+            "journal path" = $CaseIntakePath
+            "completion appended" = $false
+            "ce runtime run" = $false
+            "recommended next step" = "case-intake-status"
+        })
+        exit 0
+    }
+
+    $intakeId = Get-ObjectField -Object $openIntake -Key "intake_id"
+    $profile = Get-ObjectField -Object $openIntake -Key "profile"
+    $knownTrueAddr = Get-ObjectField -Object $openIntake -Key "known_true_addr"
+    if (-not (Test-LogPresent -Value $profile)) {
+        $profile = "full"
+    }
+
+    $classifierResult = Invoke-CollectionClassifierReadOnly -RequestedLatest 1 -RequestedProfile $profile
+    if ($classifierResult.exit_code -ne 0 -or @($classifierResult.records).Count -eq 0) {
+        Write-WorkflowSummary -Title "Post Current Case Summary" -Fields ([ordered]@{
+            "result" = "no matching latest batch"
+            "intake_id" = $intakeId
+            "reason" = "classifier latest batch unavailable"
+            "completion appended" = $false
+            "recommended next step" = "Run post-full or post-quick, case-intake-status, and confirm CE was run after prepare."
+        })
+        exit 1
+    }
+
+    $record = @($classifierResult.records)[0]
+    $batchId = Get-RecordField -Record $record -Key "batch_id"
+    $recordAddr = Get-RecordField -Record $record -Key "known_true_addr"
+    $recordProfile = Get-RecordField -Record $record -Key "validation_profile"
+    $batchFresh = Test-IntakeBatchNewerThanPrepare -Intake $openIntake -BatchId $batchId
+    $addrMatches = [string]::Equals("$recordAddr", "$knownTrueAddr", [System.StringComparison]::OrdinalIgnoreCase)
+    $profileMatches = [string]::Equals("$recordProfile", "$profile", [System.StringComparison]::OrdinalIgnoreCase)
+
+    if (-not $addrMatches -or -not $profileMatches -or -not $batchFresh.ok) {
+        Write-WorkflowSummary -Title "Post Current Case Summary" -Fields ([ordered]@{
+            "result" = "no matching latest batch"
+            "intake_id" = $intakeId
+            "intake known_true_addr" = $knownTrueAddr
+            "latest batch id" = $batchId
+            "latest known_true_addr" = $recordAddr
+            "addr matches" = $addrMatches
+            "intake profile" = $profile
+            "latest validation_profile" = $recordProfile
+            "profile matches" = $profileMatches
+            "batch newer than prepare" = $batchFresh.ok
+            "batch freshness detail" = $batchFresh.detail
+            "completion appended" = $false
+            "recommended next step" = "Run CE after prepare, then post-current-case. You may also run post-full/post-quick and case-intake-status."
+        })
+        exit 1
+    }
+
+    $completedEvent = [ordered]@{
+        event_type = "completed"
+        intake_id = $intakeId
+        session_id = Get-ObjectField -Object $openIntake -Key "session_id" -Default "-"
+        known_true_addr = $knownTrueAddr
+        profile = $profile
+        completed_at_utc = Get-UtcTimestampText
+        batch_id = $batchId
+        classification = Get-RecordField -Record $record -Key "classification"
+        final_hit = (Test-LogTrue (Get-RecordField -Record $record -Key "final_hit"))
+        stable_rank = Get-RecordField -Record $record -Key "stable_rank"
+        rank_AWB = Get-RecordField -Record $record -Key "rank_A/W/B"
+        recommendation = Get-RecordField -Record $record -Key "recommendation"
+        tool = "test_session_tool.ps1"
+    }
+    Add-CaseIntakeEvent -Record ([pscustomobject]$completedEvent)
+
+    Write-WorkflowSummary -Title "Post Current Case Summary" -Fields ([ordered]@{
+        "result" = "completed"
+        "intake_id" = $intakeId
+        "session_id" = Get-ObjectField -Object $openIntake -Key "session_id" -Default "-"
+        "known_true_addr" = $knownTrueAddr
+        "profile" = $profile
+        "batch_id" = $batchId
+        "classification" = $completedEvent.classification
+        "final_hit" = $completedEvent.final_hit
+        "stable_rank" = $completedEvent.stable_rank
+        "rank_AWB" = $completedEvent.rank_AWB
+        "recommendation" = $completedEvent.recommendation
+        "completion appended" = $true
+        "journal path" = $CaseIntakePath
+    })
+    exit 0
+}
+
+function Invoke-CaseIntakeAbandonCommand {
+    param([string]$CommandName)
+
+    $events = @(Read-CaseIntakeEvents)
+    $openIntake = Get-LatestOpenCaseIntake -Events $events
+    if (-not $openIntake) {
+        Write-WorkflowSummary -Title "Case Intake Abandon Summary" -Fields ([ordered]@{
+            "command" = $CommandName
+            "result" = "no open prepared intake"
+            "abandoned appended" = $false
+            "journal path" = $CaseIntakePath
+            "ce runtime run" = $false
+            "recommended next step" = "case-intake-status"
+        })
+        exit 0
+    }
+
+    $reasonText = if ([string]::IsNullOrWhiteSpace($Reason)) { "not specified" } else { $Reason.Trim() }
+    $abandonedEvent = [ordered]@{
+        event_type = "abandoned"
+        intake_id = Get-ObjectField -Object $openIntake -Key "intake_id" -Default "-"
+        session_id = Get-ObjectField -Object $openIntake -Key "session_id" -Default "-"
+        known_true_addr = Get-ObjectField -Object $openIntake -Key "known_true_addr" -Default "-"
+        profile = Get-ObjectField -Object $openIntake -Key "profile" -Default "-"
+        abandoned_at_utc = Get-UtcTimestampText
+        reason = $reasonText
+        tool = "test_session_tool.ps1"
+    }
+    Add-CaseIntakeEvent -Record ([pscustomobject]$abandonedEvent)
+
+    Write-WorkflowSummary -Title "Case Intake Abandon Summary" -Fields ([ordered]@{
+        "command" = $CommandName
+        "result" = "abandoned"
+        "intake_id" = $abandonedEvent.intake_id
+        "session_id" = $abandonedEvent.session_id
+        "known_true_addr" = $abandonedEvent.known_true_addr
+        "profile" = $abandonedEvent.profile
+        "abandoned_at_utc" = $abandonedEvent.abandoned_at_utc
+        "reason" = $abandonedEvent.reason
+        "abandoned appended" = $true
+        "journal path" = $CaseIntakePath
+        "config modified" = $false
+        "ce runtime run" = $false
     })
     exit 0
 }
@@ -3341,7 +3712,7 @@ function Get-WorkflowHelpItems {
         New-WorkflowHelpItem "Safety / Preflight" "plan" "Preview what the next manual CE run would do" "test_session_tool.ps1 plan" "$prefix plan" "Read-only; does not run CE or modify local config" "run CE manually only if the plan is acceptable"
         New-WorkflowHelpItem "Safety / Preflight" "preview-next-run" "Alias for plan" "test_session_tool.ps1 preview-next-run" "$prefix preview-next-run" "Read-only; same output as plan" "run CE manually only if the plan is acceptable"
         New-WorkflowHelpItem "Safety / Preflight" "doctor" "Run read-only preflight and safety checks" "test_session_tool.ps1 doctor [-Latest 50]" "$prefix doctor" "Read-only; does not run CE or write registry" "status"
-        New-WorkflowHelpItem "Safety / Preflight" "collection-flow" "Guide current-session case collection without mutating config or session state" "test_session_tool.ps1 collection-flow" "$prefix collection-flow" "Strictly read-only; does not run CE, write config, write logs, append registry, save baselines, or auto-end sessions" "session-start or sample-plan -ActiveSession"
+        New-WorkflowHelpItem "Safety / Preflight" "collection-flow" "Guide current-session case collection without mutating config or session state" "test_session_tool.ps1 collection-flow" "$prefix collection-flow" "Strictly read-only; shows open case intake reminders without writing the append-only local journal" "session-start or sample-plan -ActiveSession"
         New-WorkflowHelpItem "Safety / Preflight" "collect-guide" "Alias for collection-flow" "test_session_tool.ps1 collect-guide" "$prefix collect-guide" "Strictly read-only; same output as collection-flow" "session-start or sample-plan -ActiveSession"
         New-WorkflowHelpItem "Safety / Preflight" "status" "Show config, recent classifier output, registry summary, and git status" "test_session_tool.ps1 status" "$prefix status" "Read-only; may print current write-capable warnings" "execution-status -IncludeResolved"
         New-WorkflowHelpItem "Safety / Preflight" "diagnostic-status" "Show current diagnostic/logging level and latest log size" "test_session_tool.ps1 diagnostic-status" "$prefix diagnostic-status" "Read-only; does not run CE or modify config" "set-diagnostic -Level basic"
@@ -3352,8 +3723,12 @@ function Get-WorkflowHelpItems {
         New-WorkflowHelpItem "Safety / Preflight" "session-end" "End local active manual test session marker" "test_session_tool.ps1 session-end [-Reason <text>]" "$prefix session-end -Reason `"manual validation complete`"" "Ends active-session reuse guidance; does not run CE or modify config" "sample-plan"
         New-WorkflowHelpItem "Safety / Preflight" "session-watch" "Foreground watch for a process-tracked active session" "test_session_tool.ps1 session-watch [-IntervalSeconds 10] [-Once]" "$prefix session-watch -Once" "Only works with -TrackProcess sessions; no default expiry is enabled" "session-end"
         New-WorkflowHelpItem "Detect-only workflow" "prepare" "Prepare local case config for a manual CE detect run" "test_session_tool.ps1 prepare -KnownTrueAddr <addr> [-CaseId <id>] [-Profile quick|full]" "$prefix prepare -KnownTrueAddr `"0x25A061C7D48`" -Profile full" "Writes local config; validates KnownTrueAddr; does not run CE" "run CE manually, then post-full or post-quick"
-        New-WorkflowHelpItem "Detect-only workflow" "prepare-current-case" "Guarded active-session prepare for current case collection" "test_session_tool.ps1 prepare-current-case -KnownTrueAddr <addr> [-CaseId <id>] [-Profile quick|full]" "$prefix prepare-current-case -KnownTrueAddr `"0x25A061C7D48`" -Profile full" "Requires active manual test session; checks plan SAFE, target 100.0/0x42C80000, and non-write-capable config before writing local config; does not run CE" "run CE manually, then post-full or post-quick"
-        New-WorkflowHelpItem "Detect-only workflow" "prepare-case" "Alias for prepare-current-case" "test_session_tool.ps1 prepare-case -KnownTrueAddr <addr> [-CaseId <id>] [-Profile quick|full]" "$prefix prepare-case -KnownTrueAddr `"0x25A061C7D48`" -Profile full" "Preferred alias/wrapper over raw prepare for normal case collection; writes local config only after guard checks; does not run CE" "run CE manually, then post-full or post-quick"
+        New-WorkflowHelpItem "Detect-only workflow" "prepare-current-case" "Guarded active-session prepare for current case collection" "test_session_tool.ps1 prepare-current-case -KnownTrueAddr <addr> [-CaseId <id>] [-Profile quick|full]" "$prefix prepare-current-case -KnownTrueAddr `"0x25A061C7D48`" -Profile full" "Requires active manual test session; checks plan SAFE, target 100.0/0x42C80000, and non-write-capable config before writing local config; appends an ignored prepared intake event; does not run CE" "run CE manually, then post-current-case"
+        New-WorkflowHelpItem "Detect-only workflow" "prepare-case" "Alias for prepare-current-case" "test_session_tool.ps1 prepare-case -KnownTrueAddr <addr> [-CaseId <id>] [-Profile quick|full]" "$prefix prepare-case -KnownTrueAddr `"0x25A061C7D48`" -Profile full" "Preferred alias/wrapper over raw prepare; writes local config and appends ignored local intake journal only after guard checks; does not run CE" "run CE manually, then post-current-case"
+        New-WorkflowHelpItem "Detect-only workflow" "case-intake-status" "Show open and completed local current-case intake journal entries" "test_session_tool.ps1 case-intake-status" "$prefix case-intake-status" "Read-only; journal is append-only ignored local state under log/case_intake.local.jsonl" "post-current-case"
+        New-WorkflowHelpItem "Detect-only workflow" "case-intake-abandon" "Abandon latest open prepared intake when CE was not run" "test_session_tool.ps1 case-intake-abandon [-Reason <text>]" "$prefix case-intake-abandon -Reason `"decided not to run CE`"" "Appends ignored local abandoned event only; does not rewrite journal, run CE, or modify config" "case-intake-status"
+        New-WorkflowHelpItem "Detect-only workflow" "abandon-current-case" "Alias for case-intake-abandon" "test_session_tool.ps1 abandon-current-case [-Reason <text>]" "$prefix abandon-current-case -Reason `"validation no CE run`"" "Appends ignored local abandoned event only; same behavior as case-intake-abandon" "case-intake-status"
+        New-WorkflowHelpItem "Detect-only workflow" "post-current-case" "Safely complete latest matching prepared current case after CE" "test_session_tool.ps1 post-current-case" "$prefix post-current-case" "Does not run CE; appends completed event only if latest batch matches open intake by addr/profile and is newer than prepare" "case-summary"
         New-WorkflowHelpItem "Detect-only workflow" "post-full" "Classify latest full batch and append registry" "test_session_tool.ps1 post-full" "$prefix post-full" "Does not run CE; appends registry record" "compare-full"
         New-WorkflowHelpItem "Detect-only workflow" "post-quick" "Classify latest quick batch and append registry" "test_session_tool.ps1 post-quick" "$prefix post-quick" "Does not run CE; appends registry record" "prepare-current-case -Profile full"
         New-WorkflowHelpItem "Detect-only workflow" "compare-full" "Compare latest clean full batches against the default baseline" "test_session_tool.ps1 compare-full" "$prefix compare-full" "Read-only; uses baseline-eligible full batches only" "baseline-current"
@@ -3454,6 +3829,10 @@ $availableCommands = @(
     "prepare",
     "prepare-current-case",
     "prepare-case",
+    "case-intake-status",
+    "case-intake-abandon",
+    "abandon-current-case",
+    "post-current-case",
     "post-quick",
     "post-full",
     "compare-full",
@@ -3655,6 +4034,23 @@ switch ($Action) {
 
     "prepare-case" {
         Invoke-PrepareCurrentCaseCommand -CommandName "prepare-case" -ProfileProvided ($PSBoundParameters.ContainsKey("Profile"))
+    }
+
+    "case-intake-status" {
+        Write-CaseIntakeStatus
+        exit 0
+    }
+
+    "case-intake-abandon" {
+        Invoke-CaseIntakeAbandonCommand -CommandName "case-intake-abandon"
+    }
+
+    "abandon-current-case" {
+        Invoke-CaseIntakeAbandonCommand -CommandName "abandon-current-case"
+    }
+
+    "post-current-case" {
+        Invoke-PostCurrentCaseCommand
     }
 
     "set-diagnostic" {

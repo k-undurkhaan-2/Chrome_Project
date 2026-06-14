@@ -236,7 +236,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\te
 Typical conclusions:
 
 - `NO_ACTIVE_SESSION`: start a new manual session, manually verify a current-session address, then prepare a full detect-only case with `prepare-current-case`.
-- `READY_TO_COLLECT_CASE`: run `sample-plan -ActiveSession`, choose a currently valid address, prepare it with `prepare-current-case`, run CE manually, then `post-full`.
+- `READY_TO_COLLECT_CASE`: run `sample-plan -ActiveSession`, choose a currently valid address, prepare it with `prepare-current-case`, run CE manually, then `post-current-case`.
 - `STALE_TRACKED_SESSION`: manually review or end the stale session before collecting new addresses.
 - `BLOCKED_WRITE_CAPABLE`: run `safe-reset -TargetValueFloat 100.0` before detect-only collection.
 - `BLOCKED_INVALID_CONFIG`: reset or fix target pattern/float consistency before CE.
@@ -254,7 +254,49 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\te
 powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" prepare-case -KnownTrueAddr "0x25A061C7D48" -Profile quick
 ```
 
-`prepare-current-case` requires an active manual test session and validates `KnownTrueAddr`, safe detect-only plan state, non-write-capable execution config, and normal target `100.0 / 0x42C80000` before writing `src\run_case_config.local.lua`. It writes local config only after those checks pass, does not run CE, and shows the correct `post-full` or `post-quick` command for after the manual CE run.
+`prepare-current-case` requires an active manual test session and validates `KnownTrueAddr`, safe detect-only plan state, non-write-capable execution config, and normal target `100.0 / 0x42C80000` before writing `src\run_case_config.local.lua`. It writes local config only after those checks pass, appends a local prepared intake event, does not run CE, and shows the correct after-CE command.
+
+## Case Intake Journal
+
+The case intake journal tracks local current-case sampling state:
+
+```text
+D:\armedforces.io-v2\log\case_intake.local.jsonl
+```
+
+It is append-only, stored under ignored `log\`, and must not be committed. The journal records successful `prepare-current-case` events and matching `post-current-case` completion events.
+
+Normal flow:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" session-start -Label "case collection"
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" prepare-current-case -KnownTrueAddr "0x25A061C7D48" -Profile full
+```
+
+Run CE manually:
+
+```lua
+dofile([[D:\armedforces.io-v2\src\execute_module-v5.2.0_batch.lua]])
+```
+
+Then post the prepared case:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" post-current-case
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" case-intake-status
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" case-summary
+```
+
+`post-current-case` does not run CE. It appends a completed event only when the latest batch safely matches the latest open prepared intake by `known_true_addr`, validation profile, and batch log time after the prepare event. If there is no safe match, it refuses to mark the intake completed.
+
+If a case was prepared but CE was not run, abandon the latest open prepared intake instead of leaving it open:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" case-intake-abandon -Reason "decided not to run CE"
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" abandon-current-case -Reason "validation no CE run"
+```
+
+Abandoning appends an `abandoned` event to the ignored local JSONL file. It does not rewrite old rows, does not run CE, and does not modify config. Open intakes are prepared events with no matching completed or abandoned event.
 
 ## Case Library / Test Matrix
 
@@ -335,10 +377,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\te
 dofile([[D:\armedforces.io-v2\src\execute_module-v5.2.0_batch.lua]])
 ```
 
-6. Classify the quick result:
+6. Post the quick result:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" post-quick
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" post-current-case
 ```
 
 7. Prepare a full case with the guarded wrapper:
@@ -349,10 +391,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\te
 
 8. Run `plan`, then run CE manually again with the same fixed `dofile(...)` command.
 
-9. Classify the full result:
+9. Post the full result:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" post-full
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" post-current-case
 ```
 
 10. Compare clean full detect-only batches:
