@@ -81,6 +81,8 @@ function Write-CommandHelp {
     Write-Output "  plan           Preview what the next manual CE/Lua run would do"
     Write-Output "  preview-next-run Alias for plan"
     Write-Output "  prepare        Set run_case_config.local.lua for the next manual CE/Lua run"
+    Write-Output "  collect-prepare One-shot preflight plus current-case prepare"
+    Write-Output "  prepare-collection-case Alias for collect-prepare"
     Write-Output "  prepare-current-case Guarded active-session prepare for current case collection"
     Write-Output "  prepare-case   Alias for prepare-current-case"
     Write-Output "  case-intake-status Show local prepared/completed current-case intake journal"
@@ -123,6 +125,8 @@ function Write-CommandHelp {
     Write-Output ""
     Write-Output "Prepare options:"
     Write-Output "  -KnownTrueAddr <addr> [-CaseId <id>] [-Profile quick|full] [-DiagnosticLevel basic|debug|trace]"
+    Write-Output "  collect-prepare -KnownTrueAddr <addr> [-CaseId <id>] [-Profile quick|full]"
+    Write-Output "  prepare-collection-case -KnownTrueAddr <addr> [-CaseId <id>] [-Profile quick|full]"
     Write-Output "  prepare-current-case -KnownTrueAddr <addr> [-CaseId <id>] [-Profile quick|full]"
     Write-Output "  prepare-case -KnownTrueAddr <addr> [-CaseId <id>] [-Profile quick|full]"
     Write-Output "  case-intake-status"
@@ -1317,6 +1321,34 @@ function Write-WorkflowSummary {
     foreach ($key in $Fields.Keys) {
         Write-Output ("{0,-$fieldWidth} {1}" -f $key, $Fields[$key])
     }
+}
+
+function Get-AlignedSummaryFieldMap {
+    param([string[]]$OutputLines)
+
+    $fields = @{}
+    foreach ($line in @($OutputLines)) {
+        if ([string]::IsNullOrWhiteSpace($line)) {
+            continue
+        }
+        if ($line -match '^\s*(Field|-----)\s+(.+?)\s*$') {
+            continue
+        }
+        if ($line -match '^\s*(.+?)\s{2,}(.+?)\s*$') {
+            $fields[$matches[1].Trim()] = $matches[2].Trim()
+        }
+    }
+    return $fields
+}
+
+function Get-TestSessionToolScriptPath {
+    if (Test-LogPresent -Value $PSCommandPath) {
+        return $PSCommandPath
+    }
+    if (Test-LogPresent -Value $MyInvocation.MyCommand.Path) {
+        return $MyInvocation.MyCommand.Path
+    }
+    return (Join-Path (Join-Path $ProjectRootPath "src") "test_session_tool.ps1")
 }
 
 function Write-AddressLifetimeNote {
@@ -3322,7 +3354,7 @@ function Get-CollectionFlowSteps {
             return @(
                 [pscustomobject][ordered]@{ Step = "1"; Action = "$prefix session-start -Label `"case collection`"" },
                 [pscustomobject][ordered]@{ Step = "2"; Action = "Manually verify a current-session known_true_addr" },
-                [pscustomobject][ordered]@{ Step = "3"; Action = "$prefix prepare-current-case -KnownTrueAddr `"<current_addr>`" -Profile full" },
+                [pscustomobject][ordered]@{ Step = "3"; Action = "$prefix collect-prepare -KnownTrueAddr `"<current_addr>`" -Profile full" },
                 [pscustomobject][ordered]@{ Step = "4"; Action = "Run CE: $ceCommand" },
                 [pscustomobject][ordered]@{ Step = "5"; Action = "$prefix post-current-case" }
             )
@@ -3331,7 +3363,7 @@ function Get-CollectionFlowSteps {
             return @(
                 [pscustomobject][ordered]@{ Step = "1"; Action = "$prefix session-start -Label `"case collection`"" },
                 [pscustomobject][ordered]@{ Step = "2"; Action = "Collect new current-session addresses; do not reuse old addresses unless freshly verified" },
-                [pscustomobject][ordered]@{ Step = "3"; Action = "$prefix prepare-current-case -KnownTrueAddr `"<current_addr>`" -Profile full" },
+                [pscustomobject][ordered]@{ Step = "3"; Action = "$prefix collect-prepare -KnownTrueAddr `"<current_addr>`" -Profile full" },
                 [pscustomobject][ordered]@{ Step = "4"; Action = "Run CE: $ceCommand" },
                 [pscustomobject][ordered]@{ Step = "5"; Action = "$prefix post-current-case" }
             )
@@ -3348,7 +3380,7 @@ function Get-CollectionFlowSteps {
             return @(
                 [pscustomobject][ordered]@{ Step = "1"; Action = "$prefix sample-plan -ActiveSession" },
                 [pscustomobject][ordered]@{ Step = "2"; Action = "Choose a currently valid known_true_addr from the active session" },
-                [pscustomobject][ordered]@{ Step = "3"; Action = "$prefix prepare-current-case -KnownTrueAddr `"<current_addr>`" -Profile full" },
+                [pscustomobject][ordered]@{ Step = "3"; Action = "$prefix collect-prepare -KnownTrueAddr `"<current_addr>`" -Profile full" },
                 [pscustomobject][ordered]@{ Step = "4"; Action = "Run CE: $ceCommand" },
                 [pscustomobject][ordered]@{ Step = "5"; Action = "$prefix post-current-case" },
                 [pscustomobject][ordered]@{ Step = "6"; Action = "$prefix case-summary" }
@@ -3493,6 +3525,226 @@ function Test-PrepareCurrentCasePreconditions {
         plan = $plan
         config = $config
     }
+}
+
+function Write-CollectPrepareFailure {
+    param(
+        [string]$CommandName,
+        [string]$FailedGate,
+        [string]$Reason,
+        [string]$RecommendedFix
+    )
+
+    Write-WorkflowSummary -Title "Collect Prepare Summary" -Fields ([ordered]@{
+        "command" = $CommandName
+        "overall result" = "FAIL"
+        "failed gate" = $FailedGate
+        "reason" = $Reason
+        "recommended fix" = $RecommendedFix
+        "config modified" = $false
+        "case intake appended" = $false
+        "ce runtime run" = $false
+    })
+}
+
+function Test-CollectPrepareDoctorGate {
+    param([string]$CommandName)
+
+    $scriptPath = Get-TestSessionToolScriptPath
+    $doctorResult = Invoke-DoctorPowerShellFile -FilePath $scriptPath -Arguments @(
+        "doctor",
+        "-Latest", "$Latest",
+        "-ProjectRoot", $ProjectRootPath,
+        "-LogRoot", $LogRoot
+    )
+    $doctorConclusion = "not_available"
+    foreach ($line in @($doctorResult.output)) {
+        if ("$line" -match '^conclusion\s*=\s*(.+?)\s*$') {
+            $doctorConclusion = $matches[1].Trim()
+        }
+    }
+    if ($doctorResult.exit_code -ne 0 -or $doctorConclusion -ne "SAFE") {
+        return [pscustomobject][ordered]@{
+            ok = $false
+            reason = ("doctor conclusion={0}; exit_code={1}" -f $doctorConclusion, $doctorResult.exit_code)
+            recommended_fix = "Run test_session_tool.ps1 doctor and resolve any FAIL/WARN before collect-prepare."
+        }
+    }
+
+    $validateResult = Invoke-DoctorPowerShellFile -FilePath $CaseConfigToolPath -Arguments @("-Validate")
+    if ($validateResult.exit_code -ne 0) {
+        return [pscustomobject][ordered]@{
+            ok = $false
+            reason = "case_config_tool.ps1 -Validate failed"
+            recommended_fix = "Run case_config_tool.ps1 -Validate, then fix local config or safe-reset."
+        }
+    }
+
+    $config = Read-CaseConfigMap -Path $CaseConfigPath
+    $targetConsistency = Get-TargetConsistencyCheck -Config $config
+    $targetNormal = Test-NormalTargetConfig -Config $config
+    if (-not $targetNormal -or -not [bool]$targetConsistency.matches) {
+        return [pscustomobject][ordered]@{
+            ok = $false
+            reason = ("target_value_float={0}; target_value_pattern={1}; expected_pattern_from_float={2}; consistent={3}" -f `
+                (Get-ConfigDisplayValue -Config $config -Key "target_value_float"),
+                (Get-ConfigDisplayValue -Config $config -Key "target_value_pattern"),
+                $targetConsistency.expected_pattern,
+                [bool]$targetConsistency.matches)
+            recommended_fix = "Run test_session_tool.ps1 safe-reset -TargetValueFloat 100.0."
+        }
+    }
+
+    $executionMode = Get-ConfigDisplayValue -Config $config -Key "execution_mode" -Default "disabled"
+    $executionModeLower = "$executionMode".Trim().ToLowerInvariant()
+    $writeEnabled = Test-ConfigBooleanTrue -Config $config -Key "write_enabled"
+    $confirmPresent = Test-LogPresent -Value (Get-ConfigField -Config $config -Key "execution_confirm")
+    $armPresent = Test-ExecutionArmPresent -Config $config
+    $writeCapable = (Test-ExecutionConfigWriteCapable -Config $config) -or $writeEnabled -or $confirmPresent -or $armPresent -or ($executionModeLower -notin @("", "disabled"))
+    if ($writeCapable) {
+        return [pscustomobject][ordered]@{
+            ok = $false
+            reason = ("execution_mode={0}; write_enabled={1}; confirm_present={2}; arm_present={3}" -f $executionMode, $writeEnabled, $confirmPresent, $armPresent)
+            recommended_fix = "Run test_session_tool.ps1 safe-reset -TargetValueFloat 100.0 before collecting cases."
+        }
+    }
+
+    return [pscustomobject][ordered]@{
+        ok = $true
+        reason = "doctor SAFE; config valid; target normal; execution disabled"
+        recommended_fix = "-"
+    }
+}
+
+function Test-CollectPreparePlanGate {
+    $plan = Get-NextRunPlan
+    if ($plan.next_run_type -ne "detect_only" -or $plan.danger_level -ne "SAFE") {
+        return [pscustomobject][ordered]@{
+            ok = $false
+            reason = ("next_run_type={0}; danger_level={1}" -f $plan.next_run_type, $plan.danger_level)
+            recommended_fix = "Run test_session_tool.ps1 plan and resolve unsafe next-run state."
+            plan = $plan
+        }
+    }
+    return [pscustomobject][ordered]@{
+        ok = $true
+        reason = "next_run_type=detect_only; danger_level=SAFE"
+        recommended_fix = "-"
+        plan = $plan
+    }
+}
+
+function Test-CollectPrepareSessionGate {
+    param([string]$CommandName, [string]$Address)
+
+    if (-not (Test-LogPresent -Value $Address)) {
+        return [pscustomobject][ordered]@{
+            ok = $false
+            reason = "-KnownTrueAddr is required."
+            recommended_fix = "Pass -KnownTrueAddr with a current-session hex address."
+            session = $null
+        }
+    }
+    if (-not (Test-KnownTrueAddr -Value $Address)) {
+        return [pscustomobject][ordered]@{
+            ok = $false
+            reason = Get-KnownTrueAddrValidationDetails -Value $Address
+            recommended_fix = Get-KnownTrueAddrValidationRecommendation -Value $Address
+            session = $null
+        }
+    }
+
+    $session = Read-ActiveTestSession
+    if (-not (Test-ActiveTestSession -Session $session)) {
+        return [pscustomobject][ordered]@{
+            ok = $false
+            reason = ("session status={0}" -f (Get-ObjectField -Object $session -Key "status" -Default "none"))
+            recommended_fix = 'Run test_session_tool.ps1 session-start -Label "case collection".'
+            session = $session
+        }
+    }
+
+    $trackedState = Get-TrackedProcessState -Session $session
+    if ($trackedState.process_tracking_enabled -eq $true -and (-not $trackedState.tracked_process_alive -or -not $trackedState.tracked_process_match)) {
+        return [pscustomobject][ordered]@{
+            ok = $false
+            reason = $(if ($trackedState.failure_reason) { $trackedState.failure_reason } else { "tracked process is not valid" })
+            recommended_fix = 'Run session-end -Reason "tracked process changed", then start a new active session.'
+            session = $session
+        }
+    }
+
+    return [pscustomobject][ordered]@{
+        ok = $true
+        reason = ("session_id={0}; known_true_addr valid" -f (Get-ObjectField -Object $session -Key "session_id" -Default "-"))
+        recommended_fix = "-"
+        session = $session
+    }
+}
+
+function Invoke-CollectPrepareCommand {
+    param([string]$CommandName, [bool]$ProfileProvided)
+
+    $collectProfile = if ($ProfileProvided) { $Profile } else { "full" }
+
+    $sessionGate = Test-CollectPrepareSessionGate -CommandName $CommandName -Address $KnownTrueAddr
+    if (-not $sessionGate.ok) {
+        Write-CollectPrepareFailure -CommandName $CommandName -FailedGate "session/address" -Reason $sessionGate.reason -RecommendedFix $sessionGate.recommended_fix
+        exit 1
+    }
+
+    $doctorGate = Test-CollectPrepareDoctorGate -CommandName $CommandName
+    if (-not $doctorGate.ok) {
+        Write-CollectPrepareFailure -CommandName $CommandName -FailedGate "doctor" -Reason $doctorGate.reason -RecommendedFix $doctorGate.recommended_fix
+        exit 1
+    }
+
+    $planGate = Test-CollectPreparePlanGate
+    if (-not $planGate.ok) {
+        Write-CollectPrepareFailure -CommandName $CommandName -FailedGate "plan" -Reason $planGate.reason -RecommendedFix $planGate.recommended_fix
+        exit 1
+    }
+
+    $scriptPath = Get-TestSessionToolScriptPath
+    $prepareArgs = @(
+        "prepare-current-case",
+        "-KnownTrueAddr", $KnownTrueAddr,
+        "-Profile", $collectProfile,
+        "-ProjectRoot", $ProjectRootPath,
+        "-LogRoot", $LogRoot
+    )
+    if ($CaseId) {
+        $prepareArgs += @("-CaseId", $CaseId)
+    }
+
+    $prepareResult = Invoke-DoctorPowerShellFile -FilePath $scriptPath -Arguments $prepareArgs
+    $prepareFields = Get-AlignedSummaryFieldMap -OutputLines $prepareResult.output
+    if ($prepareResult.exit_code -ne 0) {
+        Write-CollectPrepareFailure `
+            -CommandName $CommandName `
+            -FailedGate "prepare-current-case" `
+            -Reason $(if ($prepareFields.ContainsKey("reason")) { $prepareFields["reason"] } else { ($prepareResult.output | Select-Object -First 1) }) `
+            -RecommendedFix $(if ($prepareFields.ContainsKey("recommended fix")) { $prepareFields["recommended fix"] } else { "Run prepare-current-case directly for details." })
+        exit $prepareResult.exit_code
+    }
+
+    Write-WorkflowSummary -Title "Collect Prepare Summary" -Fields ([ordered]@{
+        "command" = $CommandName
+        "overall result" = "PASS"
+        "doctor gate" = "PASS"
+        "plan gate" = "PASS"
+        "session gate" = "PASS"
+        "prepared known_true_addr" = $KnownTrueAddr
+        "profile" = $collectProfile
+        "intake_id" = $(if ($prepareFields.ContainsKey("intake_id")) { $prepareFields["intake_id"] } else { "-" })
+        "session_id" = Get-ObjectField -Object $sessionGate.session -Key "session_id" -Default "-"
+        "config modified" = $true
+        "case intake appended" = $true
+        "ce runtime run" = $false
+        "next CE command" = 'dofile([[D:\armedforces.io-v2\src\execute_module-v5.2.0_batch.lua]])'
+        "after CE command" = "test_session_tool.ps1 post-current-case"
+    })
+    exit 0
 }
 
 function Invoke-PrepareCurrentCaseCommand {
@@ -3852,6 +4104,8 @@ function Get-WorkflowHelpItems {
         New-WorkflowHelpItem "Safety / Preflight" "session-end" "End local active manual test session marker" "test_session_tool.ps1 session-end [-Reason <text>]" "$prefix session-end -Reason `"manual validation complete`"" "Ends active-session reuse guidance; does not run CE or modify config" "sample-plan"
         New-WorkflowHelpItem "Safety / Preflight" "session-watch" "Foreground watch for a process-tracked active session" "test_session_tool.ps1 session-watch [-IntervalSeconds 10] [-Once]" "$prefix session-watch -Once" "Only works with -TrackProcess sessions; no default expiry is enabled" "session-end"
         New-WorkflowHelpItem "Detect-only workflow" "prepare" "Prepare local case config for a manual CE detect run" "test_session_tool.ps1 prepare -KnownTrueAddr <addr> [-CaseId <id>] [-Profile quick|full]" "$prefix prepare -KnownTrueAddr `"0x25A061C7D48`" -Profile full" "Writes local config; validates KnownTrueAddr; does not run CE" "run CE manually, then post-full or post-quick"
+        New-WorkflowHelpItem "Detect-only workflow" "collect-prepare" "Run one-shot collection preflight gates, then prepare current case" "test_session_tool.ps1 collect-prepare -KnownTrueAddr <addr> [-CaseId <id>] [-Profile quick|full]" "$prefix collect-prepare -KnownTrueAddr `"0x25A061C7D48`" -Profile full" "Runs doctor, plan, and session/address gates before calling prepare-current-case; writes local config and intake only if all gates pass; does not run CE" "run CE manually, then post-current-case"
+        New-WorkflowHelpItem "Detect-only workflow" "prepare-collection-case" "Alias for collect-prepare" "test_session_tool.ps1 prepare-collection-case -KnownTrueAddr <addr> [-CaseId <id>] [-Profile quick|full]" "$prefix prepare-collection-case -KnownTrueAddr `"0x25A061C7D48`" -Profile full" "Same gated behavior as collect-prepare" "run CE manually, then post-current-case"
         New-WorkflowHelpItem "Detect-only workflow" "prepare-current-case" "Guarded active-session prepare for current case collection" "test_session_tool.ps1 prepare-current-case -KnownTrueAddr <addr> [-CaseId <id>] [-Profile quick|full]" "$prefix prepare-current-case -KnownTrueAddr `"0x25A061C7D48`" -Profile full" "Requires active manual test session; checks plan SAFE, target 100.0/0x42C80000, and non-write-capable config before writing local config; appends an ignored prepared intake event; does not run CE" "run CE manually, then post-current-case"
         New-WorkflowHelpItem "Detect-only workflow" "prepare-case" "Alias for prepare-current-case" "test_session_tool.ps1 prepare-case -KnownTrueAddr <addr> [-CaseId <id>] [-Profile quick|full]" "$prefix prepare-case -KnownTrueAddr `"0x25A061C7D48`" -Profile full" "Preferred alias/wrapper over raw prepare; writes local config and appends ignored local intake journal only after guard checks; does not run CE" "run CE manually, then post-current-case"
         New-WorkflowHelpItem "Detect-only workflow" "case-intake-status" "Show open and completed local current-case intake journal entries" "test_session_tool.ps1 case-intake-status" "$prefix case-intake-status" "Read-only; journal is append-only ignored local state under log/case_intake.local.jsonl" "post-current-case"
@@ -3956,6 +4210,8 @@ $availableCommands = @(
     "session-end",
     "session-watch",
     "prepare",
+    "collect-prepare",
+    "prepare-collection-case",
     "prepare-current-case",
     "prepare-case",
     "case-intake-status",
@@ -4155,6 +4411,14 @@ switch ($Action) {
     "diagnostic-status" {
         Write-DiagnosticStatus
         exit 0
+    }
+
+    "collect-prepare" {
+        Invoke-CollectPrepareCommand -CommandName "collect-prepare" -ProfileProvided ($PSBoundParameters.ContainsKey("Profile"))
+    }
+
+    "prepare-collection-case" {
+        Invoke-CollectPrepareCommand -CommandName "prepare-collection-case" -ProfileProvided ($PSBoundParameters.ContainsKey("Profile"))
     }
 
     "prepare-current-case" {

@@ -235,8 +235,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\te
 
 Typical conclusions:
 
-- `NO_ACTIVE_SESSION`: start a new manual session, manually verify a current-session address, then prepare a full detect-only case with `prepare-current-case`.
-- `READY_TO_COLLECT_CASE`: run `sample-plan -ActiveSession`, choose a currently valid address, prepare it with `prepare-current-case`, run CE manually, then `post-current-case`.
+- `NO_ACTIVE_SESSION`: start a new manual session, manually verify a current-session address, then prepare a full detect-only case with `collect-prepare`.
+- `READY_TO_COLLECT_CASE`: run `sample-plan -ActiveSession`, choose a currently valid address, prepare it with `collect-prepare`, run CE manually, then `post-current-case`.
 - `STALE_TRACKED_SESSION`: manually review or end the stale session before collecting new addresses.
 - `BLOCKED_WRITE_CAPABLE`: run `safe-reset -TargetValueFloat 100.0` before detect-only collection.
 - `BLOCKED_INVALID_CONFIG`: reset or fix target pattern/float consistency before CE.
@@ -247,14 +247,16 @@ The CE command remains:
 dofile([[D:\armedforces.io-v2\src\execute_module-v5.2.0_batch.lua]])
 ```
 
-For normal sampling, prefer the guarded active-session wrapper over raw `prepare`:
+For normal sampling, prefer the one-shot collection wrapper over raw `prepare`:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" prepare-current-case -KnownTrueAddr "0x25A061C7D48" -Profile full
-powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" prepare-case -KnownTrueAddr "0x25A061C7D48" -Profile quick
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" collect-prepare -KnownTrueAddr "0x25A061C7D48" -Profile full
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" prepare-collection-case -KnownTrueAddr "0x25A061C7D48" -Profile quick
 ```
 
-`prepare-current-case` requires an active manual test session and validates `KnownTrueAddr`, safe detect-only plan state, non-write-capable execution config, and normal target `100.0 / 0x42C80000` before writing `src\run_case_config.local.lua`. It writes local config only after those checks pass, appends a local prepared intake event, does not run CE, and shows the correct after-CE command.
+`collect-prepare` runs the key preflight gates first: `doctor` must be `SAFE`, `plan` must be `detect_only / SAFE`, the target must be `100.0 / 0x42C80000`, execution must be disabled, an active manual test session must exist, and `KnownTrueAddr` must be a valid current-session hex address. Only after all gates pass does it call `prepare-current-case`.
+
+`prepare-current-case` remains the lower-level guarded wrapper. It writes local config only after its own checks pass, appends a local prepared intake event, does not run CE, and shows the correct after-CE command.
 
 ## Case Intake Journal
 
@@ -264,13 +266,13 @@ The case intake journal tracks local current-case sampling state:
 D:\armedforces.io-v2\log\case_intake.local.jsonl
 ```
 
-It is append-only, stored under ignored `log\`, and must not be committed. The journal records successful `prepare-current-case` events and matching `post-current-case` completion events.
+It is append-only, stored under ignored `log\`, and must not be committed. The journal records successful `collect-prepare` / `prepare-current-case` prepared events and matching `post-current-case` completion events.
 
 Normal flow:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" session-start -Label "case collection"
-powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" prepare-current-case -KnownTrueAddr "0x25A061C7D48" -Profile full
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" collect-prepare -KnownTrueAddr "0x25A061C7D48" -Profile full
 ```
 
 Run CE manually:
@@ -359,10 +361,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\te
 powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" session-start -Label "detect-only collection"
 ```
 
-3. Prepare a quick case with the guarded wrapper:
+3. Prepare a quick case with the one-shot collection wrapper:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" prepare-current-case -KnownTrueAddr "0x25A061C7D48" -Profile quick
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" collect-prepare -KnownTrueAddr "0x25A061C7D48" -Profile quick
 ```
 
 4. Preview the next run:
@@ -383,10 +385,10 @@ dofile([[D:\armedforces.io-v2\src\execute_module-v5.2.0_batch.lua]])
 powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" post-current-case
 ```
 
-7. Prepare a full case with the guarded wrapper:
+7. Prepare a full case with the one-shot collection wrapper:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" prepare-current-case -KnownTrueAddr "0x25A061C7D48" -Profile full
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" collect-prepare -KnownTrueAddr "0x25A061C7D48" -Profile full
 ```
 
 8. Run `plan`, then run CE manually again with the same fixed `dofile(...)` command.
