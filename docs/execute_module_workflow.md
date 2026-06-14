@@ -100,6 +100,42 @@ Compare recent clean full batches to the baseline:
 powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" compare-full
 ```
 
+## Baseline Management
+
+Baseline files are local Markdown snapshots under:
+
+```text
+D:\armedforces.io-v2\log\baselines
+```
+
+They are ignored local state and must not be committed.
+
+List local baselines:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" baseline-list
+```
+
+Show the current default `compare-full` baseline:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" baseline-current
+```
+
+Save a new baseline from the latest baseline-eligible full batches:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" baseline-save -Name "full_clean_YYYYMMDD" -Latest 20
+```
+
+Compare against a named baseline file:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" baseline-compare -Baseline "baseline_compact_basic_20260613_latest20.md"
+```
+
+`baseline-save` rejects path traversal and writes only under `log\baselines`.
+
 ## Detect-Only Workflow
 
 1. Reset to a safe detect-only target:

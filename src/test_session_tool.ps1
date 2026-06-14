@@ -18,7 +18,9 @@ param(
     [switch]$ConfirmWrite,
     [int]$Latest = 50,
     [switch]$IncludeResolved,
-    [string]$Reason
+    [string]$Reason,
+    [string]$Name,
+    [string]$Baseline
 )
 
 Set-StrictMode -Version 2.0
@@ -29,7 +31,8 @@ $ProjectRootPath = [System.IO.Path]::GetFullPath($ProjectRoot).TrimEnd("\", "/")
 $CaseConfigToolPath = Join-Path (Join-Path $ProjectRootPath "src") "case_config_tool.ps1"
 $ClassifierPath = Join-Path (Join-Path $ProjectRootPath "src") "batch_log_classifier.ps1"
 $CaseConfigPath = Join-Path (Join-Path $ProjectRootPath "src") "run_case_config.local.lua"
-$BaselinePath = Join-Path (Join-Path $ProjectRootPath "log\baselines") "baseline_compact_basic_20260613_latest20.md"
+$BaselineRoot = Join-Path (Join-Path $ProjectRootPath "log") "baselines"
+$BaselinePath = Join-Path $BaselineRoot "baseline_compact_basic_20260613_latest20.md"
 $ResolvedWritesPath = Join-Path (Join-Path $ProjectRootPath "log") "execution_resolved_writes.local.jsonl"
 
 function Format-CommandPart {
@@ -61,6 +64,10 @@ function Write-CommandHelp {
     Write-Output "  post-quick     Classify latest quick batch and append registry"
     Write-Output "  post-full      Classify latest full batch and append registry"
     Write-Output "  compare-full   Compare latest 20 baseline-eligible full batches to compact baseline"
+    Write-Output "  baseline-list  List local baseline Markdown files"
+    Write-Output "  baseline-current Show current default compare-full baseline"
+    Write-Output "  baseline-save  Save latest baseline-eligible full batch snapshot"
+    Write-Output "  baseline-compare Compare against a named or full-path baseline"
     Write-Output "  inspect-latest Inspect the latest batch id from -LogRoot"
     Write-Output "  status         Show config, latest 5 classifier summary, registry summary, and git status"
     Write-Output "  disable-execution       Disable execution/write in local case config"
@@ -79,6 +86,8 @@ function Write-CommandHelp {
     Write-Output "  prepare-guarded-write -KnownTrueAddr <addr> -WriteValueFloat <float> -ConfirmWrite"
     Write-Output "  prepare-restore -BatchId <batch> [-EnableWrite -ConfirmWrite]"
     Write-Output "  mark-write-resolved -BatchId <batch> -Reason <text>"
+    Write-Output "  baseline-save -Name <safe-name> [-Latest 20]"
+    Write-Output "  baseline-compare -Baseline <file-or-path> [-Latest 20]"
     Write-Output "  safe-reset [-TargetValueFloat 100.0]"
     Write-Output ""
     Write-Output "Common options:"
@@ -902,6 +911,95 @@ function Write-WorkflowSummary {
     }
 }
 
+function Get-SafeBaselineFileName {
+    param([string]$Value)
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return [pscustomobject][ordered]@{ ok = $false; value = $null; error = "baseline name is required" }
+    }
+
+    $text = $Value.Trim()
+    if ($text -match '[\\/:<>|"?*]' -or $text -match '\.\.') {
+        return [pscustomobject][ordered]@{ ok = $false; value = $null; error = "baseline name must not contain path separators, path traversal, or invalid filename characters" }
+    }
+    if ($text -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]*$') {
+        return [pscustomobject][ordered]@{ ok = $false; value = $null; error = "baseline name may only contain letters, numbers, dot, underscore, and hyphen, and must start with a letter or number" }
+    }
+    if (-not $text.EndsWith(".md", [System.StringComparison]::OrdinalIgnoreCase)) {
+        $text = "$text.md"
+    }
+    return [pscustomobject][ordered]@{ ok = $true; value = $text; error = $null }
+}
+
+function Resolve-BaselinePath {
+    param([string]$Value)
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return [pscustomobject][ordered]@{ ok = $false; path = $null; error = "baseline is required" }
+    }
+
+    $text = $Value.Trim()
+    if ([System.IO.Path]::IsPathRooted($text)) {
+        try {
+            return [pscustomobject][ordered]@{ ok = $true; path = [System.IO.Path]::GetFullPath($text); error = $null }
+        } catch {
+            return [pscustomobject][ordered]@{ ok = $false; path = $null; error = "baseline path is invalid: $($_.Exception.Message)" }
+        }
+    }
+
+    $safe = Get-SafeBaselineFileName -Value $text
+    if (-not $safe.ok) {
+        return [pscustomobject][ordered]@{ ok = $false; path = $null; error = $safe.error }
+    }
+    return [pscustomobject][ordered]@{ ok = $true; path = (Join-Path $BaselineRoot $safe.value); error = $null }
+}
+
+function Get-BaselineFileSummary {
+    param([string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return [ordered]@{
+            "baseline path" = $Path
+            "baseline exists" = $false
+            "last write time" = "-"
+            "size bytes" = "-"
+        }
+    }
+
+    $item = Get-Item -LiteralPath $Path
+    return [ordered]@{
+        "baseline path" = $item.FullName
+        "baseline exists" = $true
+        "last write time" = $item.LastWriteTime.ToString("yyyy-MM-dd HH:mm:ss")
+        "size bytes" = $item.Length
+    }
+}
+
+function Write-BaselineList {
+    param([string]$Directory, [string]$CurrentPath)
+
+    Write-Output ""
+    Write-Output "Baseline Files"
+    if (-not (Test-Path -LiteralPath $Directory)) {
+        Write-Output ("Baseline directory does not exist: {0}" -f $Directory)
+        return
+    }
+
+    $currentFullPath = [System.IO.Path]::GetFullPath($CurrentPath)
+    $files = @(Get-ChildItem -LiteralPath $Directory -Filter "*.md" -File | Sort-Object -Property @{ Expression = "LastWriteTime"; Descending = $true }, Name)
+    if ($files.Count -eq 0) {
+        Write-Output ("No baseline Markdown files found under: {0}" -f $Directory)
+        return
+    }
+
+    Write-Output ("{0,-48} {1,-7} {2,-20} {3,10}" -f "filename", "current", "last_write_time", "size")
+    Write-Output ("{0,-48} {1,-7} {2,-20} {3,10}" -f "--------", "-------", "---------------", "----")
+    foreach ($file in $files) {
+        $isCurrent = [string]::Equals($file.FullName, $currentFullPath, [System.StringComparison]::OrdinalIgnoreCase)
+        Write-Output ("{0,-48} {1,-7} {2,-20} {3,10}" -f $file.Name, $isCurrent, $file.LastWriteTime.ToString("yyyy-MM-dd HH:mm:ss"), $file.Length)
+    }
+}
+
 function Invoke-ClassifierLatest {
     param([string]$ProfileName)
 
@@ -921,6 +1019,10 @@ $availableCommands = @(
     "post-quick",
     "post-full",
     "compare-full",
+    "baseline-list",
+    "baseline-current",
+    "baseline-save",
+    "baseline-compare",
     "inspect-latest",
     "status",
     "disable-execution",
@@ -1562,7 +1664,102 @@ switch ($Command) {
         exit 0
     }
 
+    "baseline-list" {
+        Write-BaselineList -Directory $BaselineRoot -CurrentPath $BaselinePath
+        exit 0
+    }
+
+    "baseline-current" {
+        $fields = Get-BaselineFileSummary -Path $BaselinePath
+        $fields["batch selection"] = "baseline-eligible full batches only"
+        $fields["latest count"] = 20
+        Write-WorkflowSummary -Title "Current Baseline" -Fields $fields
+        exit 0
+    }
+
+    "baseline-save" {
+        $baselineLatest = if ($PSBoundParameters.ContainsKey("Latest")) { $Latest } else { 20 }
+        if ($baselineLatest -lt 1) {
+            Write-Output "ERROR: -Latest must be greater than 0 for baseline-save"
+            exit 1
+        }
+        $safeName = Get-SafeBaselineFileName -Value $Name
+        if (-not $safeName.ok) {
+            Write-Output ("ERROR: invalid baseline name: {0}" -f $safeName.error)
+            Write-Output "Use a simple filename such as full_clean_20260614 or full_clean_20260614.md."
+            exit 1
+        }
+
+        if (-not (Test-Path -LiteralPath $BaselineRoot)) {
+            New-Item -ItemType Directory -Path $BaselineRoot -Force | Out-Null
+        }
+
+        $outPath = Join-Path $BaselineRoot $safeName.value
+        $existedBefore = Test-Path -LiteralPath $outPath
+        $args = @("-Latest", "$baselineLatest", "-Profile", "full", "-OnlyBaselineEligible", "-LogRoot", $LogRoot, "-OutFile", $outPath)
+        $result = Invoke-WorkflowCommand -FilePath $ClassifierPath -Arguments $args -Capture -Quiet
+        if ($result.exit_code -ne 0) {
+            $result.output | ForEach-Object { Write-Output $_ }
+            exit $result.exit_code
+        }
+
+        $ignored = Test-GitIgnoredPath -Path ("log/baselines/{0}" -f $safeName.value)
+        Write-WorkflowSummary -Title "Baseline Save Summary" -Fields ([ordered]@{
+            "baseline path" = $outPath
+            "baseline exists" = (Test-Path -LiteralPath $outPath)
+            "overwrote existing file" = $existedBefore
+            "latest count" = $baselineLatest
+            "batch selection" = "baseline-eligible full batches only"
+            "git ignored" = $ignored
+            "commit guidance" = "do not commit log/baselines/*.md"
+        })
+        Write-Output "- baseline file is local generated state"
+        Write-Output "- do not stage or commit this baseline file"
+        exit 0
+    }
+
+    "baseline-compare" {
+        $baselineLatest = if ($PSBoundParameters.ContainsKey("Latest")) { $Latest } else { 20 }
+        if ($baselineLatest -lt 1) {
+            Write-Output "ERROR: -Latest must be greater than 0 for baseline-compare"
+            exit 1
+        }
+        $resolvedBaseline = Resolve-BaselinePath -Value $Baseline
+        if (-not $resolvedBaseline.ok) {
+            Write-Output ("ERROR: invalid baseline: {0}" -f $resolvedBaseline.error)
+            exit 1
+        }
+        if (-not (Test-Path -LiteralPath $resolvedBaseline.path)) {
+            Write-Output ("ERROR: baseline file not found: {0}" -f $resolvedBaseline.path)
+            exit 1
+        }
+
+        $args = @("-Latest", "$baselineLatest", "-Profile", "full", "-OnlyBaselineEligible", "-LogRoot", $LogRoot, "-CompareTo", $resolvedBaseline.path)
+        $result = Invoke-WorkflowCommand -FilePath $ClassifierPath -Arguments $args -Capture -Quiet
+        if ($result.exit_code -ne 0) {
+            $result.output | ForEach-Object { Write-Output $_ }
+            exit $result.exit_code
+        }
+
+        $comparison = Get-ComparisonStatus -OutputLines $result.output
+        Write-WorkflowSummary -Title "Baseline Compare Summary" -Fields ([ordered]@{
+            "baseline path" = $resolvedBaseline.path
+            "baseline exists" = $true
+            "latest count" = $baselineLatest
+            "batch selection" = "baseline-eligible full batches only"
+            "regression status" = $comparison.status
+            "code changes recommended" = $comparison.code_changes_recommended
+        })
+        if ($comparison.status -eq "PASS" -and $comparison.code_changes_recommended -eq "no") {
+            Write-Output "- no code changes recommended"
+        } elseif ($comparison.status -eq "FAIL" -or $comparison.status -eq "WARN") {
+            Write-Output "- next step: inspect comparison details or use inspect-latest"
+        }
+        exit 0
+    }
+
     "compare-full" {
+        $baselineExists = Test-Path -LiteralPath $BaselinePath
         $args = @("-Latest", "20", "-Profile", "full", "-OnlyBaselineEligible", "-LogRoot", $LogRoot, "-CompareTo", $BaselinePath)
         $result = Invoke-WorkflowCommand -FilePath $ClassifierPath -Arguments $args -Capture -Quiet
         if ($result.exit_code -ne 0) {
@@ -1572,6 +1769,8 @@ switch ($Command) {
 
         $comparison = Get-ComparisonStatus -OutputLines $result.output
         Write-WorkflowSummary -Title "Compare-Full Summary" -Fields ([ordered]@{
+            "default baseline path" = $BaselinePath
+            "baseline file exists" = $baselineExists
             "batch selection" = "baseline-eligible full batches only"
             "regression status" = $comparison.status
             "code changes recommended" = $comparison.code_changes_recommended
