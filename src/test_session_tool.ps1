@@ -213,6 +213,34 @@ function Test-KnownTrueAddr {
     return "$Value" -match '^0x[0-9A-Fa-f]+$'
 }
 
+function Test-KnownTrueAddrMissingPrefix {
+    param($Value)
+
+    if ($null -eq $Value) {
+        return $false
+    }
+    $text = "$Value".Trim()
+    return $text -match '^[0-9A-Fa-f]+$'
+}
+
+function Get-KnownTrueAddrValidationDetails {
+    param($Value)
+
+    if (Test-KnownTrueAddrMissingPrefix -Value $Value) {
+        return "KnownTrueAddr looks like a hex address without the required 0x prefix."
+    }
+    return "KnownTrueAddr must match ^0x[0-9A-Fa-f]+$ and must not be empty or a placeholder."
+}
+
+function Get-KnownTrueAddrValidationRecommendation {
+    param($Value)
+
+    if (Test-KnownTrueAddrMissingPrefix -Value $Value) {
+        return ("Add the 0x prefix, for example 0x{0}." -f "$Value".Trim())
+    }
+    return "Use a current-session hex address such as 0x25A061C7D48."
+}
+
 function Test-RestoreBatchId {
     param($Value)
 
@@ -245,7 +273,9 @@ function Assert-KnownTrueAddr {
     param([string]$Value, [string]$CommandName)
 
     if (-not (Test-KnownTrueAddr -Value $Value)) {
-        Write-Output ("ERROR: -KnownTrueAddr for {0} must match ^0x[0-9A-Fa-f]+$; rejected value: {1}" -f $CommandName, $(if ($Value) { $Value } else { "-" }))
+        Write-Output ("ERROR: -KnownTrueAddr for {0} is invalid; rejected value: {1}" -f $CommandName, $(if ($Value) { $Value } else { "-" }))
+        Write-Output (Get-KnownTrueAddrValidationDetails -Value $Value)
+        Write-Output (Get-KnownTrueAddrValidationRecommendation -Value $Value)
         exit 1
     }
 }
@@ -1482,7 +1512,10 @@ function New-CaseIntakeClosedSet {
     param([object[]]$Events)
 
     $set = @{}
-    foreach ($event in @((Get-CaseIntakeCompletedEvents -Events $Events) + (Get-CaseIntakeAbandonedEvents -Events $Events))) {
+    $closedEvents = @()
+    $closedEvents += @(Get-CaseIntakeCompletedEvents -Events $Events)
+    $closedEvents += @(Get-CaseIntakeAbandonedEvents -Events $Events)
+    foreach ($event in $closedEvents) {
         $intakeId = Get-ObjectField -Object $event -Key "intake_id" -Default $null
         if (Test-LogPresent -Value $intakeId) {
             $set[$intakeId] = $true
@@ -3267,8 +3300,8 @@ function Test-PrepareCurrentCasePreconditions {
         return [pscustomobject][ordered]@{
             ok = $false
             reason = "invalid_known_true_addr"
-            details = "KnownTrueAddr must match ^0x[0-9A-Fa-f]+$ and must not be a placeholder."
-            recommended_fix = "Use a current-session hex address such as 0x25A061C7D48."
+            details = Get-KnownTrueAddrValidationDetails -Value $Address
+            recommended_fix = Get-KnownTrueAddrValidationRecommendation -Value $Address
             session = $null
             plan = $null
             config = $null
@@ -3539,14 +3572,9 @@ function Invoke-PostCurrentCaseCommand {
     $latestPrepared = Get-LatestCaseIntakeEvent -Events $events -EventType "prepared"
     $openIntake = Get-LatestOpenCaseIntake -Events $events
     if (-not $openIntake) {
-        $closedSet = New-CaseIntakeClosedSet -Events $events
         $latestPreparedId = Get-ObjectField -Object $latestPrepared -Key "intake_id" -Default "-"
-        $latestCompleted = Get-LatestCaseIntakeEvent -Events $events -EventType "completed"
-        $latestAbandoned = Get-LatestCaseIntakeEvent -Events $events -EventType "abandoned"
-        $latestClosedType = if ((Get-ObjectField -Object $latestCompleted -Key "intake_id" -Default "") -eq $latestPreparedId) { "completed" } elseif ((Get-ObjectField -Object $latestAbandoned -Key "intake_id" -Default "") -eq $latestPreparedId) { "abandoned" } else { "closed" }
-        $status = if ($latestPrepared -and $closedSet.ContainsKey($latestPreparedId)) { "already $latestClosedType" } else { "no open prepared intake" }
         Write-WorkflowSummary -Title "Post Current Case Summary" -Fields ([ordered]@{
-            "result" = $status
+            "result" = "no_open_prepared_case"
             "latest prepared intake" = $latestPreparedId
             "journal path" = $CaseIntakePath
             "completion appended" = $false

@@ -160,6 +160,34 @@ function Test-HexString {
     return "$Value" -match '^0x[0-9A-Fa-f]+$'
 }
 
+function Test-HexStringMissingPrefix {
+    param($Value)
+
+    if ($null -eq $Value) {
+        return $false
+    }
+    $text = "$Value".Trim()
+    return $text -match '^[0-9A-Fa-f]+$'
+}
+
+function Get-KnownTrueAddrValidationDetails {
+    param($Value)
+
+    if (Test-HexStringMissingPrefix -Value $Value) {
+        return "KnownTrueAddr looks like a hex address without the required 0x prefix."
+    }
+    return "KnownTrueAddr must match ^0x[0-9A-Fa-f]+$ and must not be empty or a placeholder."
+}
+
+function Get-KnownTrueAddrValidationRecommendation {
+    param($Value)
+
+    if (Test-HexStringMissingPrefix -Value $Value) {
+        return ("Add the 0x prefix, for example 0x{0}." -f "$Value".Trim())
+    }
+    return "Use a current-session hex address such as 0x25A061C7D48."
+}
+
 function Test-RestoreBatchId {
     param($Value)
 
@@ -192,7 +220,9 @@ function Assert-KnownTrueAddr {
     param($Value)
 
     if (-not (Test-HexString -Value $Value)) {
-        Write-Output ("ERROR: -KnownTrueAddr must match ^0x[0-9A-Fa-f]+$; rejected value: {0}" -f (Format-Cell $Value))
+        Write-Output ("ERROR: -KnownTrueAddr is invalid; rejected value: {0}" -f (Format-Cell $Value))
+        Write-Output (Get-KnownTrueAddrValidationDetails -Value $Value)
+        Write-Output (Get-KnownTrueAddrValidationRecommendation -Value $Value)
         exit 1
     }
 }
