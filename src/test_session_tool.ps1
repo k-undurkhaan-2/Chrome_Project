@@ -1,5 +1,6 @@
 param(
     [Parameter(Position = 0)]
+    [string]$Action,
     [string]$Command,
     [switch]$Help,
     [string]$ProjectRoot = "D:\armedforces.io-v2",
@@ -1000,6 +1001,101 @@ function Write-BaselineList {
     }
 }
 
+function New-WorkflowHelpItem {
+    param(
+        [string]$Category,
+        [string]$CommandName,
+        [string]$Purpose,
+        [string]$Syntax,
+        [string]$Example,
+        [string]$SafetyNotes,
+        [string]$NextCommand
+    )
+
+    return [pscustomobject][ordered]@{
+        category = $Category
+        command = $CommandName
+        purpose = $Purpose
+        syntax = $Syntax
+        example = $Example
+        safety_notes = $SafetyNotes
+        next_command = $NextCommand
+    }
+}
+
+function Get-WorkflowHelpItems {
+    $prefix = 'powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1"'
+    return @(
+        New-WorkflowHelpItem "Safety / Preflight" "doctor" "Run read-only preflight and safety checks" "test_session_tool.ps1 doctor [-Latest 50]" "$prefix doctor" "Read-only; does not run CE or write registry" "status"
+        New-WorkflowHelpItem "Safety / Preflight" "status" "Show config, recent classifier output, registry summary, and git status" "test_session_tool.ps1 status" "$prefix status" "Read-only; may print current write-capable warnings" "execution-status -IncludeResolved"
+        New-WorkflowHelpItem "Safety / Preflight" "safe-reset" "Disable execution and optionally reset target to safe value" "test_session_tool.ps1 safe-reset [-TargetValueFloat 100.0]" "$prefix safe-reset -TargetValueFloat 100.0" "Writes local config; does not run CE" "doctor"
+        New-WorkflowHelpItem "Detect-only workflow" "prepare" "Prepare local case config for a manual CE detect run" "test_session_tool.ps1 prepare -KnownTrueAddr <addr> [-CaseId <id>] [-Profile quick|full]" "$prefix prepare -KnownTrueAddr `"0x25A061C7D48`" -Profile full" "Writes local config; validates KnownTrueAddr; does not run CE" "run CE manually, then post-full or post-quick"
+        New-WorkflowHelpItem "Detect-only workflow" "post-full" "Classify latest full batch and append registry" "test_session_tool.ps1 post-full" "$prefix post-full" "Does not run CE; appends registry record" "compare-full"
+        New-WorkflowHelpItem "Detect-only workflow" "post-quick" "Classify latest quick batch and append registry" "test_session_tool.ps1 post-quick" "$prefix post-quick" "Does not run CE; appends registry record" "prepare -Profile full"
+        New-WorkflowHelpItem "Detect-only workflow" "compare-full" "Compare latest clean full batches against the default baseline" "test_session_tool.ps1 compare-full" "$prefix compare-full" "Read-only; uses baseline-eligible full batches only" "baseline-current"
+        New-WorkflowHelpItem "Execution workflow" "prepare-dry-run-write" "Prepare full/basic execution dry-run config" "test_session_tool.ps1 prepare-dry-run-write -KnownTrueAddr <addr> -WriteValueFloat <float>" "$prefix prepare-dry-run-write -KnownTrueAddr `"0x25A061C7D48`" -WriteValueFloat 999.0" "Writes local config but does not arm live write" "run CE manually, then post-full"
+        New-WorkflowHelpItem "Execution workflow" "prepare-guarded-write" "Prepare guarded live write config with confirm and arm" "test_session_tool.ps1 prepare-guarded-write -KnownTrueAddr <addr> -WriteValueFloat <float> -ConfirmWrite" "$prefix prepare-guarded-write -KnownTrueAddr `"0x25A061C7D48`" -WriteValueFloat 999.0 -ConfirmWrite" "Writes live-memory capable config; run CE only when ready before arm expiry" "post-execution"
+        New-WorkflowHelpItem "Execution workflow" "post-execution" "Summarize latest full execution fields after manual CE run" "test_session_tool.ps1 post-execution" "$prefix post-execution" "Read-only; does not run CE" "prepare-restore or safe-reset"
+        New-WorkflowHelpItem "Restore / transaction safety" "prepare-restore" "Prepare restore config from a successful write batch" "test_session_tool.ps1 prepare-restore -BatchId <YYYYMMDD-HHMMSS> [-EnableWrite -ConfirmWrite]" "$prefix prepare-restore -BatchId `"20260613-225514`" -EnableWrite -ConfirmWrite" "Validates BatchId; write-ready only with both EnableWrite and ConfirmWrite" "run CE manually, then post-execution"
+        New-WorkflowHelpItem "Restore / transaction safety" "execution-status" "Show write/restore transaction safety status" "test_session_tool.ps1 execution-status [-Latest 50] [-IncludeResolved]" "$prefix execution-status -IncludeResolved" "Read-only; resolved writes are local ignored state" "safe-reset"
+        New-WorkflowHelpItem "Restore / transaction safety" "mark-write-resolved" "Mark a historical write_success as manually restored" "test_session_tool.ps1 mark-write-resolved -BatchId <YYYYMMDD-HHMMSS> -Reason <text>" "$prefix mark-write-resolved -BatchId `"20260613-225514`" -Reason `"manual restore to 100.0`"" "Writes ignored local JSONL only; use only after manual recovery is confirmed" "execution-status -IncludeResolved"
+        New-WorkflowHelpItem "Baseline management" "baseline-list" "List local baseline Markdown files" "test_session_tool.ps1 baseline-list" "$prefix baseline-list" "Read-only; baselines live under ignored log/baselines" "baseline-current"
+        New-WorkflowHelpItem "Baseline management" "baseline-current" "Show current default compare-full baseline" "test_session_tool.ps1 baseline-current" "$prefix baseline-current" "Read-only" "baseline-compare"
+        New-WorkflowHelpItem "Baseline management" "baseline-save" "Save latest baseline-eligible full snapshot as a local baseline" "test_session_tool.ps1 baseline-save -Name <safe-name> [-Latest 20]" "$prefix baseline-save -Name `"full_clean_YYYYMMDD`" -Latest 20" "Writes ignored log/baselines/*.md; do not commit baseline files" "baseline-compare"
+        New-WorkflowHelpItem "Baseline management" "baseline-compare" "Compare latest clean full batches against a chosen baseline" "test_session_tool.ps1 baseline-compare -Baseline <file-or-path> [-Latest 20]" "$prefix baseline-compare -Baseline `"baseline_compact_basic_20260613_latest20.md`"" "Read-only; rejects missing baseline file" "compare-full"
+        New-WorkflowHelpItem "Diagnostics / inspection" "inspect-latest" "Inspect the latest batch id from LogRoot" "test_session_tool.ps1 inspect-latest" "$prefix inspect-latest" "Read-only; does not run CE" "doctor"
+        New-WorkflowHelpItem "Diagnostics / inspection" "help" "List workflow commands or show command-specific help" "test_session_tool.ps1 help [-Command <name>]" "$prefix help -Command prepare-restore" "Read-only" "doctor"
+    )
+}
+
+function Get-WorkflowHelpItem {
+    param([string]$CommandName)
+
+    foreach ($item in @(Get-WorkflowHelpItems)) {
+        if ([string]::Equals($item.command, $CommandName, [System.StringComparison]::OrdinalIgnoreCase)) {
+            return $item
+        }
+    }
+    return $null
+}
+
+function Write-WorkflowCommandIndex {
+    $items = @(Get-WorkflowHelpItems)
+    Write-Output ""
+    Write-Output "Workflow Command Index"
+    foreach ($category in @("Safety / Preflight", "Detect-only workflow", "Execution workflow", "Restore / transaction safety", "Baseline management", "Diagnostics / inspection")) {
+        Write-Output ""
+        Write-Output $category
+        Write-Output ("{0,-24} {1,-82} {2}" -f "Command", "Purpose", "Next")
+        Write-Output ("{0,-24} {1,-82} {2}" -f "-------", "-------", "----")
+        foreach ($item in @($items | Where-Object { $_.category -eq $category })) {
+            Write-Output ("{0,-24} {1,-82} {2}" -f $item.command, $item.purpose, $item.next_command)
+        }
+    }
+    Write-Output ""
+    Write-Output "For command details: test_session_tool.ps1 help -Command <name>"
+}
+
+function Write-WorkflowSpecificHelp {
+    param([string]$CommandName)
+
+    $item = Get-WorkflowHelpItem -CommandName $CommandName
+    if (-not $item) {
+        Write-Output ("ERROR: unknown command: {0}" -f $CommandName)
+        Write-Output "Run: test_session_tool.ps1 help"
+        exit 1
+    }
+
+    Write-WorkflowSummary -Title ("Command Help: {0}" -f $item.command) -Fields ([ordered]@{
+        "category" = $item.category
+        "purpose" = $item.purpose
+        "syntax" = $item.syntax
+        "common example" = $item.example
+        "safety notes" = $item.safety_notes
+        "related next command" = $item.next_command
+    })
+}
+
 function Invoke-ClassifierLatest {
     param([string]$ProfileName)
 
@@ -1015,6 +1111,7 @@ function Invoke-ClassifierAppend {
 }
 
 $availableCommands = @(
+    "help",
     "prepare",
     "post-quick",
     "post-full",
@@ -1035,13 +1132,20 @@ $availableCommands = @(
     "mark-write-resolved",
     "doctor"
 )
-if ($Help -or -not $Command) {
+
+$RequestedHelpCommand = $Command
+if (-not $Action -and $Command) {
+    $Action = $Command
+    $RequestedHelpCommand = $null
+}
+
+if ($Help -or -not $Action) {
     Write-CommandHelp
     exit 0
 }
 
-if (-not ($availableCommands -contains $Command)) {
-    Write-Warning ("Unknown command: {0}" -f $Command)
+if (-not ($availableCommands -contains $Action)) {
+    Write-Warning ("Unknown command: {0}" -f $Action)
     Write-CommandHelp
     exit 1
 }
@@ -1053,7 +1157,16 @@ if (-not [string]::Equals($ProjectRootPath, $ExpectedProjectRoot, [System.String
     Write-Warning ("Active project root is {0}; expected {1}" -f $ProjectRootPath, $ExpectedProjectRoot)
 }
 
-switch ($Command) {
+switch ($Action) {
+    "help" {
+        if ($RequestedHelpCommand) {
+            Write-WorkflowSpecificHelp -CommandName $RequestedHelpCommand
+        } else {
+            Write-WorkflowCommandIndex
+        }
+        exit 0
+    }
+
     "prepare" {
         if (-not $KnownTrueAddr) {
             Write-Output "ERROR: -KnownTrueAddr is required for prepare"
@@ -1585,6 +1698,7 @@ switch ($Command) {
 
         $conclusion = Get-DoctorConclusion -Checks $checks
         Write-DoctorReport -Checks $checks -Conclusion $conclusion
+        Write-Output "For command list, run: test_session_tool.ps1 help"
         if ($conclusion -eq "FAIL") {
             exit 1
         }
@@ -1827,6 +1941,7 @@ switch ($Command) {
         Write-Output ""
         Write-Output "For transaction safety, run: test_session_tool.ps1 execution-status"
         Write-Output "For full preflight, run: test_session_tool.ps1 doctor"
+        Write-Output "For command list, run: test_session_tool.ps1 help"
         exit 0
     }
 }

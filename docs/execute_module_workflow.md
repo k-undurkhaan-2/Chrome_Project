@@ -76,6 +76,13 @@ Run full preflight:
 powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" doctor
 ```
 
+List workflow commands or inspect one command:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" help
+powershell -NoProfile -ExecutionPolicy Bypass -File "D:\armedforces.io-v2\src\test_session_tool.ps1" help -Command prepare-restore
+```
+
 Show current local config, recent classifier output, registry summary, and Git status:
 
 ```powershell
