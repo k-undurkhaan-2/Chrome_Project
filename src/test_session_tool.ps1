@@ -1333,7 +1333,7 @@ function Write-AddressLifetimeNote {
     Write-Output ("{0,-36} {1}" -f "scope", "known_true_addr values are reusable only within the same active manual test session")
     if ($Mode -eq "retest") {
         if ($ActiveSessionConfirmed) {
-            Write-Output ("{0,-36} {1}" -f "planner mode", "active-session reuse guidance is enabled")
+            Write-Output ("{0,-36} {1}" -f "planner mode", "prepare guidance is limited to addresses observed/intaked in the current active session")
         } else {
             Write-Output ("{0,-36} {1}" -f "planner mode", "historical evidence mode; collect new current-session addresses if the session ended")
         }
@@ -1535,6 +1535,81 @@ function Get-CaseIntakeOpenPreparedEvents {
                 (Test-LogPresent -Value $intakeId) -and -not $closedSet.ContainsKey($intakeId)
             }
     )
+}
+
+function Add-CurrentSessionAddressEvidence {
+    param([hashtable]$Map, $Address, [string]$Source)
+
+    if (-not (Test-KnownTrueAddr -Value $Address)) {
+        return
+    }
+    $key = "$Address".Trim().ToUpperInvariant()
+    $sources = @()
+    if ($Map.ContainsKey($key)) {
+        $sources = @($Map[$key])
+    }
+    if (@($sources | Where-Object { $_ -eq $Source }).Count -eq 0) {
+        $sources += $Source
+    }
+    $Map[$key] = $sources
+}
+
+function Get-CurrentSessionAddressEvidenceMap {
+    param($Session, [object[]]$Rows)
+
+    $map = @{}
+    if (-not (Test-ActiveTestSession -Session $Session)) {
+        return $map
+    }
+
+    $sessionId = Get-ObjectField -Object $Session -Key "session_id" -Default $null
+    if (Test-LogPresent -Value $sessionId) {
+        $events = @(Read-CaseIntakeEvents)
+        $sessionIntakeEvents = @()
+        $sessionIntakeEvents += @(Get-CaseIntakePreparedEvents -Events $events)
+        $sessionIntakeEvents += @(Get-CaseIntakeCompletedEvents -Events $events)
+        foreach ($event in $sessionIntakeEvents) {
+            $eventSessionId = Get-ObjectField -Object $event -Key "session_id" -Default ""
+            if (-not [string]::Equals("$eventSessionId", "$sessionId", [System.StringComparison]::Ordinal)) {
+                continue
+            }
+            $eventType = Get-ObjectField -Object $event -Key "event_type" -Default "intake"
+            Add-CurrentSessionAddressEvidence -Map $map -Address (Get-ObjectField -Object $event -Key "known_true_addr") -Source ("intake_{0}" -f $eventType)
+        }
+    }
+
+    $startedAt = Convert-ConfigUtcDateTime -Value (Get-ObjectField -Object $Session -Key "started_at_utc")
+    if ($startedAt) {
+        foreach ($row in @($Rows)) {
+            $batchId = Get-ObjectField -Object $row -Key "latest_full_batch" -Default "-"
+            if (-not (Test-RestoreBatchId -Value $batchId)) {
+                continue
+            }
+            $summaryPath = Get-BatchSummaryPath -Root $LogRoot -Batch $batchId
+            if (-not $summaryPath) {
+                continue
+            }
+            $batchFile = Get-Item -LiteralPath $summaryPath
+            if ($batchFile.LastWriteTimeUtc -ge $startedAt) {
+                Add-CurrentSessionAddressEvidence -Map $map -Address (Get-ObjectField -Object $row -Key "known_true_addr") -Source "batch_after_session_start"
+            }
+        }
+    }
+
+    return $map
+}
+
+function Get-CurrentSessionAddressSource {
+    param([hashtable]$Map, $Address)
+
+    if (-not (Test-KnownTrueAddr -Value $Address)) {
+        return "-"
+    }
+    $key = "$Address".Trim().ToUpperInvariant()
+    if (-not $Map.ContainsKey($key)) {
+        return "-"
+    }
+    return (@($Map[$key]) | Sort-Object -Unique) -join "; "
 }
 
 function Get-LatestCaseIntakeEvent {
@@ -2681,18 +2756,27 @@ function Get-RetestPriority {
 }
 
 function Get-RetestRecommendedAction {
-    param([string]$Priority, [int]$MissingCleanFullRuns, [bool]$ActiveSessionConfirmed)
+    param(
+        [string]$Priority,
+        [int]$MissingCleanFullRuns,
+        [bool]$ActiveSessionConfirmed,
+        [bool]$CurrentSessionAddress = $false
+    )
+
+    if ($ActiveSessionConfirmed -and -not $CurrentSessionAddress) {
+        return "Historical address only unless manually re-verified in the current session."
+    }
 
     switch ($Priority) {
         "HIGH" {
-            if ($ActiveSessionConfirmed) {
+            if ($ActiveSessionConfirmed -and $CurrentSessionAddress) {
                 return "Reuse this active-session addr for 1 more full detect-only baseline-eligible run."
             }
             return "If the same manual test session is still active, rerun this addr once; otherwise collect a new distinct current-session addr."
         }
         "MEDIUM" { return "Collect more full clean confirmations; reuse only if the same active session is still valid." }
         "LOW" {
-            if ($ActiveSessionConfirmed) {
+            if ($ActiveSessionConfirmed -and $CurrentSessionAddress) {
                 return "Reuse only if additional active-session stability confirmation is needed."
             }
             return "Collect a new current-session addr; keep this addr only as historical evidence unless the same session is still active."
@@ -2734,10 +2818,15 @@ function Get-RetestQueueSummary {
         [int]$MinimumFullSuccess,
         [int]$RequestedTargetUnique,
         [int]$RequestedLimit,
-        [bool]$ActiveSessionConfirmed
+        [bool]$ActiveSessionConfirmed,
+        $ActiveSessionRecord = $null
     )
 
     $stable = Get-StableCasesSummary -RequestedLatest $RequestedLatest -RequestedProfile $RequestedProfile -MinimumFullSuccess $MinimumFullSuccess -RequestedTargetUnique $RequestedTargetUnique
+    $currentSessionAddressMap = @{}
+    if ($ActiveSessionConfirmed -and $ActiveSessionRecord) {
+        $currentSessionAddressMap = Get-CurrentSessionAddressEvidenceMap -Session $ActiveSessionRecord -Rows $stable.rows
+    }
     $queueRows = @()
     foreach ($row in @($stable.rows | Where-Object { $_.stable_candidate -ne $true })) {
         $missing = Get-MissingCleanFullRuns -Row $row -MinimumFullSuccess $MinimumFullSuccess
@@ -2749,6 +2838,8 @@ function Get-RetestQueueSummary {
             "BLOCKED" { 4 }
             default { 5 }
         }
+        $activeSessionSource = if ($ActiveSessionConfirmed) { Get-CurrentSessionAddressSource -Map $currentSessionAddressMap -Address $row.known_true_addr } else { "-" }
+        $activeSessionAddress = $ActiveSessionConfirmed -and (Test-LogPresent -Value $activeSessionSource) -and $activeSessionSource -ne "-"
         $queueRows += [pscustomobject][ordered]@{
             known_true_addr = $row.known_true_addr
             full_success_count = $row.full_success_count
@@ -2761,8 +2852,10 @@ function Get-RetestQueueSummary {
             missing_clean_full_runs = $missing
             retest_priority = $priority
             priority_rank = $priorityRank
-            recommended_action = Get-RetestRecommendedAction -Priority $priority -MissingCleanFullRuns $missing -ActiveSessionConfirmed $ActiveSessionConfirmed
-            active_session_prepare = $(if ($ActiveSessionConfirmed -and $priority -in @("HIGH", "MEDIUM", "LOW")) { "prepare-current-case -KnownTrueAddr `"$($row.known_true_addr)`" -Profile full" } else { "-" })
+            recommended_action = Get-RetestRecommendedAction -Priority $priority -MissingCleanFullRuns $missing -ActiveSessionConfirmed $ActiveSessionConfirmed -CurrentSessionAddress $activeSessionAddress
+            active_session_addr = $activeSessionAddress
+            active_session_source = $activeSessionSource
+            active_session_prepare = $(if ($activeSessionAddress -and $priority -in @("HIGH", "MEDIUM", "LOW")) { "prepare-current-case -KnownTrueAddr `"$($row.known_true_addr)`" -Profile full" } else { "-" })
         }
     }
 
@@ -2777,6 +2870,8 @@ function Get-RetestQueueSummary {
     $mediumCount = @($queueRows | Where-Object { $_.retest_priority -eq "MEDIUM" }).Count
     $lowCount = @($queueRows | Where-Object { $_.retest_priority -eq "LOW" }).Count
     $blockedCount = @($queueRows | Where-Object { $_.retest_priority -eq "BLOCKED" }).Count
+    $currentSessionAddrCount = @($queueRows | Where-Object { $_.active_session_addr -eq $true }).Count
+    $activeSessionPrepareCount = @($queueRows | Where-Object { Test-LogPresent -Value $_.active_session_prepare -and $_.active_session_prepare -ne "-" }).Count
     $conclusion = Get-RetestConclusion `
         -StableCount $stable.stable_count `
         -TargetUniqueValue $RequestedTargetUnique `
@@ -2800,6 +2895,8 @@ function Get-RetestQueueSummary {
             "low priority retest count" = $lowCount
             "blocked address count" = $blockedCount
             "duplicate-heavy top addr" = $stable.fields["top repeated addr"]
+            "current-session address count" = $currentSessionAddrCount
+            "active-session prepare command count" = $activeSessionPrepareCount
             "conclusion" = $conclusion
         }
         rows = $displayRows
@@ -2808,6 +2905,8 @@ function Get-RetestQueueSummary {
         high_count = $highCount
         medium_count = $mediumCount
         blocked_count = $blockedCount
+        current_session_addr_count = $currentSessionAddrCount
+        active_session_prepare_count = $activeSessionPrepareCount
     }
 }
 
@@ -2822,10 +2921,10 @@ function Write-RetestQueueTable {
     }
 
     if ($ActiveSessionConfirmed) {
-        Write-Output ("{0,-15} {1,8} {2,8} {3,5} {4,-15} {5,-9} {6,-6} {7,7} {8,-8} {9,-34} {10,-96} {11}" -f "known_true_addr", "full", "eligible", "quick", "latest_full", "rank_AWB", "stable", "missing", "priority", "rejection_reasons", "recommended_action", "active_session_prepare")
-        Write-Output ("{0,-15} {1,8} {2,8} {3,5} {4,-15} {5,-9} {6,-6} {7,7} {8,-8} {9,-34} {10,-96} {11}" -f "---------------", "----", "--------", "-----", "-----------", "--------", "------", "-------", "--------", "-----------------", "------------------", "----------------------")
+        Write-Output ("{0,-15} {1,8} {2,8} {3,5} {4,-15} {5,-9} {6,-6} {7,7} {8,-8} {9,-34} {10,-22} {11,-96} {12}" -f "known_true_addr", "full", "eligible", "quick", "latest_full", "rank_AWB", "stable", "missing", "priority", "rejection_reasons", "active_session_source", "recommended_action", "active_session_prepare")
+        Write-Output ("{0,-15} {1,8} {2,8} {3,5} {4,-15} {5,-9} {6,-6} {7,7} {8,-8} {9,-34} {10,-22} {11,-96} {12}" -f "---------------", "----", "--------", "-----", "-----------", "--------", "------", "-------", "--------", "-----------------", "---------------------", "------------------", "----------------------")
         foreach ($row in @($Rows)) {
-            Write-Output ("{0,-15} {1,8} {2,8} {3,5} {4,-15} {5,-9} {6,-6} {7,7} {8,-8} {9,-34} {10,-96} {11}" -f `
+            Write-Output ("{0,-15} {1,8} {2,8} {3,5} {4,-15} {5,-9} {6,-6} {7,7} {8,-8} {9,-34} {10,-22} {11,-96} {12}" -f `
                 $row.known_true_addr,
                 $row.full_success_count,
                 $row.baseline_eligible_count,
@@ -2836,6 +2935,7 @@ function Write-RetestQueueTable {
                 $row.missing_clean_full_runs,
                 $row.retest_priority,
                 $row.rejection_reasons,
+                $row.active_session_source,
                 $row.recommended_action,
                 $row.active_session_prepare)
         }
@@ -2895,7 +2995,8 @@ function Invoke-RetestQueueCommand {
         -MinimumFullSuccess $MinFullSuccess `
         -RequestedTargetUnique $queueTargetUnique `
         -RequestedLimit $queueLimit `
-        -ActiveSessionConfirmed $ActiveSession
+        -ActiveSessionConfirmed $ActiveSession `
+        -ActiveSessionRecord $activeSessionRecord
     if ($ActiveSession -and $activeSessionRecord) {
         $trackedState = Get-TrackedProcessState -Session $activeSessionRecord
         $queue.fields["active session id"] = Get-ObjectField -Object $activeSessionRecord -Key "session_id" -Default "-"
@@ -3773,8 +3874,8 @@ function Get-WorkflowHelpItems {
         New-WorkflowHelpItem "Baseline management" "case-library" "Summarize historical and active-session known_true_addr evidence" "test_session_tool.ps1 case-library [-Latest 100] [-Profile full|quick]" "$prefix case-library -Latest 100" "Read-only; known_true_addr is active-test-session scoped and reusable only before the manual session ends" "case-summary"
         New-WorkflowHelpItem "Baseline management" "stable-cases" "List stable evidence for baseline candidates and rejection reasons" "test_session_tool.ps1 stable-cases [-Latest 100] [-Profile full] [-MinFullSuccess 2] [-TargetUnique 13] [-ShowRejected] [-KnownTrueAddr <addr>]" "$prefix stable-cases -ShowRejected; $prefix stable-cases -KnownTrueAddr `"0x25A061C7D48`"" "Read-only; stable means evidence in logs, not permanent address validity; known_true_addr is active-test-session scoped" "baseline-save"
         New-WorkflowHelpItem "Baseline management" "baseline-candidates" "Alias for stable-cases" "test_session_tool.ps1 baseline-candidates [-Latest 100] [-Profile full] [-ShowRejected]" "$prefix baseline-candidates" "Read-only; same output as stable-cases; known_true_addr is active-test-session scoped" "baseline-save"
-        New-WorkflowHelpItem "Baseline management" "retest-queue" "Plan active-session retests or new current-session samples from rejected stable-cases" "test_session_tool.ps1 retest-queue [-Latest 200] [-Profile full] [-MinFullSuccess 2] [-TargetUnique 13] [-Limit 15] [-ActiveSession]" "$prefix retest-queue -Latest 200 -Limit 10; $prefix retest-queue -ActiveSession" "Read-only; use -ActiveSession only when the same CE/process/session/scene is still valid" "prepare-current-case"
-        New-WorkflowHelpItem "Baseline management" "sample-plan" "Alias for retest-queue" "test_session_tool.ps1 sample-plan [-Latest 200] [-Profile full] [-Limit 15] [-ActiveSession]" "$prefix sample-plan -ActiveSession" "Read-only; without -ActiveSession, treat addresses as historical evidence and collect current-session samples" "prepare-current-case"
+        New-WorkflowHelpItem "Baseline management" "retest-queue" "Plan active-session retests or new current-session samples from rejected stable-cases" "test_session_tool.ps1 retest-queue [-Latest 200] [-Profile full] [-MinFullSuccess 2] [-TargetUnique 13] [-Limit 15] [-ActiveSession]" "$prefix retest-queue -Latest 200 -Limit 10; $prefix retest-queue -ActiveSession" "Read-only; -ActiveSession shows prepare commands only for addresses observed or intaked in the current active session" "prepare-current-case"
+        New-WorkflowHelpItem "Baseline management" "sample-plan" "Alias for retest-queue" "test_session_tool.ps1 sample-plan [-Latest 200] [-Profile full] [-Limit 15] [-ActiveSession]" "$prefix sample-plan -ActiveSession" "Read-only; historical addresses remain historical unless manually re-verified in the current session" "prepare-current-case"
         New-WorkflowHelpItem "Baseline management" "case-summary" "Summarize known_true_addr coverage for latest baseline-eligible batches" "test_session_tool.ps1 case-summary [-Latest 20] [-Profile full] [-Baseline <file-or-path>] [-TargetUnique 13]" "$prefix case-summary -Latest 20" "Read-only; does not run CE or write files" "collect new distinct full cases if coverage warns"
         New-WorkflowHelpItem "Baseline management" "coverage-plan" "Alias for case-summary" "test_session_tool.ps1 coverage-plan [-Latest 20] [-Profile full]" "$prefix coverage-plan" "Read-only; same output as case-summary" "collect new distinct full cases if coverage warns"
         New-WorkflowHelpItem "Diagnostics / inspection" "inspect-latest" "Inspect the latest batch id from LogRoot" "test_session_tool.ps1 inspect-latest" "$prefix inspect-latest" "Read-only; does not run CE" "doctor"
