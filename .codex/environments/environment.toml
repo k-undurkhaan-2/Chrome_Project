@@ -16,7 +16,7 @@ command = 'powershell -NoProfile -ExecutionPolicy Bypass -File .\src\batch_log_c
 
 [[actions]]
 name = "pytest"
-command = '.\.venv\Scripts\python.exe -m pytest'
+command = '.\.venv\Scripts\python.exe -m pytest --basetemp .\log\pytest-tmp'
 
 [[actions]]
 name = "verify-cpp-toolchain"
