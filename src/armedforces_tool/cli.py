@@ -24,6 +24,15 @@ from .safety import (
     safety_status_parity,
 )
 from .stable_cases import analyze_stable_cases, filter_stable_case_result, stable_cases_parity
+from .workflow_status import (
+    DEFAULT_ACTIVE_SESSION_PATH,
+    DEFAULT_CASE_INTAKE_PATH,
+    DEFAULT_SESSION_HISTORY_PATH,
+    analyze_case_intake_status,
+    analyze_diagnostic_status,
+    case_intake_status_parity,
+    diagnostic_status_parity,
+)
 
 
 def _add_logs_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -342,6 +351,75 @@ def _add_safety_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--json", action="store_true", help="Emit JSON object")
 
 
+def _add_status_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    status_parser = subparsers.add_parser("status", help="Read-only workflow status helpers")
+    status_subparsers = status_parser.add_subparsers(dest="status_command", required=True)
+
+    diagnostic = status_subparsers.add_parser(
+        "diagnostic",
+        help="Read diagnostic level and safety context without writing config",
+    )
+    _add_status_common_args(diagnostic)
+    diagnostic.set_defaults(func=_run_status_diagnostic)
+
+    case_intake = status_subparsers.add_parser(
+        "case-intake",
+        help="Read local case intake journal state without writing files",
+    )
+    _add_status_common_args(case_intake)
+    _add_case_intake_args(case_intake)
+    case_intake.set_defaults(func=_run_status_case_intake)
+
+    diagnostic_parity = status_subparsers.add_parser(
+        "diagnostic-parity",
+        help="Coarsely compare Python diagnostic status with read-only PowerShell diagnostic-status",
+    )
+    _add_status_common_args(diagnostic_parity)
+    diagnostic_parity.set_defaults(func=_run_status_diagnostic_parity)
+
+    case_intake_parity = status_subparsers.add_parser(
+        "case-intake-parity",
+        help="Coarsely compare Python case intake status with read-only PowerShell case-intake-status",
+    )
+    _add_status_common_args(case_intake_parity)
+    _add_case_intake_args(case_intake_parity, include_limit=False)
+    case_intake_parity.set_defaults(func=_run_status_case_intake_parity)
+
+
+def _add_status_common_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--project-root",
+        default=str(DEFAULT_PROJECT_ROOT),
+        help="Active project root used for status summaries",
+    )
+    parser.add_argument(
+        "--config",
+        default=str(DEFAULT_CONFIG_PATH),
+        help="Local run_case_config.local.lua path to parse read-only",
+    )
+    parser.add_argument("--json", action="store_true", help="Emit JSON object")
+
+
+def _add_case_intake_args(parser: argparse.ArgumentParser, *, include_limit: bool = True) -> None:
+    parser.add_argument(
+        "--intake-journal",
+        default=str(DEFAULT_CASE_INTAKE_PATH),
+        help="Local case intake JSONL journal path",
+    )
+    parser.add_argument(
+        "--session-file",
+        default=str(DEFAULT_ACTIVE_SESSION_PATH),
+        help="Local active session JSON path",
+    )
+    parser.add_argument(
+        "--session-history",
+        default=str(DEFAULT_SESSION_HISTORY_PATH),
+        help="Local test session history JSONL path",
+    )
+    if include_limit:
+        parser.add_argument("--limit", type=int, default=20, help="Maximum recent intake records to display")
+
+
 def _add_safety_doctor_args(parser: argparse.ArgumentParser) -> None:
     _add_safety_common_args(parser)
     parser.add_argument(
@@ -367,6 +445,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_logs_parser(subparsers)
     _add_case_parser(subparsers)
     _add_safety_parser(subparsers)
+    _add_status_parser(subparsers)
     return parser
 
 
@@ -651,6 +730,171 @@ def _run_safety_execution_status_parity(args: argparse.Namespace) -> int:
     else:
         print(format_safety_parity(result, title="Safety Execution Status Parity"))
     return 0 if result.parity_status in {"PASS", "WARN"} else 1
+
+
+def _run_status_diagnostic(args: argparse.Namespace) -> int:
+    result = analyze_diagnostic_status(project_root=Path(args.project_root), config_path=Path(args.config))
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(format_diagnostic_status(result))
+    return 0
+
+
+def _run_status_case_intake(args: argparse.Namespace) -> int:
+    result = analyze_case_intake_status(
+        project_root=Path(args.project_root),
+        intake_journal=Path(args.intake_journal),
+        session_file=Path(args.session_file),
+        session_history=Path(args.session_history),
+        limit=args.limit,
+    )
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(format_case_intake_status(result))
+    return 0
+
+
+def _run_status_diagnostic_parity(args: argparse.Namespace) -> int:
+    result = diagnostic_status_parity(project_root=Path(args.project_root), config_path=Path(args.config))
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(format_workflow_status_parity(result, title="Diagnostic Status Parity"))
+    return 0 if result.parity_status in {"PASS", "WARN"} else 1
+
+
+def _run_status_case_intake_parity(args: argparse.Namespace) -> int:
+    result = case_intake_status_parity(
+        project_root=Path(args.project_root),
+        intake_journal=Path(args.intake_journal),
+        session_file=Path(args.session_file),
+        session_history=Path(args.session_history),
+    )
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(format_workflow_status_parity(result, title="Case Intake Status Parity"))
+    return 0 if result.parity_status in {"PASS", "WARN"} else 1
+
+
+def format_diagnostic_status(result: object) -> str:
+    data = result.to_dict()
+    field_labels = [
+        ("project_root", "project_root"),
+        ("config_path", "config_path"),
+        ("config_exists", "config_exists"),
+        ("diagnostic_level", "diagnostic_level"),
+        ("diagnostic_status", "diagnostic_status"),
+        ("validation_profile", "validation_profile"),
+        ("execution_enabled", "execution_enabled"),
+        ("write_enabled", "write_enabled"),
+        ("safety_state", "safety_state"),
+        ("next_run_type", "next_run_type"),
+        ("recommendation", "recommendation"),
+    ]
+    return _format_field_block("Diagnostic Status", field_labels, data)
+
+
+def format_case_intake_status(result: object) -> str:
+    data = result.to_dict()
+    field_labels = [
+        ("project_root", "project_root"),
+        ("intake_journal_path", "intake_journal_path"),
+        ("intake_journal_exists", "intake_journal_exists"),
+        ("active_session_file_exists", "active_session_file_exists"),
+        ("active_session_detected", "active_session_detected"),
+        ("active_session_id", "active_session_id"),
+        ("active_session_label", "active_session_label"),
+        ("active_session_started_at", "active_session_started_at"),
+        ("prepared_count", "prepared_count"),
+        ("completed_count", "completed_count"),
+        ("abandoned_count", "abandoned_count"),
+        ("open_count", "open_count"),
+        ("latest_prepared_intake_id", "latest_prepared_intake_id"),
+        ("latest_completed_intake_id", "latest_completed_intake_id"),
+        ("latest_abandoned_intake_id", "latest_abandoned_intake_id"),
+        ("latest_completed_batch_id", "latest_completed_batch_id"),
+        ("latest_known_true_addr", "latest_known_true_addr"),
+        ("invalid_json_line_count", "invalid_json_line_count"),
+        ("conclusion", "conclusion"),
+        ("recommendation", "recommendation"),
+    ]
+    lines = [_format_field_block("Case Intake Status", field_labels, data)]
+    records = data.get("records") or []
+    lines.append("")
+    lines.append("Recent Intake Records")
+    if not records:
+        lines.append("No intake records found.")
+    else:
+        headers = [
+            "intake_id",
+            "action",
+            "status",
+            "known_true_addr",
+            "profile",
+            "batch_id",
+            "timestamp",
+            "reason",
+            "is_open",
+            "active_session_related",
+        ]
+        table_rows = [
+            [
+                str(item.get("intake_id") or "-"),
+                str(item.get("action") or "-"),
+                str(item.get("status") or "-"),
+                str(item.get("known_true_addr") or "-"),
+                str(item.get("profile") or "-"),
+                str(item.get("batch_id") or "-"),
+                str(item.get("timestamp") or "-"),
+                str(item.get("reason") or "-"),
+                str(item.get("is_open")),
+                str(item.get("active_session_related")),
+            ]
+            for item in records
+        ]
+        lines.extend(_format_table(headers, table_rows))
+    return "\n".join(lines)
+
+
+def format_workflow_status_parity(result: object, *, title: str) -> str:
+    data = result.to_dict()
+    rows = [
+        ("parity_status", data["parity_status"]),
+        ("mismatch_count", data["mismatch_count"]),
+    ]
+    width = max(len(label) for label, _ in rows)
+    lines = [title, "-" * len(title)]
+    for label, value in rows:
+        lines.append(f"{label.ljust(width)}  {_display_value(value)}")
+
+    mismatches = data.get("mismatches") or []
+    if mismatches:
+        headers = ["field", "status", "python", "powershell"]
+        table_rows = [
+            [
+                str(item.get("field") or "-"),
+                str(item.get("status") or "-"),
+                _display_value(item.get("python_value")),
+                _display_value(item.get("powershell_value")),
+            ]
+            for item in mismatches
+        ]
+        lines.append("")
+        lines.append("Mismatches")
+        lines.append("----------")
+        lines.extend(_format_table(headers, table_rows))
+
+    unparseable = data.get("unparseable_fields") or []
+    if unparseable:
+        lines.append("")
+        lines.append("Unparseable Fields")
+        lines.append("------------------")
+        for field in unparseable:
+            lines.append(str(field))
+    return "\n".join(lines)
 
 
 def format_safety_doctor(result: object) -> str:
