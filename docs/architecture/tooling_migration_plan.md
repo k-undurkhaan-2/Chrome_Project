@@ -260,6 +260,8 @@ Phase 2.5 adds a consolidated read-only Python status overview that aggregates e
 
 Phase 2.6 adds a read-only Python command inventory and quickstart index. This is a static help layer for discovering Python sidecar commands, their safety properties, related PowerShell workflow command, and common examples; it does not replace argparse `--help` or any PowerShell operator workflow.
 
+Phase 2 wrap-up: the read-only Python sidecar status layer is complete for the current migration stage. Python now covers analysis, safety/status checks, baseline visibility, coverage planning, parity checks, and command inventory. PowerShell remains authoritative for workflow mutation and guarded runtime actions. Future Python work should stay read-only unless a separate write-capable contract is explicitly designed and reviewed.
+
 ### Phase 3: Thin PowerShell Wrapper
 
 - PowerShell becomes a thin command launcher.
