@@ -22,6 +22,7 @@ python -m armedforces_tool safety doctor
 python -m armedforces_tool baseline compare
 python -m armedforces_tool case summary --latest 20 --profile full
 python -m armedforces_tool registry summary
+python -m armedforces_tool transaction summary
 ```
 
 ## Command Groups
@@ -103,6 +104,20 @@ python -m armedforces_tool registry show --known-true-addr "0xCE061C7D48"
 python -m armedforces_tool registry show --batch-id "20260614-232227"
 ```
 
+### `transaction`
+
+Read execution transaction history from existing batch summaries and registry records. This is for visibility only; it does not generate write or restore commands.
+
+Representative commands:
+
+```powershell
+python -m armedforces_tool transaction summary
+python -m armedforces_tool transaction list --limit 20
+python -m armedforces_tool transaction list --transaction-type write_success
+python -m armedforces_tool transaction show --batch-id "20260614-232227"
+python -m armedforces_tool transaction show --known-true-addr "0x2CA061C7D48"
+```
+
 ### `commands`
 
 Discover Python sidecar commands and their safety properties. This is not a replacement for argparse `--help`; it is an operator index.
@@ -127,6 +142,7 @@ It must not:
 - replace the guarded PowerShell workflow
 - mutate runtime state
 - perform guarded writes or restores
+- generate write or restore actions from transaction history
 
 Any future write-capable command must be designed as a separate explicit contract. Do not mix write-capable workflows into the current read-only Python sidecar layer.
 
@@ -176,7 +192,7 @@ Current expected stable results:
 - `safety doctor = SAFE`
 - `baseline compare = BASELINE_COMPARE_PASS`
 - `case summary = COVERAGE_OK`
-- command inventory = 36 read-only commands after Phase 3.1 registry views
+- command inventory = 39 read-only commands after Phase 3.2 transaction history views
 - pytest = 64 passed
 
 ## Next Migration Candidates

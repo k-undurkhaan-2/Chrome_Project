@@ -42,6 +42,12 @@ from .safety import (
 )
 from .stable_cases import analyze_stable_cases, filter_stable_case_result, stable_cases_parity
 from .status_overview import analyze_status_overview
+from .transaction_history import (
+    TransactionHistoryError,
+    analyze_transaction_list,
+    analyze_transaction_show,
+    analyze_transaction_summary,
+)
 from .workflow_status import (
     DEFAULT_ACTIVE_SESSION_PATH,
     DEFAULT_CASE_INTAKE_PATH,
@@ -492,6 +498,58 @@ def _add_registry_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--json", action="store_true", help="Emit JSON object")
 
 
+def _add_transaction_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    transaction_parser = subparsers.add_parser("transaction", help="Read-only transaction history views")
+    transaction_subparsers = transaction_parser.add_subparsers(dest="transaction_command", required=True)
+
+    summary = transaction_subparsers.add_parser("summary", help="Summarize transaction history without writing files")
+    _add_transaction_common_args(summary)
+    summary.set_defaults(func=_run_transaction_summary)
+
+    list_parser = transaction_subparsers.add_parser("list", help="List recent transaction records without writing files")
+    _add_transaction_common_args(list_parser)
+    list_parser.add_argument("--limit", type=int, default=20, help="Number of recent transaction records to show")
+    list_parser.set_defaults(func=_run_transaction_list)
+
+    show = transaction_subparsers.add_parser("show", help="Show transaction records by address or batch id")
+    _add_transaction_common_args(show)
+    show.add_argument("--known-true-addr", default=None, help="Known true address, for example 0xCE061C7D48")
+    show.add_argument("--batch-id", default=None, help="Batch id, for example 20260614-232227")
+    show.set_defaults(func=_run_transaction_show)
+
+
+def _add_transaction_common_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--project-root",
+        default=str(DEFAULT_PROJECT_ROOT),
+        help="Active project root used for transaction summaries",
+    )
+    parser.add_argument(
+        "--log-root",
+        default=str(DEFAULT_LOG_ROOT),
+        help="Directory containing *_summary.txt batch logs",
+    )
+    parser.add_argument(
+        "--registry",
+        default=str(DEFAULT_REGISTRY_PATH),
+        help="Registry JSONL path to read",
+    )
+    parser.add_argument("--latest", type=int, default=100, help="Number of latest log summaries to inspect")
+    parser.add_argument(
+        "--profile",
+        choices=("all", "full", "quick"),
+        default="all",
+        help="Validation profile filter",
+    )
+    parser.add_argument(
+        "--transaction-type",
+        choices=("all", "detect_only", "dry_run", "write_success", "write_blocked", "restore_success", "restore_blocked"),
+        default="all",
+        help="Recognized transaction type filter",
+    )
+    parser.add_argument("--json", action="store_true", help="Emit JSON object")
+
+
 def _add_commands_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     commands_parser = subparsers.add_parser("commands", help="Read-only command inventory and quickstart index")
     commands_subparsers = commands_parser.add_subparsers(dest="commands_command", required=True)
@@ -499,7 +557,7 @@ def _add_commands_parser(subparsers: argparse._SubParsersAction[argparse.Argumen
     list_parser = commands_subparsers.add_parser("list", help="List Python sidecar commands without running them")
     list_parser.add_argument(
         "--category",
-        choices=("safety", "status", "baseline", "case", "logs", "registry"),
+        choices=("safety", "status", "baseline", "case", "logs", "registry", "transaction"),
         default=None,
         help="Filter inventory by command category",
     )
@@ -647,6 +705,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_safety_parser(subparsers)
     _add_status_parser(subparsers)
     _add_registry_parser(subparsers)
+    _add_transaction_parser(subparsers)
     _add_commands_parser(subparsers)
     return parser
 
@@ -1109,6 +1168,57 @@ def _run_registry_show(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_transaction_summary(args: argparse.Namespace) -> int:
+    result = analyze_transaction_summary(
+        project_root=Path(args.project_root),
+        log_root=Path(args.log_root),
+        registry=Path(args.registry),
+        latest=args.latest,
+        profile=args.profile,
+        transaction_type=args.transaction_type,
+    )
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(format_transaction_summary(result))
+    return 0
+
+
+def _run_transaction_list(args: argparse.Namespace) -> int:
+    result = analyze_transaction_list(
+        project_root=Path(args.project_root),
+        log_root=Path(args.log_root),
+        registry=Path(args.registry),
+        latest=args.latest,
+        profile=args.profile,
+        transaction_type=args.transaction_type,
+        limit=args.limit,
+    )
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(format_transaction_list(result))
+    return 0
+
+
+def _run_transaction_show(args: argparse.Namespace) -> int:
+    result = analyze_transaction_show(
+        project_root=Path(args.project_root),
+        log_root=Path(args.log_root),
+        registry=Path(args.registry),
+        latest=args.latest,
+        profile=args.profile,
+        transaction_type=args.transaction_type,
+        known_true_addr=args.known_true_addr,
+        batch_id=args.batch_id,
+    )
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(format_transaction_show(result))
+    return 0
+
+
 def format_registry_summary(result: object) -> str:
     data = result.to_dict()
     field_labels = [
@@ -1247,6 +1357,159 @@ def format_registry_show(result: object) -> str:
             _display_value(record.get("baseline_eligible")),
             _display_value(record.get("transaction_type")),
             _display_value(record.get("created_at")),
+        ]
+        for record in records
+    ]
+    lines.extend(_format_table(headers, table_rows))
+    return "\n".join(lines)
+
+
+def format_transaction_summary(result: object) -> str:
+    data = result.to_dict()
+    field_labels = [
+        ("project_root", "project_root"),
+        ("log_root", "log_root"),
+        ("registry_path", "registry_path"),
+        ("latest N", "latest_n"),
+        ("profile_filter", "profile_filter"),
+        ("transaction_type_filter", "transaction_type_filter"),
+        ("parsed_batches", "parsed_batches"),
+        ("parsed_registry_records", "parsed_registry_records"),
+        ("transaction_record_count", "transaction_record_count"),
+        ("write_success_count", "write_success_count"),
+        ("write_blocked_count", "write_blocked_count"),
+        ("restore_success_count", "restore_success_count"),
+        ("restore_blocked_count", "restore_blocked_count"),
+        ("dry_run_count", "dry_run_count"),
+        ("detect_only_count", "detect_only_count"),
+        ("unknown_transaction_count", "unknown_transaction_count"),
+        ("latest_transaction_batch_id", "latest_transaction_batch_id"),
+        ("latest_transaction_type", "latest_transaction_type"),
+        ("latest_known_true_addr", "latest_known_true_addr"),
+        ("conclusion", "conclusion"),
+        ("recommendation", "recommendation"),
+    ]
+    lines = [_format_field_block("Transaction Summary", field_labels, data)]
+    lines.append("")
+    lines.append("Transaction Type Counts")
+    lines.extend(_format_count_table(data.get("transaction_type_counts") or {}))
+    lines.append("")
+    lines.append("Execution Outcome Counts")
+    lines.extend(_format_count_table(data.get("execution_outcome_counts") or {}))
+    warnings = data.get("warnings") or []
+    if warnings:
+        lines.append("")
+        lines.append("Warnings")
+        lines.extend(_format_table(["warning"], [[_display_value(warning)] for warning in warnings]))
+    return "\n".join(lines)
+
+
+def format_transaction_list(result: object) -> str:
+    data = result.to_dict()
+    field_labels = [
+        ("project_root", "project_root"),
+        ("log_root", "log_root"),
+        ("registry_path", "registry_path"),
+        ("latest N", "latest_n"),
+        ("profile_filter", "profile_filter"),
+        ("transaction_type_filter", "transaction_type_filter"),
+        ("limit", "limit"),
+        ("parsed_batches", "parsed_batches"),
+        ("parsed_registry_records", "parsed_registry_records"),
+        ("transaction_record_count", "transaction_record_count"),
+        ("conclusion", "conclusion"),
+        ("recommendation", "recommendation"),
+    ]
+    lines = [_format_field_block("Transaction List Summary", field_labels, data)]
+    records = data.get("records") or []
+    lines.append("")
+    lines.append("Recent Transaction Records")
+    if not records:
+        lines.append("No transaction records found.")
+        return "\n".join(lines)
+    headers = [
+        "index",
+        "batch_id",
+        "known_true_addr",
+        "profile",
+        "classification",
+        "baseline",
+        "execution_outcome",
+        "transaction_type",
+        "status",
+        "source",
+        "created_at",
+    ]
+    table_rows = [
+        [
+            str(record.get("index") or "-"),
+            _display_value(record.get("batch_id")),
+            _display_value(record.get("known_true_addr")),
+            _display_value(record.get("profile")),
+            _display_value(record.get("classification")),
+            _display_value(record.get("baseline_eligible")),
+            _display_value(record.get("execution_outcome")),
+            _display_value(record.get("transaction_type")),
+            _display_value(record.get("transaction_status")),
+            _display_value(record.get("source")),
+            _display_value(record.get("created_at")),
+        ]
+        for record in records
+    ]
+    lines.extend(_format_table(headers, table_rows))
+    return "\n".join(lines)
+
+
+def format_transaction_show(result: object) -> str:
+    data = result.to_dict()
+    field_labels = [
+        ("project_root", "project_root"),
+        ("log_root", "log_root"),
+        ("registry_path", "registry_path"),
+        ("query_type", "query_type"),
+        ("query_value", "query_value"),
+        ("profile_filter", "profile_filter"),
+        ("transaction_type_filter", "transaction_type_filter"),
+        ("matched_count", "matched_count"),
+        ("conclusion", "conclusion"),
+        ("recommendation", "recommendation"),
+    ]
+    lines = [_format_field_block("Transaction Show", field_labels, data)]
+    latest = data.get("latest_matching_record")
+    if latest:
+        lines.append("")
+        lines.append("Latest Matching Record")
+        latest_labels = [
+            ("batch_id", "batch_id"),
+            ("known_true_addr", "known_true_addr"),
+            ("profile", "profile"),
+            ("classification", "classification"),
+            ("baseline_eligible", "baseline_eligible"),
+            ("execution_outcome", "execution_outcome"),
+            ("transaction_type", "transaction_type"),
+            ("transaction_status", "transaction_status"),
+            ("execution_write_request_id", "execution_write_request_id"),
+            ("restore_source_batch_execution_addr", "restore_source_batch_execution_addr"),
+            ("source", "source"),
+            ("created_at", "created_at"),
+        ]
+        lines.append(_format_field_block("Fields", latest_labels, latest))
+    records = data.get("records") or []
+    lines.append("")
+    lines.append("Matching Records")
+    if not records:
+        lines.append("No matching transaction records found.")
+        return "\n".join(lines)
+    headers = ["batch_id", "known_true_addr", "profile", "classification", "transaction", "status", "source"]
+    table_rows = [
+        [
+            _display_value(record.get("batch_id")),
+            _display_value(record.get("known_true_addr")),
+            _display_value(record.get("profile")),
+            _display_value(record.get("classification")),
+            _display_value(record.get("transaction_type")),
+            _display_value(record.get("transaction_status")),
+            _display_value(record.get("source")),
         ]
         for record in records
     ]
@@ -2417,7 +2680,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         args = parser.parse_args(argv)
         return args.func(args)
-    except (LogParseError, CommandInventoryError, RegistryStatusError) as exc:
+    except (LogParseError, CommandInventoryError, RegistryStatusError, TransactionHistoryError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
 

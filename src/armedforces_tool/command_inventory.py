@@ -99,7 +99,7 @@ class CommandQuickstartResult:
         }
 
 
-VALID_CATEGORIES = ("logs", "case", "safety", "status", "baseline", "registry")
+VALID_CATEGORIES = ("logs", "case", "safety", "status", "baseline", "registry", "transaction")
 
 
 def list_commands(category: str | None = None) -> CommandInventoryResult:
@@ -546,5 +546,63 @@ COMMANDS: list[CommandDescriptor] = [
             'python -m armedforces_tool registry show --batch-id "20260614-232227"',
         ],
         related_commands=["registry summary", "registry list"],
+    ),
+    _descriptor(
+        "transaction summary",
+        "transaction",
+        "Summarize read-only execution transaction history from logs and registry records.",
+        "Inspect write, restore, dry-run, and detect-only transaction counts without writing files.",
+        related_powershell_command=None,
+        parameters=[
+            "--project-root",
+            "--log-root",
+            "--registry",
+            "--latest",
+            "--profile",
+            "--transaction-type",
+            "--json",
+        ],
+        related_commands=["transaction list", "transaction show", "registry summary"],
+    ),
+    _descriptor(
+        "transaction list",
+        "transaction",
+        "List recent read-only transaction records from logs and registry records.",
+        "Review recent transaction history with optional profile and transaction-type filtering.",
+        related_powershell_command=None,
+        parameters=[
+            "--project-root",
+            "--log-root",
+            "--registry",
+            "--latest",
+            "--profile",
+            "--transaction-type",
+            "--limit",
+            "--json",
+        ],
+        related_commands=["transaction summary", "transaction show"],
+    ),
+    _descriptor(
+        "transaction show",
+        "transaction",
+        "Show transaction records by known_true_addr or batch_id.",
+        "Inspect one address or batch in transaction history without generating write or restore actions.",
+        related_powershell_command=None,
+        parameters=[
+            "--project-root",
+            "--log-root",
+            "--registry",
+            "--latest",
+            "--profile",
+            "--transaction-type",
+            "--known-true-addr",
+            "--batch-id",
+            "--json",
+        ],
+        examples=[
+            'python -m armedforces_tool transaction show --batch-id "20260614-232227"',
+            'python -m armedforces_tool transaction show --known-true-addr "0x2CA061C7D48"',
+        ],
+        related_commands=["transaction summary", "transaction list"],
     ),
 ]

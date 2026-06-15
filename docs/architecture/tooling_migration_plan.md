@@ -273,6 +273,8 @@ Phase 3 planning begins after the Phase 2 read-only Python sidecar checkpoint. P
 
 Phase 3.1 adds Python read-only registry views for summarizing, listing, and showing records from `log/case_registry.jsonl`. This does not replace PowerShell classifier append behavior and does not write registry data.
 
+Phase 3.2 adds Python read-only transaction history views from existing batch summaries and registry records. These commands summarize/list/show historical detect-only, dry-run, write, and restore outcomes without generating or executing write/restore actions.
+
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 
 - Define request formats.
