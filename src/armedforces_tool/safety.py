@@ -4,13 +4,22 @@ import re
 import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from hashlib import sha256
 from pathlib import Path
 
-from .logs import LogParseError
+from .case_summary import DEFAULT_BASELINE_PATH, analyze_case_summary
+from .logs import DEFAULT_LOG_ROOT, LogParseError, parse_latest_summaries
 
 DEFAULT_PROJECT_ROOT = Path(r"D:\armedforces.io-v2")
 DEFAULT_CONFIG_PATH = DEFAULT_PROJECT_ROOT / "src" / "run_case_config.local.lua"
 DEFAULT_SESSION_TOOL_PATH = DEFAULT_PROJECT_ROOT / "src" / "test_session_tool.ps1"
+DEFAULT_PROTECTED_LOCAL_FILES = (
+    Path("src/run_case_config.local.lua"),
+    Path("src/run_case_config.local.lua.bak"),
+    Path("log/active_test_session.local.json"),
+    Path("log/case_intake.local.jsonl"),
+    Path("log/test_session_history.local.jsonl"),
+)
 
 EXECUTION_CONFIRM_VALUE = "I_ACCEPT_WRITE_TO_LIVE_MEMORY"
 
@@ -126,12 +135,70 @@ class SafetyParityResult:
     parity_status: str
     mismatch_count: int
     mismatches: list[SafetyParityMismatch]
+    unparseable_fields: list[str] | None = None
 
     def to_dict(self) -> dict[str, object]:
         return {
             "parity_status": self.parity_status,
             "mismatch_count": self.mismatch_count,
             "mismatches": [mismatch.to_dict() for mismatch in self.mismatches],
+            "unparseable_fields": self.unparseable_fields or [],
+        }
+
+
+@dataclass(frozen=True)
+class SafetyDoctorCheck:
+    check_name: str
+    status: str
+    detail: str
+    recommendation: str
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "check_name": self.check_name,
+            "status": self.status,
+            "detail": self.detail,
+            "recommendation": self.recommendation,
+        }
+
+
+@dataclass(frozen=True)
+class SafetyDoctorResult:
+    project_root: str
+    overall_status: str
+    safety_state: str
+    next_run_type: str
+    danger_level: str
+    arm_state: str
+    config_exists: bool
+    log_root_exists: bool
+    latest_log_available: bool
+    baseline_exists: bool
+    python_tooling_available: bool
+    protected_local_files_present: int
+    warning_count: int
+    danger_count: int
+    recommendation: str
+    checks: list[SafetyDoctorCheck]
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "project_root": self.project_root,
+            "overall_status": self.overall_status,
+            "safety_state": self.safety_state,
+            "next_run_type": self.next_run_type,
+            "danger_level": self.danger_level,
+            "arm_state": self.arm_state,
+            "config_exists": self.config_exists,
+            "log_root_exists": self.log_root_exists,
+            "latest_log_available": self.latest_log_available,
+            "baseline_exists": self.baseline_exists,
+            "python_tooling_available": self.python_tooling_available,
+            "protected_local_files_present": self.protected_local_files_present,
+            "warning_count": self.warning_count,
+            "danger_count": self.danger_count,
+            "recommendation": self.recommendation,
+            "checks": [check.to_dict() for check in self.checks],
         }
 
 
@@ -317,6 +384,204 @@ def analyze_safety_execution_status(
     )
 
 
+def analyze_safety_doctor(
+    *,
+    project_root: Path = DEFAULT_PROJECT_ROOT,
+    config_path: Path = DEFAULT_CONFIG_PATH,
+    log_root: Path = DEFAULT_LOG_ROOT,
+    baseline: Path = DEFAULT_BASELINE_PATH,
+    now: datetime | None = None,
+) -> SafetyDoctorResult:
+    current_time = _utc_now(now)
+    protected_paths = [project_root / relative for relative in DEFAULT_PROTECTED_LOCAL_FILES]
+    before_hashes = snapshot_protected_files(protected_paths)
+    checks: list[SafetyDoctorCheck] = []
+
+    status_result: SafetyStatusResult | None = None
+    plan_result: SafetyPlanResult | None = None
+    execution_result: SafetyExecutionStatusResult | None = None
+    latest_log_available = False
+    python_tooling_available = True
+
+    try:
+        config = parse_lua_config(config_path)
+        checks.append(
+            _check(
+                "config file",
+                "PASS" if config.exists else "WARN",
+                f"exists={config.exists}; path={config_path}",
+                "Create local config before CE runs." if not config.exists else "No action needed.",
+            )
+        )
+        checks.append(
+            _check(
+                "config parse",
+                "PASS",
+                f"parsed_fields={len(config.raw_fields)}",
+                "No action needed.",
+            )
+        )
+    except LogParseError as exc:
+        python_tooling_available = False
+        checks.append(_check("config parse", "FAIL", str(exc), "Fix config path before running CE."))
+
+    try:
+        status_result = analyze_safety_status(project_root=project_root, config_path=config_path, now=current_time)
+        checks.append(
+            _check(
+                "safety status state",
+                _status_check_status(status_result.safety_state),
+                status_result.safety_state,
+                status_result.recommendation,
+            )
+        )
+    except LogParseError as exc:
+        python_tooling_available = False
+        checks.append(_check("safety status state", "FAIL", str(exc), "Fix config before running CE."))
+
+    try:
+        plan_result = analyze_safety_plan(project_root=project_root, config_path=config_path, now=current_time)
+        checks.append(
+            _check(
+                "next run plan state",
+                _danger_level_to_check(plan_result.danger_level),
+                f"next_run_type={plan_result.next_run_type}; danger_level={plan_result.danger_level}",
+                plan_result.recommendation,
+            )
+        )
+    except LogParseError as exc:
+        python_tooling_available = False
+        checks.append(_check("next run plan state", "FAIL", str(exc), "Fix config before running CE."))
+
+    try:
+        execution_result = analyze_safety_execution_status(project_root=project_root, config_path=config_path, now=current_time)
+        checks.append(
+            _check(
+                "execution arm / write guard state",
+                _execution_check_status(execution_result),
+                f"mode={execution_result.execution_mode}; write_enabled={execution_result.write_enabled}; arm_state={execution_result.arm_state}",
+                execution_result.recommendation,
+            )
+        )
+    except LogParseError as exc:
+        python_tooling_available = False
+        checks.append(_check("execution arm / write guard state", "FAIL", str(exc), "Fix config before running CE."))
+
+    log_root_exists = log_root.exists() and log_root.is_dir()
+    checks.append(
+        _check(
+            "log root readable",
+            "PASS" if log_root_exists else "WARN",
+            f"exists={log_root_exists}; path={log_root}",
+            "No action needed." if log_root_exists else "Run CE only when ready to generate logs.",
+        )
+    )
+
+    try:
+        latest_records = parse_latest_summaries(log_root=log_root, latest=1, profile="all")
+        latest_log_available = bool(latest_records)
+        checks.append(
+            _check(
+                "latest log parse",
+                "PASS" if latest_records else "WARN",
+                f"records={len(latest_records)}",
+                "No action needed." if latest_records else "No parseable batch summary logs found.",
+            )
+        )
+    except LogParseError as exc:
+        python_tooling_available = False
+        checks.append(_check("latest log parse", "WARN", str(exc), "Check log root if coverage analysis is needed."))
+
+    baseline_exists = baseline.exists()
+    checks.append(
+        _check(
+            "baseline path",
+            "PASS" if baseline_exists else "WARN",
+            f"exists={baseline_exists}; path={baseline}",
+            "No action needed." if baseline_exists else "Provide a baseline or target unique count for coverage checks.",
+        )
+    )
+
+    try:
+        summary = analyze_case_summary(log_root=log_root, latest=20, profile="full", baseline=baseline)
+        checks.append(
+            _check(
+                "case summary analysis",
+                "PASS",
+                f"conclusion={summary.conclusion}; eligible={summary.current_eligible_batch_count}",
+                summary.recommendation,
+            )
+        )
+    except LogParseError as exc:
+        python_tooling_available = False
+        checks.append(_check("case summary analysis", "WARN", str(exc), "Case summary unavailable until logs are readable."))
+
+    checks.append(
+        _check(
+            "python safety internals",
+            "PASS" if status_result and plan_result and execution_result else "FAIL",
+            "status/plan/execution-status executed internally" if status_result and plan_result and execution_result else "one or more safety internals failed",
+            "No action needed." if status_result and plan_result and execution_result else "Inspect failed safety check above.",
+        )
+    )
+
+    after_hashes = snapshot_protected_files(protected_paths)
+    present_count = sum(1 for value in after_hashes.values() if value is not None)
+    changed = [
+        str(path)
+        for path in before_hashes
+        if before_hashes.get(path) != after_hashes.get(path)
+    ]
+    checks.append(
+        _check(
+            "protected local files present",
+            "INFO" if present_count else "WARN",
+            f"present={present_count}; checked={len(protected_paths)}",
+            "No action needed." if present_count else "Protected local files are optional for read-only doctor.",
+        )
+    )
+    checks.append(
+        _check(
+            "protected local files unchanged",
+            "PASS" if not changed else "FAIL",
+            "hashes stable" if not changed else "changed=" + "; ".join(changed),
+            "No action needed." if not changed else "Stop and inspect unexpected local file changes.",
+        )
+    )
+
+    safety_state = status_result.safety_state if status_result else "UNKNOWN"
+    next_run_type = plan_result.next_run_type if plan_result else "unknown"
+    danger_level = plan_result.danger_level if plan_result else "UNKNOWN"
+    arm_state = execution_result.arm_state if execution_result else "unknown"
+    config_exists = status_result.config_exists if status_result else config_path.exists()
+    warning_count = sum(1 for check in checks if check.status == "WARN")
+    danger_count = sum(1 for check in checks if check.status == "FAIL")
+    overall = _doctor_overall_status(
+        checks=checks,
+        safety_state=safety_state,
+        danger_level=danger_level,
+        arm_state=arm_state,
+    )
+    return SafetyDoctorResult(
+        project_root=str(project_root),
+        overall_status=overall,
+        safety_state=safety_state,
+        next_run_type=next_run_type,
+        danger_level=danger_level,
+        arm_state=arm_state,
+        config_exists=config_exists,
+        log_root_exists=log_root_exists,
+        latest_log_available=latest_log_available,
+        baseline_exists=baseline_exists,
+        python_tooling_available=python_tooling_available,
+        protected_local_files_present=present_count,
+        warning_count=warning_count,
+        danger_count=danger_count,
+        recommendation=_doctor_recommendation(overall),
+        checks=checks,
+    )
+
+
 def safety_status_parity(
     *,
     project_root: Path = DEFAULT_PROJECT_ROOT,
@@ -389,6 +654,178 @@ def safety_execution_status_parity(
         fields=["execution_mode", "write_enabled", "confirm_present", "arm_present", "safety_conclusion"],
     )
     return _parity_result(mismatches)
+
+
+def safety_doctor_parity(
+    *,
+    project_root: Path = DEFAULT_PROJECT_ROOT,
+    config_path: Path = DEFAULT_CONFIG_PATH,
+    log_root: Path = DEFAULT_LOG_ROOT,
+    baseline: Path = DEFAULT_BASELINE_PATH,
+    session_tool_path: Path = DEFAULT_SESSION_TOOL_PATH,
+) -> SafetyParityResult:
+    python_doctor = analyze_safety_doctor(
+        project_root=project_root,
+        config_path=config_path,
+        log_root=log_root,
+        baseline=baseline,
+    )
+    powershell = _run_powershell_tool("doctor", session_tool_path)
+    parsed = _parse_doctor_for_parity(powershell)
+    python_next_risk = "detect_only" if python_doctor.next_run_type == "detect_only" else "write_risk"
+    fields = ["overall_level", "execution_enabled", "write_enabled", "next_run_risk", "config_safety_conclusion"]
+    mismatches = _compare_fields(
+        python_data={
+            "overall_level": python_doctor.overall_status,
+            "execution_enabled": python_doctor.next_run_type != "detect_only",
+            "write_enabled": python_doctor.danger_level == "DANGER",
+            "next_run_risk": python_next_risk,
+            "config_safety_conclusion": python_doctor.overall_status,
+        },
+        powershell_data={
+            "overall_level": parsed.get("overall_level"),
+            "execution_enabled": parsed.get("execution_enabled"),
+            "write_enabled": parsed.get("write_enabled"),
+            "next_run_risk": parsed.get("next_run_risk"),
+            "config_safety_conclusion": parsed.get("config_safety_conclusion"),
+        },
+        fields=fields,
+    )
+    unparseable = [field for field in fields if field not in parsed or parsed.get(field) is None]
+    result = _parity_result(mismatches)
+    return SafetyParityResult(
+        parity_status=result.parity_status,
+        mismatch_count=result.mismatch_count,
+        mismatches=result.mismatches,
+        unparseable_fields=unparseable,
+    )
+
+
+def snapshot_protected_files(paths: list[Path]) -> dict[str, str | None]:
+    snapshot: dict[str, str | None] = {}
+    for path in paths:
+        if not path.exists():
+            snapshot[str(path)] = None
+            continue
+        if not path.is_file():
+            snapshot[str(path)] = "<not_file>"
+            continue
+        digest = sha256()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        snapshot[str(path)] = digest.hexdigest().upper()
+    return snapshot
+
+
+def _check(check_name: str, status: str, detail: str, recommendation: str) -> SafetyDoctorCheck:
+    return SafetyDoctorCheck(
+        check_name=check_name,
+        status=status,
+        detail=detail,
+        recommendation=recommendation,
+    )
+
+
+def _status_check_status(safety_state: str) -> str:
+    if safety_state in {"SAFE_DETECT_ONLY", "SAFE_NO_CONFIG"}:
+        return "PASS" if safety_state == "SAFE_DETECT_ONLY" else "WARN"
+    if safety_state == "CONFIG_WARN":
+        return "WARN"
+    return "FAIL"
+
+
+def _danger_level_to_check(danger_level: str) -> str:
+    if danger_level == "SAFE":
+        return "PASS"
+    if danger_level in {"WARN", "UNKNOWN"}:
+        return "WARN"
+    return "FAIL"
+
+
+def _execution_check_status(result: SafetyExecutionStatusResult) -> str:
+    if result.execution_mode == "write" or result.write_enabled or result.execution_confirm_present:
+        return "FAIL"
+    if result.arm_state in {"expired", "unknown"}:
+        return "WARN"
+    return "PASS"
+
+
+def _doctor_overall_status(
+    *,
+    checks: list[SafetyDoctorCheck],
+    safety_state: str,
+    danger_level: str,
+    arm_state: str,
+) -> str:
+    if safety_state in {"WRITE_ARMED", "EXECUTION_DANGER"} or danger_level == "DANGER":
+        return "DANGER"
+    if any(check.status == "FAIL" for check in checks):
+        return "DANGER"
+    if safety_state == "UNKNOWN" or danger_level == "UNKNOWN":
+        return "UNKNOWN"
+    if arm_state == "expired":
+        return "WARN"
+    if any(check.status == "WARN" for check in checks):
+        return "WARN"
+    return "SAFE"
+
+
+def _doctor_recommendation(overall_status: str) -> str:
+    if overall_status == "SAFE":
+        return "Python read-only doctor found no blocking safety issues."
+    if overall_status == "WARN":
+        return "Review warning checks before relying on coverage or baseline analysis."
+    if overall_status == "DANGER":
+        return "Do not run CE until danger checks are resolved."
+    return "Review unknown checks before continuing."
+
+
+def _parse_doctor_for_parity(text: str) -> dict[str, object | None]:
+    parsed = _parse_doctor_output(text)
+    result: dict[str, object | None] = {}
+    conclusion = parsed.get("conclusion")
+    if conclusion:
+        text_conclusion = str(conclusion)
+        result["overall_level"] = "DANGER" if text_conclusion == "FAIL" else text_conclusion
+        result["config_safety_conclusion"] = result["overall_level"]
+
+    execution_detail = _doctor_check_detail(text, "execution config is safe")
+    if execution_detail:
+        execution_fields = _parse_semicolon_fields(execution_detail)
+        mode = str(execution_fields.get("execution_mode") or "").strip()
+        write_enabled = _as_bool(execution_fields.get("write_enabled"))
+        result["execution_enabled"] = mode not in {"", "disabled"} or write_enabled
+        result["write_enabled"] = write_enabled or mode == "write"
+        if mode == "disabled" and not write_enabled:
+            result["next_run_risk"] = "detect_only"
+        elif mode == "dry_run":
+            result["next_run_risk"] = "dry_run"
+        else:
+            result["next_run_risk"] = "write_risk"
+    return result
+
+
+def _doctor_check_detail(text: str, check_name: str) -> str | None:
+    normalized = check_name.lower()
+    for raw_line in text.splitlines():
+        line = raw_line.rstrip()
+        if not line.lower().startswith(normalized):
+            continue
+        parts = re.split(r"\s{2,}", line.strip(), maxsplit=2)
+        if len(parts) >= 3:
+            return parts[2].strip()
+    return None
+
+
+def _parse_semicolon_fields(text: str) -> dict[str, object | None]:
+    parsed: dict[str, object | None] = {}
+    for part in text.split(";"):
+        if "=" not in part:
+            continue
+        key, value = part.split("=", 1)
+        parsed[key.strip()] = _parse_output_value(value.strip())
+    return parsed
 
 
 def _strip_lua_comment(line: str) -> str:

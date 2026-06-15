@@ -14,9 +14,11 @@ from .sample_plan import analyze_retest_queue, analyze_sample_plan, retest_queue
 from .safety import (
     DEFAULT_CONFIG_PATH,
     DEFAULT_PROJECT_ROOT,
+    analyze_safety_doctor,
     analyze_safety_execution_status,
     analyze_safety_plan,
     analyze_safety_status,
+    safety_doctor_parity,
     safety_execution_status_parity,
     safety_plan_parity,
     safety_status_parity,
@@ -279,6 +281,13 @@ def _add_safety_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
     _add_safety_common_args(status)
     status.set_defaults(func=_run_safety_status)
 
+    doctor = safety_subparsers.add_parser(
+        "doctor",
+        help="Aggregate read-only Python safety, log, baseline, and parser checks",
+    )
+    _add_safety_doctor_args(doctor)
+    doctor.set_defaults(func=_run_safety_doctor)
+
     plan = safety_subparsers.add_parser("plan", help="Infer next-run risk from local config without writing files")
     _add_safety_common_args(plan)
     plan.set_defaults(func=_run_safety_plan)
@@ -296,6 +305,13 @@ def _add_safety_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
     )
     _add_safety_common_args(status_parity)
     status_parity.set_defaults(func=_run_safety_status_parity)
+
+    doctor_parity = safety_subparsers.add_parser(
+        "doctor-parity",
+        help="Coarsely compare Python safety doctor with read-only PowerShell doctor",
+    )
+    _add_safety_doctor_args(doctor_parity)
+    doctor_parity.set_defaults(func=_run_safety_doctor_parity)
 
     plan_parity = safety_subparsers.add_parser(
         "plan-parity",
@@ -324,6 +340,20 @@ def _add_safety_common_args(parser: argparse.ArgumentParser) -> None:
         help="Local run_case_config.local.lua path to parse read-only",
     )
     parser.add_argument("--json", action="store_true", help="Emit JSON object")
+
+
+def _add_safety_doctor_args(parser: argparse.ArgumentParser) -> None:
+    _add_safety_common_args(parser)
+    parser.add_argument(
+        "--log-root",
+        default=str(DEFAULT_LOG_ROOT),
+        help="Directory containing batch summary logs",
+    )
+    parser.add_argument(
+        "--baseline",
+        default=str(DEFAULT_BASELINE_PATH),
+        help="Baseline Markdown path used by case summary availability checks",
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -550,6 +580,20 @@ def _run_safety_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_safety_doctor(args: argparse.Namespace) -> int:
+    result = analyze_safety_doctor(
+        project_root=Path(args.project_root),
+        config_path=Path(args.config),
+        log_root=Path(args.log_root),
+        baseline=Path(args.baseline),
+    )
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(format_safety_doctor(result))
+    return 0 if result.overall_status in {"SAFE", "WARN"} else 1
+
+
 def _run_safety_plan(args: argparse.Namespace) -> int:
     result = analyze_safety_plan(project_root=Path(args.project_root), config_path=Path(args.config))
     if args.json:
@@ -577,6 +621,20 @@ def _run_safety_status_parity(args: argparse.Namespace) -> int:
     return 0 if result.parity_status in {"PASS", "WARN"} else 1
 
 
+def _run_safety_doctor_parity(args: argparse.Namespace) -> int:
+    result = safety_doctor_parity(
+        project_root=Path(args.project_root),
+        config_path=Path(args.config),
+        log_root=Path(args.log_root),
+        baseline=Path(args.baseline),
+    )
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(format_safety_parity(result, title="Safety Doctor Parity"))
+    return 0 if result.parity_status in {"PASS", "WARN"} else 1
+
+
 def _run_safety_plan_parity(args: argparse.Namespace) -> int:
     result = safety_plan_parity(project_root=Path(args.project_root), config_path=Path(args.config))
     if args.json:
@@ -593,6 +651,46 @@ def _run_safety_execution_status_parity(args: argparse.Namespace) -> int:
     else:
         print(format_safety_parity(result, title="Safety Execution Status Parity"))
     return 0 if result.parity_status in {"PASS", "WARN"} else 1
+
+
+def format_safety_doctor(result: object) -> str:
+    data = result.to_dict()
+    field_labels = [
+        ("project_root", "project_root"),
+        ("overall_status", "overall_status"),
+        ("safety_state", "safety_state"),
+        ("next_run_type", "next_run_type"),
+        ("danger_level", "danger_level"),
+        ("arm_state", "arm_state"),
+        ("config_exists", "config_exists"),
+        ("log_root_exists", "log_root_exists"),
+        ("latest_log_available", "latest_log_available"),
+        ("baseline_exists", "baseline_exists"),
+        ("python_tooling_available", "python_tooling_available"),
+        ("protected_local_files_present", "protected_local_files_present"),
+        ("warning_count", "warning_count"),
+        ("danger_count", "danger_count"),
+        ("recommendation", "recommendation"),
+    ]
+    lines = [_format_field_block("Safety Doctor", field_labels, data)]
+    checks = data.get("checks") or []
+    lines.append("")
+    lines.append("Checks")
+    if not checks:
+        lines.append("No checks were emitted.")
+    else:
+        headers = ["check_name", "status", "detail", "recommendation"]
+        table_rows = [
+            [
+                str(item.get("check_name") or "-"),
+                str(item.get("status") or "-"),
+                str(item.get("detail") or "-"),
+                str(item.get("recommendation") or "-"),
+            ]
+            for item in checks
+        ]
+        lines.extend(_format_table(headers, table_rows))
+    return "\n".join(lines)
 
 
 def format_safety_status(result: object) -> str:
@@ -697,6 +795,13 @@ def format_safety_parity(result: object, *, title: str) -> str:
         lines.append("Mismatches")
         lines.append("----------")
         lines.extend(_format_table(headers, table_rows))
+    unparseable = data.get("unparseable_fields") or []
+    if unparseable:
+        lines.append("")
+        lines.append("Unparseable Fields")
+        lines.append("------------------")
+        for field in unparseable:
+            lines.append(str(field))
     return "\n".join(lines)
 
 
