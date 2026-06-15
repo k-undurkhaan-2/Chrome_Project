@@ -219,11 +219,30 @@ def test_full_status_includes_multiple_sections(monkeypatch: pytest.MonkeyPatch)
 
     result = preview_report(report_type="full-status")
 
-    assert "# Full Status Report" in result.markdown
-    assert "## Status Overview Report" in result.markdown
-    assert "## Safety Doctor Report" in result.markdown
-    assert "## Transaction Summary Report" in result.markdown
+    assert "# Full Status Preview" in result.markdown
+    assert "## Overall" in result.markdown
+    assert "## Components" in result.markdown
+    assert "## Coverage" in result.markdown
+    assert "## Registry / Transactions" in result.markdown
+    assert "## Recommendations" in result.markdown
     assert len(result.component_statuses) == 6
+
+
+def test_full_status_uses_compact_cli_friendly_markdown(monkeypatch: pytest.MonkeyPatch) -> None:
+    _install_fakes(monkeypatch)
+
+    markdown = preview_report(report_type="full-status").markdown
+
+    assert "overall_status" in markdown
+    assert "execution_arm_state" in markdown
+    assert "current_unique_known_true_addr_count" in markdown
+    assert "baseline_unique_known_true_addr_count" in markdown
+    assert "detect_only" in markdown
+    assert "write_success" in markdown
+    assert "restore_success" in markdown
+    assert "## Status Overview Report" not in markdown
+    assert "## Safety Doctor Report" not in markdown
+    assert "## Transaction Summary Report" not in markdown
 
 
 def test_invalid_report_type_raises_clear_error() -> None:

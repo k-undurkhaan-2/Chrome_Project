@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Callable
 
 from .baseline_status import analyze_baseline_compare
@@ -119,110 +120,270 @@ def preview_report(*, report_type: str = "status-overview", latest: int = 20, pr
 
 
 def _render_full_status(*, generated_at: str, latest: int, profile: str) -> ReportPreviewResult:
-    sections: list[str] = [
-        "# Full Status Report",
-        "",
-        f"- generated_at: `{_escape_inline(generated_at)}`",
-        "- read_only: `true`",
-        "- writes_files: `false`",
-        "- runs_ce: `false`",
-    ]
     component_statuses: list[dict[str, object]] = []
     warnings: list[str] = []
     errors: list[str] = []
+    component_data: dict[str, dict[str, object]] = {}
 
-    components: list[tuple[str, Callable[[], tuple[str, str]]]] = [
+    components: list[tuple[str, Callable[[], object], str]] = [
         (
             "status-overview",
-            lambda: _render_component_with_status(
-                analyze_status_overview(project_root=DEFAULT_PROJECT_ROOT, latest=latest, profile=profile),
-                _render_status_overview,
-                generated_at,
-                "overall_status",
-            ),
+            lambda: analyze_status_overview(project_root=DEFAULT_PROJECT_ROOT, latest=latest, profile=profile),
+            "overall_status",
         ),
         (
             "safety-doctor",
-            lambda: _render_component_with_status(
-                analyze_safety_doctor(project_root=DEFAULT_PROJECT_ROOT),
-                _render_safety_doctor,
-                generated_at,
-                "overall_status",
-            ),
+            lambda: analyze_safety_doctor(project_root=DEFAULT_PROJECT_ROOT),
+            "overall_status",
         ),
         (
             "baseline-compare",
-            lambda: _render_component_with_status(
-                analyze_baseline_compare(
-                    baseline=DEFAULT_BASELINE_PATH,
-                    latest=latest,
-                    profile=profile,
-                    log_root=DEFAULT_LOG_ROOT,
-                ),
-                _render_baseline_compare,
-                generated_at,
-                "conclusion",
+            lambda: analyze_baseline_compare(
+                baseline=DEFAULT_BASELINE_PATH,
+                latest=latest,
+                profile=profile,
+                log_root=DEFAULT_LOG_ROOT,
             ),
+            "conclusion",
         ),
         (
             "case-summary",
-            lambda: _render_component_with_status(
-                analyze_case_summary(
-                    log_root=DEFAULT_LOG_ROOT,
-                    latest=latest,
-                    profile=profile,
-                    baseline=DEFAULT_BASELINE_PATH,
-                ),
-                _render_case_summary,
-                generated_at,
-                "conclusion",
+            lambda: analyze_case_summary(
+                log_root=DEFAULT_LOG_ROOT,
+                latest=latest,
+                profile=profile,
+                baseline=DEFAULT_BASELINE_PATH,
             ),
+            "conclusion",
         ),
         (
             "registry-summary",
-            lambda: _render_component_with_status(
-                analyze_registry_summary(project_root=DEFAULT_PROJECT_ROOT),
-                _render_registry_summary,
-                generated_at,
-                "conclusion",
-            ),
+            lambda: analyze_registry_summary(project_root=DEFAULT_PROJECT_ROOT),
+            "conclusion",
         ),
         (
             "transaction-summary",
-            lambda: _render_component_with_status(
-                analyze_transaction_summary(project_root=DEFAULT_PROJECT_ROOT),
-                _render_transaction_summary,
-                generated_at,
-                "conclusion",
-            ),
+            lambda: analyze_transaction_summary(project_root=DEFAULT_PROJECT_ROOT),
+            "conclusion",
         ),
     ]
 
-    for component, render in components:
+    for component, analyze, status_attr in components:
         try:
-            markdown, status = render()
+            result = analyze()
+            status = str(getattr(result, status_attr))
+            component_data[component] = result.to_dict()
         except Exception as exc:  # noqa: BLE001 - full-status must degrade gracefully.
             message = f"{component}: {exc}"
             errors.append(message)
             component_statuses.append({"component": component, "status": "ERROR"})
-            sections.extend(["", f"## {_title(component)}", "", f"**ERROR:** {_escape_text(str(exc))}"])
             continue
         component_statuses.append({"component": component, "status": status})
         if status not in {"OK", "SAFE", "BASELINE_COMPARE_PASS", "COVERAGE_OK", "REGISTRY_OK", "TRANSACTION_HISTORY_OK"}:
             warnings.append(f"{component}: {status}")
-        sections.extend(["", markdown])
+
+    markdown = _render_full_status_compact(
+        generated_at=generated_at,
+        latest=latest,
+        profile=profile,
+        component_data=component_data,
+        component_statuses=component_statuses,
+        warnings=warnings,
+        errors=errors,
+    )
 
     return ReportPreviewResult(
         report_type="full-status",
-        markdown="\n".join(sections).strip() + "\n",
+        markdown=markdown,
         component_statuses=component_statuses,
         warnings=warnings,
         errors=errors,
     )
 
 
+def _render_full_status_compact(
+    *,
+    generated_at: str,
+    latest: int,
+    profile: str,
+    component_data: dict[str, dict[str, object]],
+    component_statuses: list[dict[str, object]],
+    warnings: list[str],
+    errors: list[str],
+) -> str:
+    status_summary = _as_dict(component_data.get("status-overview", {}).get("summary"))
+    safety = component_data.get("safety-doctor", {})
+    baseline = component_data.get("baseline-compare", {})
+    case = component_data.get("case-summary", {})
+    registry = component_data.get("registry-summary", {})
+    transactions = component_data.get("transaction-summary", {})
+
+    lines = [
+        "# Full Status Preview",
+        "",
+        f"- generated_at: `{_escape_inline(generated_at)}`",
+        f"- latest: `{latest}`",
+        f"- profile: `{_escape_inline(profile)}`",
+        "- read_only: `true`",
+        "- writes_files: `false`",
+        "- runs_ce: `false`",
+        "",
+        "## Overall",
+        "",
+        _field_table(
+            [
+                ("overall_status", status_summary.get("overall_status")),
+                ("safety_status", status_summary.get("safety_status")),
+                ("next_run_type", status_summary.get("next_run_type")),
+                ("execution_arm_state", safety.get("arm_state")),
+                ("diagnostic_status", status_summary.get("diagnostic_status")),
+                ("case_intake_status", status_summary.get("case_intake_status")),
+                ("baseline_compare_status", status_summary.get("baseline_compare_status")),
+                ("case_summary_status", status_summary.get("case_summary_status")),
+            ]
+        ),
+        "",
+        "## Components",
+        "",
+        _markdown_table(
+            ["component", "status", "key result"],
+            [
+                ["status", _component_status(component_statuses, "status-overview"), _status_key_result(status_summary)],
+                ["safety", _component_status(component_statuses, "safety-doctor"), _safety_key_result(safety)],
+                ["baseline", _component_status(component_statuses, "baseline-compare"), _baseline_key_result(baseline)],
+                ["case", _component_status(component_statuses, "case-summary"), _case_key_result(case)],
+                ["registry", _component_status(component_statuses, "registry-summary"), _registry_key_result(registry)],
+                [
+                    "transactions",
+                    _component_status(component_statuses, "transaction-summary"),
+                    _transaction_key_result(transactions),
+                ],
+            ],
+        ),
+        "",
+        "## Coverage",
+        "",
+        _field_table(
+            [
+                ("current_unique_known_true_addr_count", case.get("current_unique_known_true_addr_count")),
+                ("baseline_unique_known_true_addr_count", baseline.get("baseline_unique_known_true_addr_count")),
+                ("coverage_delta", case.get("coverage_delta")),
+                ("current_eligible_batch_count", case.get("current_eligible_batch_count")),
+                ("current_success_count", case.get("current_success_count")),
+                ("estimated_new_distinct_addr_needed", case.get("estimated_new_distinct_addr_needed")),
+            ]
+        ),
+        "",
+        "## Registry / Transactions",
+        "",
+        _field_table(
+            [
+                ("registry_status", registry.get("conclusion")),
+                ("registry_records", registry.get("parsed_records")),
+                ("registry_unique_known_true_addr_count", registry.get("unique_known_true_addr_count")),
+                ("registry_baseline_eligible_count", registry.get("baseline_eligible_count")),
+                ("registry_execution_batch_count", registry.get("execution_batch_count")),
+                ("transaction_status", transactions.get("conclusion")),
+                ("detect_only", transactions.get("detect_only_count")),
+                ("dry_run", transactions.get("dry_run_count")),
+                ("write_success", transactions.get("write_success_count")),
+                ("write_blocked", transactions.get("write_blocked_count")),
+                ("restore_success", transactions.get("restore_success_count")),
+                ("restore_blocked", transactions.get("restore_blocked_count")),
+            ]
+        ),
+        "",
+        "## Recommendations",
+        "",
+        _recommendations_block(component_data, warnings, errors),
+        "",
+        "## Details",
+        "",
+        _field_table(
+            [
+                ("baseline_file", _basename(baseline.get("baseline_path") or case.get("baseline_path"))),
+                ("registry_file", _basename(registry.get("registry_path"))),
+                ("latest_transaction_batch", transactions.get("latest_transaction_batch_id")),
+                ("latest_transaction_type", transactions.get("latest_transaction_type")),
+            ]
+        ),
+    ]
+    return "\n".join(lines).strip() + "\n"
+
+
 def _render_component_with_status(result: object, renderer: Callable[..., str], generated_at: str, status_attr: str) -> tuple[str, str]:
     return renderer(result, generated_at=generated_at, heading_level=2), str(getattr(result, status_attr))
+
+
+def _as_dict(value: object) -> dict[str, object]:
+    return value if isinstance(value, dict) else {}
+
+
+def _component_status(component_statuses: list[dict[str, object]], component: str) -> str:
+    for item in component_statuses:
+        if item.get("component") == component:
+            return _display(item.get("status"))
+    return "ERROR"
+
+
+def _status_key_result(summary: dict[str, object]) -> str:
+    return f"overall={_display(summary.get('overall_status'))}; danger={_display(summary.get('danger_level'))}"
+
+
+def _safety_key_result(data: dict[str, object]) -> str:
+    return f"state={_display(data.get('safety_state'))}; arm={_display(data.get('arm_state'))}"
+
+
+def _baseline_key_result(data: dict[str, object]) -> str:
+    return f"result={_display(data.get('conclusion'))}; delta={_display(data.get('coverage_delta'))}"
+
+
+def _case_key_result(data: dict[str, object]) -> str:
+    current = _display(data.get("current_unique_known_true_addr_count"))
+    target = _display(data.get("target_unique_known_true_addr_count"))
+    return f"result={_display(data.get('conclusion'))}; unique={current}/{target}"
+
+
+def _registry_key_result(data: dict[str, object]) -> str:
+    return f"records={_display(data.get('parsed_records'))}; unique={_display(data.get('unique_known_true_addr_count'))}"
+
+
+def _transaction_key_result(data: dict[str, object]) -> str:
+    latest = _display(data.get("latest_transaction_type"))
+    writes = _display(data.get("write_success_count"))
+    blocked = _display(data.get("write_blocked_count"))
+    return f"latest={latest}; write_success={writes}; write_blocked={blocked}"
+
+
+def _recommendations_block(component_data: dict[str, dict[str, object]], warnings: list[str], errors: list[str]) -> str:
+    values: list[str] = []
+    status_summary = _as_dict(component_data.get("status-overview", {}).get("summary"))
+    recommendation_sources = [
+        status_summary.get("recommendation"),
+        component_data.get("safety-doctor", {}).get("recommendation"),
+        component_data.get("baseline-compare", {}).get("recommendation"),
+        component_data.get("case-summary", {}).get("recommendation"),
+        component_data.get("registry-summary", {}).get("recommendation"),
+        component_data.get("transaction-summary", {}).get("recommendation"),
+    ]
+    for value in recommendation_sources:
+        text = _display(value).strip()
+        if text and text != "-" and text not in values:
+            values.append(text)
+    for warning in warnings:
+        values.append(f"Warning: {warning}")
+    for error in errors:
+        values.append(f"Error: {error}")
+    if not values:
+        return "- No action recommended."
+    return "\n".join(f"- {_escape_text(value)}" for value in values)
+
+
+def _basename(value: object) -> str:
+    text = _display(value)
+    if text == "-":
+        return text
+    return Path(text.replace("\\", "/")).name or text
 
 
 def _single_report(*, report_type: str, markdown: str, status: str) -> ReportPreviewResult:
