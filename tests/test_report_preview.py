@@ -40,7 +40,37 @@ def _status_overview() -> _FakeResult:
                     "status": "PASS",
                     "summary": "overall=SAFE",
                     "recommendation": "no action",
-                }
+                },
+                {
+                    "component_name": "diagnostic",
+                    "status": "PASS",
+                    "summary": "diagnostic_status=DIAGNOSTIC_BASIC",
+                    "recommendation": "no action",
+                },
+                {
+                    "component_name": "case_intake",
+                    "status": "PASS",
+                    "summary": "conclusion=CASE_INTAKE_CLEAN",
+                    "recommendation": "no action",
+                },
+                {
+                    "component_name": "baseline_current",
+                    "status": "PASS",
+                    "summary": "conclusion=BASELINE_CURRENT_OK",
+                    "recommendation": "no action",
+                },
+                {
+                    "component_name": "baseline_compare",
+                    "status": "PASS",
+                    "summary": "conclusion=BASELINE_COMPARE_PASS",
+                    "recommendation": "no action",
+                },
+                {
+                    "component_name": "case_summary",
+                    "status": "PASS",
+                    "summary": "conclusion=COVERAGE_OK",
+                    "recommendation": "no action",
+                },
             ],
             "warnings": [],
             "dangers": [],
@@ -228,7 +258,7 @@ def test_full_status_includes_multiple_sections(monkeypatch: pytest.MonkeyPatch)
     assert len(result.component_statuses) == 6
 
 
-def test_full_status_uses_compact_cli_friendly_markdown(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_full_status_keeps_explicit_markdown_preview(monkeypatch: pytest.MonkeyPatch) -> None:
     _install_fakes(monkeypatch)
 
     markdown = preview_report(report_type="full-status").markdown
@@ -243,6 +273,26 @@ def test_full_status_uses_compact_cli_friendly_markdown(monkeypatch: pytest.Monk
     assert "## Status Overview Report" not in markdown
     assert "## Safety Doctor Report" not in markdown
     assert "## Transaction Summary Report" not in markdown
+
+
+def test_full_status_cli_text_uses_terminal_friendly_sections(monkeypatch: pytest.MonkeyPatch) -> None:
+    _install_fakes(monkeypatch)
+
+    cli_text = preview_report(report_type="full-status").cli_text
+
+    assert cli_text is not None
+    assert "Full Status Preview" in cli_text
+    assert "Overall\n-------" in cli_text
+    assert "Coverage\n--------" in cli_text
+    assert "Registry / Transactions\n-----------------------" in cli_text
+    assert "Safety\n------" in cli_text
+    assert "overall_status" in cli_text
+    assert "execution_arm_state" in cli_text
+    assert "baseline_current     PASS" in cli_text
+    assert "write_success" in cli_text
+    assert "# Full Status Preview" not in cli_text
+    assert "| Field | Value |" not in cli_text
+    assert "##" not in cli_text
 
 
 def test_invalid_report_type_raises_clear_error() -> None:

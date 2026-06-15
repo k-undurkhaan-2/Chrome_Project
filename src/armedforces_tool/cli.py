@@ -569,6 +569,12 @@ def _add_report_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
         default="full",
         help="Validation profile filter",
     )
+    preview.add_argument(
+        "--format",
+        choices=("cli", "markdown"),
+        default="cli",
+        help="Output format for stdout. full-status defaults to CLI-friendly text.",
+    )
     preview.add_argument("--json", action="store_true", help="Emit JSON object containing Markdown")
     preview.set_defaults(func=_run_report_preview)
 
@@ -1248,7 +1254,8 @@ def _run_report_preview(args: argparse.Namespace) -> int:
     if args.json:
         print(json.dumps(result.to_dict(), indent=2))
     else:
-        print(result.markdown, end="" if result.markdown.endswith("\n") else "\n")
+        output = result.markdown if args.format == "markdown" else (result.cli_text or result.markdown)
+        print(output, end="" if output.endswith("\n") else "\n")
     return 0
 
 

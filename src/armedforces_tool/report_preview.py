@@ -35,6 +35,7 @@ class ReportPreviewResult:
     component_statuses: list[dict[str, object]]
     warnings: list[str]
     errors: list[str]
+    cli_text: str | None = None
     read_only: bool = True
     writes_files: bool = False
     runs_ce: bool = False
@@ -191,6 +192,12 @@ def _render_full_status(*, generated_at: str, latest: int, profile: str) -> Repo
         warnings=warnings,
         errors=errors,
     )
+    cli_text = _render_full_status_cli_text(
+        component_data=component_data,
+        component_statuses=component_statuses,
+        warnings=warnings,
+        errors=errors,
+    )
 
     return ReportPreviewResult(
         report_type="full-status",
@@ -198,6 +205,7 @@ def _render_full_status(*, generated_at: str, latest: int, profile: str) -> Repo
         component_statuses=component_statuses,
         warnings=warnings,
         errors=errors,
+        cli_text=cli_text,
     )
 
 
@@ -212,6 +220,7 @@ def _render_full_status_compact(
     errors: list[str],
 ) -> str:
     status_summary = _as_dict(component_data.get("status-overview", {}).get("summary"))
+    status_components = component_data.get("status-overview", {}).get("components")
     safety = component_data.get("safety-doctor", {})
     baseline = component_data.get("baseline-compare", {})
     case = component_data.get("case-summary", {})
@@ -315,6 +324,97 @@ def _render_component_with_status(result: object, renderer: Callable[..., str], 
     return renderer(result, generated_at=generated_at, heading_level=2), str(getattr(result, status_attr))
 
 
+def _render_full_status_cli_text(
+    *,
+    component_data: dict[str, dict[str, object]],
+    component_statuses: list[dict[str, object]],
+    warnings: list[str],
+    errors: list[str],
+) -> str:
+    status_summary = _as_dict(component_data.get("status-overview", {}).get("summary"))
+    status_components = component_data.get("status-overview", {}).get("components")
+    safety = component_data.get("safety-doctor", {})
+    baseline = component_data.get("baseline-compare", {})
+    case = component_data.get("case-summary", {})
+    registry = component_data.get("registry-summary", {})
+    transactions = component_data.get("transaction-summary", {})
+    lines = [
+        "Full Status Preview",
+        "===================",
+        "",
+        "Overall",
+        "-------",
+        _aligned_pairs(
+            [
+                ("overall_status", status_summary.get("overall_status")),
+                ("safety_status", status_summary.get("safety_status")),
+                ("next_run_type", status_summary.get("next_run_type")),
+                ("danger_level", status_summary.get("danger_level")),
+                ("execution_arm_state", safety.get("arm_state")),
+                ("diagnostic_status", status_summary.get("diagnostic_status")),
+                ("case_intake_status", status_summary.get("case_intake_status")),
+            ]
+        ),
+        "",
+        "Coverage",
+        "--------",
+        _aligned_pairs(
+            [
+                ("baseline_compare", baseline.get("conclusion")),
+                ("case_summary", case.get("conclusion")),
+                ("current_unique", case.get("current_unique_known_true_addr_count")),
+                ("baseline_unique", baseline.get("baseline_unique_known_true_addr_count")),
+                ("coverage_delta", _signed(case.get("coverage_delta"))),
+            ]
+        ),
+        "",
+        "Registry / Transactions",
+        "-----------------------",
+        _aligned_pairs(
+            [
+                ("registry", registry.get("conclusion")),
+                ("transaction_history", transactions.get("conclusion")),
+                ("detect_only", transactions.get("detect_only_count")),
+                ("dry_run", transactions.get("dry_run_count")),
+                ("write_success", transactions.get("write_success_count")),
+                ("write_blocked", transactions.get("write_blocked_count")),
+                ("restore_success", transactions.get("restore_success_count")),
+                ("restore_blocked", transactions.get("restore_blocked_count")),
+            ]
+        ),
+        "",
+        "Components",
+        "----------",
+        _aligned_pairs(
+            [
+                ("safety_doctor", _status_to_pass_fail(_overview_component_status(status_components, "safety_doctor"))),
+                ("diagnostic", _status_to_pass_fail(_overview_component_status(status_components, "diagnostic"))),
+                ("case_intake", _status_to_pass_fail(_overview_component_status(status_components, "case_intake"))),
+                ("baseline_current", _status_to_pass_fail(_overview_component_status(status_components, "baseline_current"))),
+                ("baseline_compare", _status_to_pass_fail(_overview_component_status(status_components, "baseline_compare"))),
+                ("case_summary", _status_to_pass_fail(_overview_component_status(status_components, "case_summary"))),
+                ("registry_summary", _status_to_pass_fail(_component_status(component_statuses, "registry-summary"))),
+                ("transaction_summary", _status_to_pass_fail(_component_status(component_statuses, "transaction-summary"))),
+            ]
+        ),
+        "",
+        "Recommendations",
+        "---------------",
+        _recommendations_text(component_data, warnings, errors),
+        "",
+        "Safety",
+        "------",
+        _aligned_pairs(
+            [
+                ("read_only", True),
+                ("writes_files", False),
+                ("runs_ce", False),
+            ]
+        ),
+    ]
+    return "\n".join(lines).strip() + "\n"
+
+
 def _as_dict(value: object) -> dict[str, object]:
     return value if isinstance(value, dict) else {}
 
@@ -323,6 +423,14 @@ def _component_status(component_statuses: list[dict[str, object]], component: st
     for item in component_statuses:
         if item.get("component") == component:
             return _display(item.get("status"))
+    return "ERROR"
+
+
+def _overview_component_status(components: object, component_name: str) -> str:
+    if isinstance(components, list):
+        for item in components:
+            if isinstance(item, dict) and item.get("component_name") == component_name:
+                return _display(item.get("status"))
     return "ERROR"
 
 
@@ -356,6 +464,14 @@ def _transaction_key_result(data: dict[str, object]) -> str:
 
 
 def _recommendations_block(component_data: dict[str, dict[str, object]], warnings: list[str], errors: list[str]) -> str:
+    return "\n".join(f"- {_escape_text(value)}" for value in _collect_recommendations(component_data, warnings, errors))
+
+
+def _recommendations_text(component_data: dict[str, dict[str, object]], warnings: list[str], errors: list[str]) -> str:
+    return "\n".join(f"- {_escape_text(value)}" for value in _collect_recommendations(component_data, warnings, errors))
+
+
+def _collect_recommendations(component_data: dict[str, dict[str, object]], warnings: list[str], errors: list[str]) -> list[str]:
     values: list[str] = []
     status_summary = _as_dict(component_data.get("status-overview", {}).get("summary"))
     recommendation_sources = [
@@ -375,8 +491,8 @@ def _recommendations_block(component_data: dict[str, dict[str, object]], warning
     for error in errors:
         values.append(f"Error: {error}")
     if not values:
-        return "- No action recommended."
-    return "\n".join(f"- {_escape_text(value)}" for value in values)
+        return ["No action recommended."]
+    return values
 
 
 def _basename(value: object) -> str:
@@ -384,6 +500,39 @@ def _basename(value: object) -> str:
     if text == "-":
         return text
     return Path(text.replace("\\", "/")).name or text
+
+
+def _aligned_pairs(rows: list[tuple[str, object]]) -> str:
+    width = max(len(label) for label, _ in rows) if rows else 0
+    return "\n".join(f"{label.ljust(width)}  {_display(value)}" for label, value in rows)
+
+
+def _signed(value: object) -> object:
+    if isinstance(value, int | float) and value > 0:
+        return f"+{value}"
+    return value
+
+
+def _status_to_pass_fail(value: object) -> str:
+    text = _display(value)
+    if text in {
+        "SAFE",
+        "PASS",
+        "OK",
+        "DIAGNOSTIC_BASIC",
+        "CASE_INTAKE_CLEAN",
+        "BASELINE_CURRENT_OK",
+        "BASELINE_COMPARE_PASS",
+        "COVERAGE_OK",
+        "REGISTRY_OK",
+        "TRANSACTION_HISTORY_OK",
+    }:
+        return "PASS"
+    if text in {"WARN", "WARNING", "ATTENTION"} or "WARN" in text:
+        return "WARN"
+    if text in {"ERROR", "FAIL"} or "FAIL" in text:
+        return "FAIL"
+    return text
 
 
 def _single_report(*, report_type: str, markdown: str, status: str) -> ReportPreviewResult:
