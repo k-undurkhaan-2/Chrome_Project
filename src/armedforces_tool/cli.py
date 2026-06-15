@@ -20,6 +20,13 @@ from .case_summary import DEFAULT_BASELINE_PATH, analyze_case_summary, case_summ
 from .command_inventory import CommandInventoryError, list_commands, quickstart, show_command
 from .logs import DEFAULT_LOG_ROOT, BatchSummaryRecord, LogParseError, parse_batch_summary, parse_latest_summaries
 from .parity import parity_latest
+from .registry_status import (
+    DEFAULT_REGISTRY_PATH,
+    RegistryStatusError,
+    analyze_registry_list,
+    analyze_registry_show,
+    analyze_registry_summary,
+)
 from .sample_plan import analyze_retest_queue, analyze_sample_plan, retest_queue_parity, sample_plan_parity
 from .safety import (
     DEFAULT_CONFIG_PATH,
@@ -445,6 +452,46 @@ def _add_baseline_parser(subparsers: argparse._SubParsersAction[argparse.Argumen
     compare_parity.set_defaults(func=_run_baseline_compare_parity)
 
 
+def _add_registry_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    registry_parser = subparsers.add_parser("registry", help="Read-only case registry views")
+    registry_subparsers = registry_parser.add_subparsers(dest="registry_command", required=True)
+
+    summary = registry_subparsers.add_parser("summary", help="Summarize registry JSONL without writing files")
+    _add_registry_common_args(summary)
+    summary.set_defaults(func=_run_registry_summary)
+
+    list_parser = registry_subparsers.add_parser("list", help="List recent registry records without writing files")
+    _add_registry_common_args(list_parser)
+    list_parser.add_argument("--limit", type=int, default=20, help="Number of recent registry records to show")
+    list_parser.set_defaults(func=_run_registry_list)
+
+    show = registry_subparsers.add_parser("show", help="Show registry records by address or batch id")
+    _add_registry_common_args(show)
+    show.add_argument("--known-true-addr", default=None, help="Known true address, for example 0xCE061C7D48")
+    show.add_argument("--batch-id", default=None, help="Batch id, for example 20260614-232227")
+    show.set_defaults(func=_run_registry_show)
+
+
+def _add_registry_common_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--project-root",
+        default=str(DEFAULT_PROJECT_ROOT),
+        help="Active project root used for registry summaries",
+    )
+    parser.add_argument(
+        "--registry",
+        default=str(DEFAULT_REGISTRY_PATH),
+        help="Registry JSONL path to read",
+    )
+    parser.add_argument(
+        "--profile",
+        choices=("all", "full", "quick"),
+        default="all",
+        help="Validation profile filter",
+    )
+    parser.add_argument("--json", action="store_true", help="Emit JSON object")
+
+
 def _add_commands_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     commands_parser = subparsers.add_parser("commands", help="Read-only command inventory and quickstart index")
     commands_subparsers = commands_parser.add_subparsers(dest="commands_command", required=True)
@@ -452,7 +499,7 @@ def _add_commands_parser(subparsers: argparse._SubParsersAction[argparse.Argumen
     list_parser = commands_subparsers.add_parser("list", help="List Python sidecar commands without running them")
     list_parser.add_argument(
         "--category",
-        choices=("safety", "status", "baseline", "case", "logs"),
+        choices=("safety", "status", "baseline", "case", "logs", "registry"),
         default=None,
         help="Filter inventory by command category",
     )
@@ -599,6 +646,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_baseline_parser(subparsers)
     _add_safety_parser(subparsers)
     _add_status_parser(subparsers)
+    _add_registry_parser(subparsers)
     _add_commands_parser(subparsers)
     return parser
 
@@ -1017,6 +1065,212 @@ def _run_baseline_compare_parity(args: argparse.Namespace) -> int:
     else:
         print(format_baseline_parity(result, title="Baseline Compare Parity"))
     return 0 if result.parity_status in {"PASS", "WARN"} else 1
+
+
+def _run_registry_summary(args: argparse.Namespace) -> int:
+    result = analyze_registry_summary(
+        project_root=Path(args.project_root),
+        registry=Path(args.registry),
+        profile=args.profile,
+    )
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(format_registry_summary(result))
+    return 0
+
+
+def _run_registry_list(args: argparse.Namespace) -> int:
+    result = analyze_registry_list(
+        project_root=Path(args.project_root),
+        registry=Path(args.registry),
+        limit=args.limit,
+        profile=args.profile,
+    )
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(format_registry_list(result))
+    return 0
+
+
+def _run_registry_show(args: argparse.Namespace) -> int:
+    result = analyze_registry_show(
+        project_root=Path(args.project_root),
+        registry=Path(args.registry),
+        known_true_addr=args.known_true_addr,
+        batch_id=args.batch_id,
+        profile=args.profile,
+    )
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(format_registry_show(result))
+    return 0
+
+
+def format_registry_summary(result: object) -> str:
+    data = result.to_dict()
+    field_labels = [
+        ("project_root", "project_root"),
+        ("registry_path", "registry_path"),
+        ("registry_exists", "registry_exists"),
+        ("total_lines", "total_lines"),
+        ("parsed_records", "parsed_records"),
+        ("malformed_lines", "malformed_lines"),
+        ("record_count", "record_count"),
+        ("profile_filter", "profile_filter"),
+        ("unique_known_true_addr_count", "unique_known_true_addr_count"),
+        ("baseline_eligible_count", "baseline_eligible_count"),
+        ("execution_batch_count", "execution_batch_count"),
+        ("latest_batch_id", "latest_batch_id"),
+        ("latest_known_true_addr", "latest_known_true_addr"),
+        ("latest_record_timestamp", "latest_record_timestamp"),
+        ("conclusion", "conclusion"),
+        ("recommendation", "recommendation"),
+    ]
+    lines = [_format_field_block("Registry Summary", field_labels, data)]
+    lines.append("")
+    lines.append("Classification Counts")
+    lines.extend(_format_count_table(data.get("classification_counts") or {}))
+    lines.append("")
+    lines.append("Profile Counts")
+    lines.extend(_format_count_table(data.get("profile_counts") or {}))
+    warnings = data.get("warnings") or []
+    if warnings:
+        lines.append("")
+        lines.append("Warnings")
+        lines.extend(_format_warning_rows(warnings))
+    return "\n".join(lines)
+
+
+def format_registry_list(result: object) -> str:
+    data = result.to_dict()
+    field_labels = [
+        ("project_root", "project_root"),
+        ("registry_path", "registry_path"),
+        ("registry_exists", "registry_exists"),
+        ("total_lines", "total_lines"),
+        ("parsed_records", "parsed_records"),
+        ("malformed_lines", "malformed_lines"),
+        ("record_count", "record_count"),
+        ("profile_filter", "profile_filter"),
+        ("limit", "limit"),
+        ("conclusion", "conclusion"),
+        ("recommendation", "recommendation"),
+    ]
+    lines = [_format_field_block("Registry List Summary", field_labels, data)]
+    records = data.get("records") or []
+    lines.append("")
+    lines.append("Recent Registry Records")
+    if not records:
+        lines.append("No registry records found.")
+        return "\n".join(lines)
+    headers = [
+        "index",
+        "line",
+        "batch_id",
+        "known_true_addr",
+        "profile",
+        "classification",
+        "baseline",
+        "execution_outcome",
+        "transaction_type",
+        "created_at",
+        "parse",
+    ]
+    table_rows = [
+        [
+            str(record.get("index") or "-"),
+            str(record.get("line_number") or "-"),
+            _display_value(record.get("batch_id")),
+            _display_value(record.get("known_true_addr")),
+            _display_value(record.get("validation_profile")),
+            _display_value(record.get("classification")),
+            _display_value(record.get("baseline_eligible")),
+            _display_value(record.get("execution_outcome")),
+            _display_value(record.get("transaction_type")),
+            _display_value(record.get("created_at")),
+            _display_value(record.get("parse_status")),
+        ]
+        for record in records
+    ]
+    lines.extend(_format_table(headers, table_rows))
+    return "\n".join(lines)
+
+
+def format_registry_show(result: object) -> str:
+    data = result.to_dict()
+    field_labels = [
+        ("project_root", "project_root"),
+        ("registry_path", "registry_path"),
+        ("registry_exists", "registry_exists"),
+        ("query_type", "query_type"),
+        ("query_value", "query_value"),
+        ("profile_filter", "profile_filter"),
+        ("matched_count", "matched_count"),
+        ("malformed_lines", "malformed_lines"),
+        ("conclusion", "conclusion"),
+        ("recommendation", "recommendation"),
+    ]
+    lines = [_format_field_block("Registry Show", field_labels, data)]
+    latest = data.get("latest_matching_record")
+    if latest:
+        lines.append("")
+        lines.append("Latest Matching Record")
+        latest_labels = [
+            ("line_number", "line_number"),
+            ("batch_id", "batch_id"),
+            ("known_true_addr", "known_true_addr"),
+            ("validation_profile", "validation_profile"),
+            ("classification", "classification"),
+            ("baseline_eligible", "baseline_eligible"),
+            ("execution_outcome", "execution_outcome"),
+            ("transaction_type", "transaction_type"),
+            ("created_at", "created_at"),
+        ]
+        lines.append(_format_field_block("Fields", latest_labels, latest))
+    records = data.get("records") or []
+    lines.append("")
+    lines.append("Matching Records")
+    if not records:
+        lines.append("No matching registry records found.")
+        return "\n".join(lines)
+    headers = ["line", "batch_id", "known_true_addr", "profile", "classification", "baseline", "transaction", "created_at"]
+    table_rows = [
+        [
+            str(record.get("line_number") or "-"),
+            _display_value(record.get("batch_id")),
+            _display_value(record.get("known_true_addr")),
+            _display_value(record.get("validation_profile")),
+            _display_value(record.get("classification")),
+            _display_value(record.get("baseline_eligible")),
+            _display_value(record.get("transaction_type")),
+            _display_value(record.get("created_at")),
+        ]
+        for record in records
+    ]
+    lines.extend(_format_table(headers, table_rows))
+    return "\n".join(lines)
+
+
+def _format_count_table(counts: dict[str, int]) -> list[str]:
+    if not counts:
+        return ["No counts."]
+    return _format_table(["value", "count"], [[str(key), str(value)] for key, value in counts.items()])
+
+
+def _format_warning_rows(warnings: Sequence[dict[str, object]]) -> list[str]:
+    headers = ["line", "message", "preview"]
+    rows = [
+        [
+            str(warning.get("line_number") or "-"),
+            _display_value(warning.get("message")),
+            _display_value(warning.get("text_preview")),
+        ]
+        for warning in warnings
+    ]
+    return _format_table(headers, rows)
 
 
 def _run_commands_list(args: argparse.Namespace) -> int:
@@ -2163,7 +2417,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         args = parser.parse_args(argv)
         return args.func(args)
-    except (LogParseError, CommandInventoryError) as exc:
+    except (LogParseError, CommandInventoryError, RegistryStatusError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
 

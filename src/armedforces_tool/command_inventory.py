@@ -99,7 +99,7 @@ class CommandQuickstartResult:
         }
 
 
-VALID_CATEGORIES = ("logs", "case", "safety", "status", "baseline")
+VALID_CATEGORIES = ("logs", "case", "safety", "status", "baseline", "registry")
 
 
 def list_commands(category: str | None = None) -> CommandInventoryResult:
@@ -515,5 +515,36 @@ COMMANDS: list[CommandDescriptor] = [
         related_powershell_command="test_session_tool.ps1 baseline-compare",
         parameters=["--project-root", "--baseline", "--latest", "--profile", "--log-root", "--json"],
         related_commands=["baseline compare"],
+    ),
+    _descriptor(
+        "registry summary",
+        "registry",
+        "Summarize the local case registry JSONL file.",
+        "Inspect registry health, counts, profile coverage, and latest record without writing files.",
+        related_powershell_command="batch_log_classifier.ps1 -RegistrySummary",
+        parameters=["--project-root", "--registry", "--profile", "--json"],
+        related_commands=["registry list", "registry show"],
+    ),
+    _descriptor(
+        "registry list",
+        "registry",
+        "List recent local case registry records.",
+        "Inspect recent registry records with optional profile filtering.",
+        related_powershell_command="batch_log_classifier.ps1 -RegistryRecent ...",
+        parameters=["--project-root", "--registry", "--limit", "--profile", "--json"],
+        related_commands=["registry summary", "registry show"],
+    ),
+    _descriptor(
+        "registry show",
+        "registry",
+        "Show registry records by known_true_addr or batch_id.",
+        "Look up one address or batch in the local registry without writing files.",
+        related_powershell_command="batch_log_classifier.ps1 -RegistryAddr ...",
+        parameters=["--project-root", "--registry", "--known-true-addr", "--batch-id", "--profile", "--json"],
+        examples=[
+            'python -m armedforces_tool registry show --known-true-addr "0xCE061C7D48"',
+            'python -m armedforces_tool registry show --batch-id "20260614-232227"',
+        ],
+        related_commands=["registry summary", "registry list"],
     ),
 ]

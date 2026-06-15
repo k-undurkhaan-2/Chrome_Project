@@ -271,6 +271,8 @@ Phase 2 wrap-up: the read-only Python sidecar status layer is complete for the c
 
 Phase 3 planning begins after the Phase 2 read-only Python sidecar checkpoint. Phase 2 is complete for analysis, safety/status, baseline visibility, coverage planning, parity checks, status overview, and command inventory. The next recommended implementation is a Python read-only registry view. Write-capable migration, guarded write / restore migration, and CE automation remain explicitly deferred until a separate contract and checkpoint are designed.
 
+Phase 3.1 adds Python read-only registry views for summarizing, listing, and showing records from `log/case_registry.jsonl`. This does not replace PowerShell classifier append behavior and does not write registry data.
+
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 
 - Define request formats.

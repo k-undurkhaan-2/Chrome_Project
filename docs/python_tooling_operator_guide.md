@@ -21,6 +21,7 @@ python -m armedforces_tool commands list
 python -m armedforces_tool safety doctor
 python -m armedforces_tool baseline compare
 python -m armedforces_tool case summary --latest 20 --profile full
+python -m armedforces_tool registry summary
 ```
 
 ## Command Groups
@@ -87,6 +88,19 @@ Representative commands:
 python -m armedforces_tool baseline list
 python -m armedforces_tool baseline current
 python -m armedforces_tool baseline compare
+```
+
+### `registry`
+
+Read the local case registry JSONL without appending records or replacing the PowerShell classifier append workflow.
+
+Representative commands:
+
+```powershell
+python -m armedforces_tool registry summary
+python -m armedforces_tool registry list --limit 20
+python -m armedforces_tool registry show --known-true-addr "0xCE061C7D48"
+python -m armedforces_tool registry show --batch-id "20260614-232227"
 ```
 
 ### `commands`
@@ -162,7 +176,7 @@ Current expected stable results:
 - `safety doctor = SAFE`
 - `baseline compare = BASELINE_COMPARE_PASS`
 - `case summary = COVERAGE_OK`
-- command inventory = 33 read-only commands
+- command inventory = 36 read-only commands after Phase 3.1 registry views
 - pytest = 64 passed
 
 ## Next Migration Candidates
