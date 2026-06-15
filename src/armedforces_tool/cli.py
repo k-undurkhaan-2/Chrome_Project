@@ -11,6 +11,16 @@ from .case_summary import DEFAULT_BASELINE_PATH, analyze_case_summary, case_summ
 from .logs import DEFAULT_LOG_ROOT, BatchSummaryRecord, LogParseError, parse_batch_summary, parse_latest_summaries
 from .parity import parity_latest
 from .sample_plan import analyze_retest_queue, analyze_sample_plan, retest_queue_parity, sample_plan_parity
+from .safety import (
+    DEFAULT_CONFIG_PATH,
+    DEFAULT_PROJECT_ROOT,
+    analyze_safety_execution_status,
+    analyze_safety_plan,
+    analyze_safety_status,
+    safety_execution_status_parity,
+    safety_plan_parity,
+    safety_status_parity,
+)
 from .stable_cases import analyze_stable_cases, filter_stable_case_result, stable_cases_parity
 
 
@@ -261,6 +271,61 @@ def _add_sample_plan_args(parser: argparse.ArgumentParser, *, include_active_ses
     parser.add_argument("--json", action="store_true", help="Emit JSON object")
 
 
+def _add_safety_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    safety_parser = subparsers.add_parser("safety", help="Read-only safety and next-run status helpers")
+    safety_subparsers = safety_parser.add_subparsers(dest="safety_command", required=True)
+
+    status = safety_subparsers.add_parser("status", help="Read local config safety state without writing files")
+    _add_safety_common_args(status)
+    status.set_defaults(func=_run_safety_status)
+
+    plan = safety_subparsers.add_parser("plan", help="Infer next-run risk from local config without writing files")
+    _add_safety_common_args(plan)
+    plan.set_defaults(func=_run_safety_plan)
+
+    execution_status = safety_subparsers.add_parser(
+        "execution-status",
+        help="Read execution arm and write guard state without writing files",
+    )
+    _add_safety_common_args(execution_status)
+    execution_status.set_defaults(func=_run_safety_execution_status)
+
+    status_parity = safety_subparsers.add_parser(
+        "status-parity",
+        help="Coarsely compare Python safety status with read-only PowerShell doctor",
+    )
+    _add_safety_common_args(status_parity)
+    status_parity.set_defaults(func=_run_safety_status_parity)
+
+    plan_parity = safety_subparsers.add_parser(
+        "plan-parity",
+        help="Coarsely compare Python safety plan with read-only PowerShell plan",
+    )
+    _add_safety_common_args(plan_parity)
+    plan_parity.set_defaults(func=_run_safety_plan_parity)
+
+    execution_parity = safety_subparsers.add_parser(
+        "execution-status-parity",
+        help="Coarsely compare Python execution safety status with read-only PowerShell execution-status",
+    )
+    _add_safety_common_args(execution_parity)
+    execution_parity.set_defaults(func=_run_safety_execution_status_parity)
+
+
+def _add_safety_common_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--project-root",
+        default=str(DEFAULT_PROJECT_ROOT),
+        help="Active project root used for safety summaries",
+    )
+    parser.add_argument(
+        "--config",
+        default=str(DEFAULT_CONFIG_PATH),
+        help="Local run_case_config.local.lua path to parse read-only",
+    )
+    parser.add_argument("--json", action="store_true", help="Emit JSON object")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="armedforces_tool",
@@ -271,6 +336,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
     _add_logs_parser(subparsers)
     _add_case_parser(subparsers)
+    _add_safety_parser(subparsers)
     return parser
 
 
@@ -473,6 +539,174 @@ def _run_case_sample_plan_parity(args: argparse.Namespace) -> int:
     else:
         print(format_planning_parity(result, title="Sample Plan Parity"))
     return 0 if result.parity_status in {"PASS", "WARN"} else 1
+
+
+def _run_safety_status(args: argparse.Namespace) -> int:
+    result = analyze_safety_status(project_root=Path(args.project_root), config_path=Path(args.config))
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(format_safety_status(result))
+    return 0
+
+
+def _run_safety_plan(args: argparse.Namespace) -> int:
+    result = analyze_safety_plan(project_root=Path(args.project_root), config_path=Path(args.config))
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(format_safety_plan(result))
+    return 0
+
+
+def _run_safety_execution_status(args: argparse.Namespace) -> int:
+    result = analyze_safety_execution_status(project_root=Path(args.project_root), config_path=Path(args.config))
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(format_safety_execution_status(result))
+    return 0
+
+
+def _run_safety_status_parity(args: argparse.Namespace) -> int:
+    result = safety_status_parity(project_root=Path(args.project_root), config_path=Path(args.config))
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(format_safety_parity(result, title="Safety Status Parity"))
+    return 0 if result.parity_status in {"PASS", "WARN"} else 1
+
+
+def _run_safety_plan_parity(args: argparse.Namespace) -> int:
+    result = safety_plan_parity(project_root=Path(args.project_root), config_path=Path(args.config))
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(format_safety_parity(result, title="Safety Plan Parity"))
+    return 0 if result.parity_status in {"PASS", "WARN"} else 1
+
+
+def _run_safety_execution_status_parity(args: argparse.Namespace) -> int:
+    result = safety_execution_status_parity(project_root=Path(args.project_root), config_path=Path(args.config))
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(format_safety_parity(result, title="Safety Execution Status Parity"))
+    return 0 if result.parity_status in {"PASS", "WARN"} else 1
+
+
+def format_safety_status(result: object) -> str:
+    data = result.to_dict()
+    field_labels = [
+        ("project_root", "project_root"),
+        ("config_path", "config_path"),
+        ("config_exists", "config_exists"),
+        ("validation_profile", "validation_profile"),
+        ("diagnostic_level", "diagnostic_level"),
+        ("known_true_addr", "known_true_addr"),
+        ("target_value_float", "target_value_float"),
+        ("target_value_pattern", "target_value_pattern"),
+        ("write_value_float", "write_value_float"),
+        ("execution_mode", "execution_mode"),
+        ("execution_enabled", "execution_enabled"),
+        ("write_enabled", "write_enabled"),
+        ("execution_confirm", "execution_confirm"),
+        ("execution_confirm_present", "execution_confirm_present"),
+        ("execution_write_request_id", "execution_write_request_id"),
+        ("execution_armed_at_utc", "execution_armed_at_utc"),
+        ("execution_arm_expires_at_utc", "execution_arm_expires_at_utc"),
+        ("execution_arm_present", "execution_arm_present"),
+        ("execution_arm_state", "execution_arm_state"),
+        ("safety_state", "safety_state"),
+        ("recommendation", "recommendation"),
+    ]
+    return _format_field_block("Safety Status", field_labels, data)
+
+
+def format_safety_plan(result: object) -> str:
+    data = result.to_dict()
+    field_labels = [
+        ("project_root", "project_root"),
+        ("config_path", "config_path"),
+        ("config_exists", "config_exists"),
+        ("next_run_type", "next_run_type"),
+        ("danger_level", "danger_level"),
+        ("reason", "reason"),
+        ("recommendation", "recommendation"),
+        ("validation_profile", "validation_profile"),
+        ("diagnostic_level", "diagnostic_level"),
+        ("target_value_float", "target_value_float"),
+        ("target_value_pattern", "target_value_pattern"),
+        ("execution_mode", "execution_mode"),
+        ("write_enabled", "write_enabled"),
+        ("execution_confirm_present", "execution_confirm_present"),
+        ("execution_write_request_id", "execution_write_request_id"),
+        ("execution_arm_state", "execution_arm_state"),
+        ("restore_source_batch_id", "restore_source_batch_id"),
+        ("restore_source_batch_execution_addr", "restore_source_batch_execution_addr"),
+    ]
+    return _format_field_block("Safety Plan", field_labels, data)
+
+
+def format_safety_execution_status(result: object) -> str:
+    data = result.to_dict()
+    field_labels = [
+        ("project_root", "project_root"),
+        ("config_path", "config_path"),
+        ("config_exists", "config_exists"),
+        ("execution_enabled", "execution_enabled"),
+        ("write_enabled", "write_enabled"),
+        ("execution_mode", "execution_mode"),
+        ("execution_confirm", "execution_confirm"),
+        ("execution_confirm_present", "execution_confirm_present"),
+        ("execution_write_request_id", "execution_write_request_id"),
+        ("execution_armed_at_utc", "execution_armed_at_utc"),
+        ("execution_arm_expires_at_utc", "execution_arm_expires_at_utc"),
+        ("arm_state", "arm_state"),
+        ("arm_seconds_remaining", "arm_seconds_remaining"),
+        ("restore_source_batch_execution_addr", "restore_source_batch_execution_addr"),
+        ("recommendation", "recommendation"),
+    ]
+    return _format_field_block("Safety Execution Status", field_labels, data)
+
+
+def format_safety_parity(result: object, *, title: str) -> str:
+    data = result.to_dict()
+    rows = [
+        ("parity_status", data["parity_status"]),
+        ("mismatch_count", data["mismatch_count"]),
+    ]
+    width = max(len(label) for label, _ in rows)
+    lines = [title, "-" * len(title)]
+    for label, value in rows:
+        lines.append(f"{label.ljust(width)}  {_display_value(value)}")
+
+    mismatches = data["mismatches"]
+    if mismatches:
+        headers = ["field", "status", "python", "powershell"]
+        table_rows = [
+            [
+                str(item.get("field") or "-"),
+                str(item.get("status") or "-"),
+                _display_value(item.get("python_value")),
+                _display_value(item.get("powershell_value")),
+            ]
+            for item in mismatches
+        ]
+        lines.append("")
+        lines.append("Mismatches")
+        lines.append("----------")
+        lines.extend(_format_table(headers, table_rows))
+    return "\n".join(lines)
+
+
+def _format_field_block(title: str, field_labels: Sequence[tuple[str, str]], data: dict[str, object | None]) -> str:
+    rows = [(label, _display_value(data.get(key))) for label, key in field_labels]
+    width = max(len(label) for label, _ in rows)
+    lines = [title, "Field".ljust(width) + "  Value", "-".ljust(width, "-") + "  -----"]
+    for label, value in rows:
+        lines.append(f"{label.ljust(width)}  {value}")
+    return "\n".join(lines)
 
 
 def format_records_table(records: Sequence[BatchSummaryRecord]) -> str:
