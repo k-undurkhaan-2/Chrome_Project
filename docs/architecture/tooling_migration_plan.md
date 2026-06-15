@@ -275,6 +275,8 @@ Phase 3.1 adds Python read-only registry views for summarizing, listing, and sho
 
 Phase 3.2 adds Python read-only transaction history views from existing batch summaries and registry records. These commands summarize/list/show historical detect-only, dry-run, write, and restore outcomes without generating or executing write/restore actions.
 
+Phase 3.3 adds planning for future Python report export / Markdown rendering only. No write-capable Python command is implemented yet; any future report export must use a separate write-capable contract and an approved output directory.
+
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 
 - Define request formats.
