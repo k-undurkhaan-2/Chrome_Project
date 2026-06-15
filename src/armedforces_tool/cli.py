@@ -6,6 +6,15 @@ import sys
 from pathlib import Path
 from typing import Sequence
 
+from .baseline_status import (
+    DEFAULT_BASELINE_DIR,
+    analyze_baseline_compare,
+    analyze_baseline_current,
+    analyze_baseline_list,
+    baseline_compare_parity,
+    baseline_current_parity,
+    baseline_list_parity,
+)
 from .case_library import analyze_case_library, case_library_parity
 from .case_summary import DEFAULT_BASELINE_PATH, analyze_case_summary, case_summary_parity
 from .logs import DEFAULT_LOG_ROOT, BatchSummaryRecord, LogParseError, parse_batch_summary, parse_latest_summaries
@@ -386,6 +395,95 @@ def _add_status_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
     case_intake_parity.set_defaults(func=_run_status_case_intake_parity)
 
 
+def _add_baseline_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    baseline_parser = subparsers.add_parser("baseline", help="Read-only baseline status helpers")
+    baseline_subparsers = baseline_parser.add_subparsers(dest="baseline_command", required=True)
+
+    list_parser = baseline_subparsers.add_parser("list", help="List local baseline Markdown files without writing files")
+    _add_baseline_list_args(list_parser)
+    list_parser.set_defaults(func=_run_baseline_list)
+
+    current = baseline_subparsers.add_parser("current", help="Parse the current baseline without writing files")
+    _add_baseline_current_args(current)
+    current.set_defaults(func=_run_baseline_current)
+
+    compare = baseline_subparsers.add_parser(
+        "compare",
+        help="Compare latest baseline-eligible logs against a baseline without writing files",
+    )
+    _add_baseline_compare_args(compare)
+    compare.set_defaults(func=_run_baseline_compare)
+
+    list_parity = baseline_subparsers.add_parser(
+        "list-parity",
+        help="Coarsely compare Python baseline list output with read-only PowerShell baseline-list",
+    )
+    _add_baseline_list_args(list_parity)
+    list_parity.set_defaults(func=_run_baseline_list_parity)
+
+    current_parity = baseline_subparsers.add_parser(
+        "current-parity",
+        help="Coarsely compare Python baseline current output with read-only PowerShell baseline-current",
+    )
+    _add_baseline_current_args(current_parity)
+    current_parity.set_defaults(func=_run_baseline_current_parity)
+
+    compare_parity = baseline_subparsers.add_parser(
+        "compare-parity",
+        help="Coarsely compare Python baseline compare output with read-only PowerShell baseline-compare",
+    )
+    _add_baseline_compare_args(compare_parity)
+    compare_parity.set_defaults(func=_run_baseline_compare_parity)
+
+
+def _add_baseline_common_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--project-root",
+        default=str(DEFAULT_PROJECT_ROOT),
+        help="Active project root used for baseline summaries",
+    )
+    parser.add_argument("--json", action="store_true", help="Emit JSON object")
+
+
+def _add_baseline_list_args(parser: argparse.ArgumentParser) -> None:
+    _add_baseline_common_args(parser)
+    parser.add_argument(
+        "--baseline-dir",
+        default=str(DEFAULT_BASELINE_DIR),
+        help="Directory containing baseline Markdown files",
+    )
+    parser.add_argument(
+        "--baseline",
+        default=str(DEFAULT_BASELINE_PATH),
+        help="Current/default baseline Markdown path",
+    )
+
+
+def _add_baseline_current_args(parser: argparse.ArgumentParser) -> None:
+    _add_baseline_common_args(parser)
+    parser.add_argument(
+        "--baseline",
+        default=str(DEFAULT_BASELINE_PATH),
+        help="Baseline Markdown path to parse",
+    )
+
+
+def _add_baseline_compare_args(parser: argparse.ArgumentParser) -> None:
+    _add_baseline_current_args(parser)
+    parser.add_argument("--latest", type=int, default=20, help="Number of baseline-eligible batches to inspect")
+    parser.add_argument(
+        "--profile",
+        choices=("full", "quick"),
+        default="full",
+        help="Validation profile filter",
+    )
+    parser.add_argument(
+        "--log-root",
+        default=str(DEFAULT_LOG_ROOT),
+        help="Directory containing *_summary.txt batch logs",
+    )
+
+
 def _add_status_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--project-root",
@@ -444,6 +542,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
     _add_logs_parser(subparsers)
     _add_case_parser(subparsers)
+    _add_baseline_parser(subparsers)
     _add_safety_parser(subparsers)
     _add_status_parser(subparsers)
     return parser
@@ -777,6 +876,197 @@ def _run_status_case_intake_parity(args: argparse.Namespace) -> int:
     else:
         print(format_workflow_status_parity(result, title="Case Intake Status Parity"))
     return 0 if result.parity_status in {"PASS", "WARN"} else 1
+
+
+def _run_baseline_list(args: argparse.Namespace) -> int:
+    result = analyze_baseline_list(
+        project_root=Path(args.project_root),
+        baseline_dir=Path(args.baseline_dir),
+        current_baseline=Path(args.baseline),
+    )
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(format_baseline_list(result))
+    return 0
+
+
+def _run_baseline_current(args: argparse.Namespace) -> int:
+    result = analyze_baseline_current(baseline=Path(args.baseline))
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(format_baseline_current(result))
+    return 0
+
+
+def _run_baseline_compare(args: argparse.Namespace) -> int:
+    result = analyze_baseline_compare(
+        baseline=Path(args.baseline),
+        latest=args.latest,
+        profile=args.profile,
+        log_root=Path(args.log_root),
+    )
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(format_baseline_compare(result))
+    return 0 if result.conclusion in {"BASELINE_COMPARE_PASS", "BASELINE_COMPARE_WARN"} else 1
+
+
+def _run_baseline_list_parity(args: argparse.Namespace) -> int:
+    result = baseline_list_parity(
+        project_root=Path(args.project_root),
+        baseline_dir=Path(args.baseline_dir),
+        current_baseline=Path(args.baseline),
+    )
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(format_baseline_parity(result, title="Baseline List Parity"))
+    return 0 if result.parity_status in {"PASS", "WARN"} else 1
+
+
+def _run_baseline_current_parity(args: argparse.Namespace) -> int:
+    result = baseline_current_parity(baseline=Path(args.baseline))
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(format_baseline_parity(result, title="Baseline Current Parity"))
+    return 0 if result.parity_status in {"PASS", "WARN"} else 1
+
+
+def _run_baseline_compare_parity(args: argparse.Namespace) -> int:
+    result = baseline_compare_parity(
+        baseline=Path(args.baseline),
+        latest=args.latest,
+        profile=args.profile,
+        log_root=Path(args.log_root),
+    )
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(format_baseline_parity(result, title="Baseline Compare Parity"))
+    return 0 if result.parity_status in {"PASS", "WARN"} else 1
+
+
+def format_baseline_list(result: object) -> str:
+    data = result.to_dict()
+    field_labels = [
+        ("project_root", "project_root"),
+        ("baseline_dir", "baseline_dir"),
+        ("baseline_dir_exists", "baseline_dir_exists"),
+        ("baseline_count", "baseline_count"),
+        ("current_baseline_path", "current_baseline_path"),
+        ("current_baseline_exists", "current_baseline_exists"),
+        ("latest_baseline_path", "latest_baseline_path"),
+        ("conclusion", "conclusion"),
+        ("recommendation", "recommendation"),
+    ]
+    lines = [_format_field_block("Baseline List Summary", field_labels, data)]
+    records = data.get("records") or []
+    lines.append("")
+    lines.append("Baseline Files")
+    if not records:
+        lines.append("No baseline Markdown files found.")
+        return "\n".join(lines)
+    headers = [
+        "filename",
+        "current",
+        "profile",
+        "latest_n",
+        "unique",
+        "created_at",
+        "parse_status",
+        "warnings",
+    ]
+    rows = [
+        [
+            str(item.get("filename") or "-"),
+            str(item.get("is_current_default")),
+            _display_value(item.get("parsed_profile")),
+            _display_value(item.get("parsed_latest_n")),
+            _display_value(item.get("unique_known_true_addr_count")),
+            _display_value(item.get("created_at")),
+            str(item.get("parse_status") or "-"),
+            "; ".join(item.get("parse_warnings") or []) or "-",
+        ]
+        for item in records
+    ]
+    lines.extend(_format_table(headers, rows))
+    return "\n".join(lines)
+
+
+def format_baseline_current(result: object) -> str:
+    data = result.to_dict()
+    field_labels = [
+        ("baseline_path", "baseline_path"),
+        ("baseline_exists", "baseline_exists"),
+        ("parse_status", "parse_status"),
+        ("profile", "profile"),
+        ("latest_n", "latest_n"),
+        ("unique_known_true_addr_count", "unique_known_true_addr_count"),
+        ("baseline_eligible_count", "baseline_eligible_count"),
+        ("success_count", "success_count"),
+        ("created_at", "created_at"),
+        ("known_true_addr list", "known_true_addrs"),
+        ("parse_warnings", "parse_warnings"),
+        ("conclusion", "conclusion"),
+        ("recommendation", "recommendation"),
+    ]
+    return _format_field_block("Baseline Current", field_labels, data)
+
+
+def format_baseline_compare(result: object) -> str:
+    data = result.to_dict()
+    field_labels = [
+        ("baseline_path", "baseline_path"),
+        ("baseline_exists", "baseline_exists"),
+        ("latest N", "latest_n"),
+        ("profile", "profile"),
+        ("baseline unique known_true_addr count", "baseline_unique_known_true_addr_count"),
+        ("current eligible batch count", "current_eligible_batch_count"),
+        ("current success count", "current_success_count"),
+        ("current unique known_true_addr count", "current_unique_known_true_addr_count"),
+        ("coverage delta", "coverage_delta"),
+        ("repeated known_true_addr list", "repeated_known_true_addr"),
+        ("missing_from_current", "missing_from_current"),
+        ("new_in_current", "new_in_current"),
+        ("conclusion", "conclusion"),
+        ("recommendation", "recommendation"),
+    ]
+    return _format_field_block("Baseline Compare", field_labels, data)
+
+
+def format_baseline_parity(result: object, *, title: str) -> str:
+    data = result.to_dict()
+    rows = [
+        ("parity_status", data["parity_status"]),
+        ("mismatch_count", data["mismatch_count"]),
+        ("unparseable_fields", data.get("unparseable_fields") or []),
+    ]
+    width = max(len(label) for label, _ in rows)
+    lines = [title, "-" * len(title)]
+    for label, value in rows:
+        lines.append(f"{label.ljust(width)}  {_display_value(value)}")
+
+    mismatches = data["mismatches"]
+    if mismatches:
+        headers = ["field", "status", "python", "powershell"]
+        table_rows = [
+            [
+                str(item.get("field") or "-"),
+                str(item.get("status") or "-"),
+                _display_value(item.get("python_value")),
+                _display_value(item.get("powershell_value")),
+            ]
+            for item in mismatches
+        ]
+        lines.append("")
+        lines.append("Mismatches")
+        lines.append("----------")
+        lines.extend(_format_table(headers, table_rows))
+    return "\n".join(lines)
 
 
 def format_diagnostic_status(result: object) -> str:

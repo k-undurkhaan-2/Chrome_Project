@@ -254,6 +254,8 @@ The most important rule is that migration should change implementation ownership
 - Move case-intake journal analysis into Python modules.
 - Keep PowerShell wrappers as compatibility commands.
 
+Phase 2.4 adds read-only Python baseline status views for listing local baselines, parsing the current baseline, and comparing current baseline-eligible logs against a selected baseline. These commands are sidecar checks only; PowerShell baseline commands remain the operator workflow and baseline saving remains explicit.
+
 ### Phase 3: Thin PowerShell Wrapper
 
 - PowerShell becomes a thin command launcher.
