@@ -279,6 +279,8 @@ Phase 3.3 adds planning for future Python report export / Markdown rendering onl
 
 Phase 3.4 adds Python `report preview` as a stdout-only Markdown renderer over existing read-only analysis/status helpers. It does not implement report export, does not accept output paths, and does not write files; report export remains deferred pending a separate write-capable contract.
 
+Phase 3.5 defines the write-capable contract for future Python `report export` only. There is no implementation yet; file-writing report export remains gated behind approved output roots, path safety rules, dry-run behavior, overwrite policy, tests, and a separate checkpoint.
+
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 
 - Define request formats.

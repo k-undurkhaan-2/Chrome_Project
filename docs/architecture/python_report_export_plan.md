@@ -127,3 +127,8 @@ If report export is approved later, the recommended implementation sequence is:
 1. Add `report preview` only, with strictly no file writes.
 2. Add `report export` later, with a controlled output directory, path safety validation, overwrite rules, tests, and updated command inventory risk marking.
 
+## Phase 3.5 Contract Note
+
+`docs/architecture/python_report_export_contract.md` now defines the future write-capable contract for `report export`.
+
+Implementation remains deferred. `report preview` remains stdout-only and does not write report files.
