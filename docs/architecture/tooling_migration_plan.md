@@ -256,6 +256,8 @@ The most important rule is that migration should change implementation ownership
 
 Phase 2.4 adds read-only Python baseline status views for listing local baselines, parsing the current baseline, and comparing current baseline-eligible logs against a selected baseline. These commands are sidecar checks only; PowerShell baseline commands remain the operator workflow and baseline saving remains explicit.
 
+Phase 2.5 adds a consolidated read-only Python status overview that aggregates existing safety, workflow status, baseline, and coverage helpers into one daily status entry point without replacing any PowerShell command.
+
 ### Phase 3: Thin PowerShell Wrapper
 
 - PowerShell becomes a thin command launcher.

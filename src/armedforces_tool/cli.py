@@ -33,6 +33,7 @@ from .safety import (
     safety_status_parity,
 )
 from .stable_cases import analyze_stable_cases, filter_stable_case_result, stable_cases_parity
+from .status_overview import analyze_status_overview
 from .workflow_status import (
     DEFAULT_ACTIVE_SESSION_PATH,
     DEFAULT_CASE_INTAKE_PATH,
@@ -394,6 +395,13 @@ def _add_status_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
     _add_case_intake_args(case_intake_parity, include_limit=False)
     case_intake_parity.set_defaults(func=_run_status_case_intake_parity)
 
+    overview = status_subparsers.add_parser(
+        "overview",
+        help="Aggregate read-only project status across safety, workflow, baseline, and coverage checks",
+    )
+    _add_status_overview_args(overview)
+    overview.set_defaults(func=_run_status_overview)
+
 
 def _add_baseline_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     baseline_parser = subparsers.add_parser("baseline", help="Read-only baseline status helpers")
@@ -516,6 +524,27 @@ def _add_case_intake_args(parser: argparse.ArgumentParser, *, include_limit: boo
     )
     if include_limit:
         parser.add_argument("--limit", type=int, default=20, help="Maximum recent intake records to display")
+
+
+def _add_status_overview_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--project-root",
+        default=str(DEFAULT_PROJECT_ROOT),
+        help="Active project root used for consolidated status",
+    )
+    parser.add_argument("--latest", type=int, default=20, help="Number of baseline-eligible batches to inspect")
+    parser.add_argument(
+        "--profile",
+        choices=("full", "quick"),
+        default="full",
+        help="Validation profile filter",
+    )
+    parser.add_argument(
+        "--baseline",
+        default=str(DEFAULT_BASELINE_PATH),
+        help="Baseline Markdown path used for baseline and coverage checks",
+    )
+    parser.add_argument("--json", action="store_true", help="Emit JSON object")
 
 
 def _add_safety_doctor_args(parser: argparse.ArgumentParser) -> None:
@@ -878,6 +907,20 @@ def _run_status_case_intake_parity(args: argparse.Namespace) -> int:
     return 0 if result.parity_status in {"PASS", "WARN"} else 1
 
 
+def _run_status_overview(args: argparse.Namespace) -> int:
+    result = analyze_status_overview(
+        project_root=Path(args.project_root),
+        latest=args.latest,
+        profile=args.profile,
+        baseline=Path(args.baseline),
+    )
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(format_status_overview(result))
+    return 0 if result.overall_status in {"SAFE", "WARN"} else 1
+
+
 def _run_baseline_list(args: argparse.Namespace) -> int:
     result = analyze_baseline_list(
         project_root=Path(args.project_root),
@@ -1066,6 +1109,51 @@ def format_baseline_parity(result: object, *, title: str) -> str:
         lines.append("Mismatches")
         lines.append("----------")
         lines.extend(_format_table(headers, table_rows))
+    return "\n".join(lines)
+
+
+def format_status_overview(result: object) -> str:
+    data = result.to_dict()
+    summary = data["summary"]
+    field_labels = [
+        ("project_root", "project_root"),
+        ("overall_status", "overall_status"),
+        ("safety_status", "safety_status"),
+        ("next_run_type", "next_run_type"),
+        ("danger_level", "danger_level"),
+        ("execution_arm_state", "execution_arm_state"),
+        ("diagnostic_status", "diagnostic_status"),
+        ("case_intake_status", "case_intake_status"),
+        ("baseline_status", "baseline_status"),
+        ("baseline_compare_status", "baseline_compare_status"),
+        ("case_summary_status", "case_summary_status"),
+        ("latest_n", "latest_n"),
+        ("profile", "profile"),
+        ("current_unique_known_true_addr_count", "current_unique_known_true_addr_count"),
+        ("baseline_unique_known_true_addr_count", "baseline_unique_known_true_addr_count"),
+        ("coverage_delta", "coverage_delta"),
+        ("warning_count", "warning_count"),
+        ("danger_count", "danger_count"),
+        ("recommendation", "recommendation"),
+    ]
+    lines = [_format_field_block("Status Overview", field_labels, summary)]
+    components = data.get("components") or []
+    lines.append("")
+    lines.append("Components")
+    if not components:
+        lines.append("No component records emitted.")
+    else:
+        headers = ["component_name", "status", "summary", "recommendation"]
+        rows = [
+            [
+                str(item.get("component_name") or "-"),
+                str(item.get("status") or "-"),
+                str(item.get("summary") or "-"),
+                str(item.get("recommendation") or "-"),
+            ]
+            for item in components
+        ]
+        lines.extend(_format_table(headers, rows))
     return "\n".join(lines)
 
 
