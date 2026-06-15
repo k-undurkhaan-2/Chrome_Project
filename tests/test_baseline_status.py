@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from armedforces_tool import baseline_status
@@ -86,6 +87,30 @@ def test_baseline_list_empty_dir(tmp_path: Path) -> None:
     assert result.baseline_dir_exists is True
     assert result.baseline_count == 0
     assert result.conclusion == "NO_BASELINES_FOUND"
+
+
+def test_baseline_list_latest_path_uses_real_baseline_files(tmp_path: Path) -> None:
+    baseline_dir = tmp_path / "baselines"
+    baseline = _write_baseline(baseline_dir / "baseline_compact_basic_20260613_latest20.md")
+    artifacts = [
+        _write_baseline(baseline_dir / "format_test.md", unique_count=1),
+        _write_baseline(baseline_dir / "compare_latest20_vs_baseline.md", unique_count=2),
+        _write_baseline(baseline_dir / "test_baseline_latest5.md", unique_count=2),
+    ]
+    for index, path in enumerate(artifacts, start=10):
+        timestamp = 1_800_000_000 + index
+        os.utime(path, (timestamp, timestamp))
+
+    result = analyze_baseline_list(
+        project_root=tmp_path,
+        baseline_dir=baseline_dir,
+        current_baseline=baseline,
+    )
+
+    assert result.latest_baseline_path == str(baseline)
+    assert result.baseline_count == 4
+    assert "format_test.md" in {record.filename for record in result.records}
+    assert not str(result.latest_baseline_path).endswith("format_test.md")
 
 
 def test_baseline_current_parse_warning(tmp_path: Path) -> None:

@@ -257,10 +257,15 @@ def analyze_baseline_list(
         key=lambda path: path.stat().st_mtime if path.exists() else 0,
         reverse=True,
     )
+    real_baseline_files = [path for path in files if _is_real_baseline_file(path)]
     records = [_baseline_list_record(path, current_baseline) for path in files]
     if not records:
         conclusion = "NO_BASELINES_FOUND"
-    elif not current_baseline.exists() or any(record.parse_status in {"EMPTY", "MISSING"} for record in records):
+    elif (
+        not current_baseline.exists()
+        or not real_baseline_files
+        or any(record.parse_status in {"EMPTY", "MISSING"} for record in records)
+    ):
         conclusion = "BASELINE_WARN"
     else:
         conclusion = "BASELINE_LIST_OK"
@@ -272,7 +277,7 @@ def analyze_baseline_list(
         baseline_count=len(records),
         current_baseline_path=str(current_baseline),
         current_baseline_exists=current_baseline.exists(),
-        latest_baseline_path=str(files[0]) if files else None,
+        latest_baseline_path=str(real_baseline_files[0]) if real_baseline_files else None,
         conclusion=conclusion,
         recommendation=_baseline_list_recommendation(conclusion),
         records=records,
@@ -439,6 +444,15 @@ def _baseline_list_record(path: Path, current_baseline: Path) -> BaselineListRec
         parse_status=parsed.parse_status,
         parse_warnings=parsed.parse_warnings,
     )
+
+
+def _is_real_baseline_file(path: Path) -> bool:
+    name = path.name.lower()
+    if name.startswith(("baseline_", "baseline-")):
+        return True
+    if name.startswith(("format_test", "test_", "compare_", "validation_compare_")):
+        return False
+    return False
 
 
 def _baseline_compare_conclusion(
