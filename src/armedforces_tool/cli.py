@@ -27,6 +27,7 @@ from .registry_status import (
     analyze_registry_show,
     analyze_registry_summary,
 )
+from .report_preview import REPORT_TYPES, ReportPreviewError, preview_report
 from .sample_plan import analyze_retest_queue, analyze_sample_plan, retest_queue_parity, sample_plan_parity
 from .safety import (
     DEFAULT_CONFIG_PATH,
@@ -550,6 +551,28 @@ def _add_transaction_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--json", action="store_true", help="Emit JSON object")
 
 
+def _add_report_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    report_parser = subparsers.add_parser("report", help="Read-only Markdown report preview helpers")
+    report_subparsers = report_parser.add_subparsers(dest="report_command", required=True)
+
+    preview = report_subparsers.add_parser("preview", help="Render a read-only Markdown report to stdout")
+    preview.add_argument(
+        "--type",
+        choices=REPORT_TYPES,
+        default="status-overview",
+        help="Report type to render",
+    )
+    preview.add_argument("--latest", type=int, default=20, help="Number of latest records to inspect")
+    preview.add_argument(
+        "--profile",
+        choices=("full", "quick"),
+        default="full",
+        help="Validation profile filter",
+    )
+    preview.add_argument("--json", action="store_true", help="Emit JSON object containing Markdown")
+    preview.set_defaults(func=_run_report_preview)
+
+
 def _add_commands_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     commands_parser = subparsers.add_parser("commands", help="Read-only command inventory and quickstart index")
     commands_subparsers = commands_parser.add_subparsers(dest="commands_command", required=True)
@@ -557,7 +580,7 @@ def _add_commands_parser(subparsers: argparse._SubParsersAction[argparse.Argumen
     list_parser = commands_subparsers.add_parser("list", help="List Python sidecar commands without running them")
     list_parser.add_argument(
         "--category",
-        choices=("safety", "status", "baseline", "case", "logs", "registry", "transaction"),
+        choices=("safety", "status", "baseline", "case", "logs", "registry", "transaction", "report"),
         default=None,
         help="Filter inventory by command category",
     )
@@ -706,6 +729,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_status_parser(subparsers)
     _add_registry_parser(subparsers)
     _add_transaction_parser(subparsers)
+    _add_report_parser(subparsers)
     _add_commands_parser(subparsers)
     return parser
 
@@ -1216,6 +1240,15 @@ def _run_transaction_show(args: argparse.Namespace) -> int:
         print(json.dumps(result.to_dict(), indent=2))
     else:
         print(format_transaction_show(result))
+    return 0
+
+
+def _run_report_preview(args: argparse.Namespace) -> int:
+    result = preview_report(report_type=args.type, latest=args.latest, profile=args.profile)
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(result.markdown, end="" if result.markdown.endswith("\n") else "\n")
     return 0
 
 
@@ -2680,7 +2713,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         args = parser.parse_args(argv)
         return args.func(args)
-    except (LogParseError, CommandInventoryError, RegistryStatusError, TransactionHistoryError) as exc:
+    except (LogParseError, CommandInventoryError, RegistryStatusError, TransactionHistoryError, ReportPreviewError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
 

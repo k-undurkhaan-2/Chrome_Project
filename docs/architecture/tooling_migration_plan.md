@@ -277,6 +277,8 @@ Phase 3.2 adds Python read-only transaction history views from existing batch su
 
 Phase 3.3 adds planning for future Python report export / Markdown rendering only. No write-capable Python command is implemented yet; any future report export must use a separate write-capable contract and an approved output directory.
 
+Phase 3.4 adds Python `report preview` as a stdout-only Markdown renderer over existing read-only analysis/status helpers. It does not implement report export, does not accept output paths, and does not write files; report export remains deferred pending a separate write-capable contract.
+
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 
 - Define request formats.

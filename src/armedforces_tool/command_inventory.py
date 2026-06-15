@@ -99,7 +99,7 @@ class CommandQuickstartResult:
         }
 
 
-VALID_CATEGORIES = ("logs", "case", "safety", "status", "baseline", "registry", "transaction")
+VALID_CATEGORIES = ("logs", "case", "safety", "status", "baseline", "registry", "transaction", "report")
 
 
 def list_commands(category: str | None = None) -> CommandInventoryResult:
@@ -604,5 +604,26 @@ COMMANDS: list[CommandDescriptor] = [
             'python -m armedforces_tool transaction show --known-true-addr "0x2CA061C7D48"',
         ],
         related_commands=["transaction summary", "transaction list"],
+    ),
+    _descriptor(
+        "report preview",
+        "report",
+        "Render read-only Python analysis/status results as Markdown to stdout.",
+        "Preview human-readable Markdown without writing report files.",
+        related_powershell_command=None,
+        parameters=["--type", "--latest", "--profile", "--json"],
+        examples=[
+            "python -m armedforces_tool report preview",
+            "python -m armedforces_tool report preview --type full-status",
+            "python -m armedforces_tool report preview --type full-status --json",
+        ],
+        related_commands=[
+            "status overview",
+            "safety doctor",
+            "baseline compare",
+            "case summary",
+            "registry summary",
+            "transaction summary",
+        ],
     ),
 ]

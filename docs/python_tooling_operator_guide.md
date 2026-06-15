@@ -23,6 +23,7 @@ python -m armedforces_tool baseline compare
 python -m armedforces_tool case summary --latest 20 --profile full
 python -m armedforces_tool registry summary
 python -m armedforces_tool transaction summary
+python -m armedforces_tool report preview --type full-status
 ```
 
 ## Command Groups
@@ -118,6 +119,21 @@ python -m armedforces_tool transaction show --batch-id "20260614-232227"
 python -m armedforces_tool transaction show --known-true-addr "0x2CA061C7D48"
 ```
 
+### `report`
+
+Render existing Python read-only summaries as Markdown to stdout. This is preview-only: it does not write `.md` files, does not create directories, and does not implement `report export`.
+
+Representative commands:
+
+```powershell
+python -m armedforces_tool report preview
+python -m armedforces_tool report preview --type baseline-compare
+python -m armedforces_tool report preview --type full-status
+python -m armedforces_tool report preview --type full-status --json
+```
+
+Supported preview types include `status-overview`, `safety-doctor`, `baseline-compare`, `case-summary`, `registry-summary`, `transaction-summary`, and `full-status`.
+
 ### `commands`
 
 Discover Python sidecar commands and their safety properties. This is not a replacement for argparse `--help`; it is an operator index.
@@ -143,6 +159,7 @@ It must not:
 - mutate runtime state
 - perform guarded writes or restores
 - generate write or restore actions from transaction history
+- write Markdown report files from `report preview`
 
 Any future write-capable command must be designed as a separate explicit contract. Do not mix write-capable workflows into the current read-only Python sidecar layer.
 
@@ -177,6 +194,7 @@ python -m armedforces_tool commands quickstart
 python -m armedforces_tool safety doctor
 python -m armedforces_tool baseline compare
 python -m armedforces_tool case summary --latest 20 --profile full
+python -m armedforces_tool report preview --type full-status
 
 .venv\Scripts\python.exe -m pytest --basetemp .tmp_pytest
 Remove-Item -Recurse -Force .tmp_pytest -ErrorAction SilentlyContinue
@@ -192,8 +210,8 @@ Current expected stable results:
 - `safety doctor = SAFE`
 - `baseline compare = BASELINE_COMPARE_PASS`
 - `case summary = COVERAGE_OK`
-- command inventory = 39 read-only commands after Phase 3.2 transaction history views
-- pytest = 64 passed
+- command inventory = 40 read-only commands after Phase 3.4 report preview
+- pytest = 97 passed
 
 ## Next Migration Candidates
 
@@ -201,7 +219,7 @@ Possible next read-only migration directions:
 
 - Python read-only registry view
 - Python read-only transaction history view
-- Python report export / Markdown rendering
+- Python report export with controlled file writes, after a separate write-capable contract
 - thin PowerShell wrappers that call Python
 - later native backend contract planning
 
