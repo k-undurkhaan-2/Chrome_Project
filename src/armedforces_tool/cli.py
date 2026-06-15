@@ -17,6 +17,7 @@ from .baseline_status import (
 )
 from .case_library import analyze_case_library, case_library_parity
 from .case_summary import DEFAULT_BASELINE_PATH, analyze_case_summary, case_summary_parity
+from .command_inventory import CommandInventoryError, list_commands, quickstart, show_command
 from .logs import DEFAULT_LOG_ROOT, BatchSummaryRecord, LogParseError, parse_batch_summary, parse_latest_summaries
 from .parity import parity_latest
 from .sample_plan import analyze_retest_queue, analyze_sample_plan, retest_queue_parity, sample_plan_parity
@@ -444,6 +445,30 @@ def _add_baseline_parser(subparsers: argparse._SubParsersAction[argparse.Argumen
     compare_parity.set_defaults(func=_run_baseline_compare_parity)
 
 
+def _add_commands_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    commands_parser = subparsers.add_parser("commands", help="Read-only command inventory and quickstart index")
+    commands_subparsers = commands_parser.add_subparsers(dest="commands_command", required=True)
+
+    list_parser = commands_subparsers.add_parser("list", help="List Python sidecar commands without running them")
+    list_parser.add_argument(
+        "--category",
+        choices=("safety", "status", "baseline", "case", "logs"),
+        default=None,
+        help="Filter inventory by command category",
+    )
+    list_parser.add_argument("--json", action="store_true", help="Emit JSON object")
+    list_parser.set_defaults(func=_run_commands_list)
+
+    quickstart_parser = commands_subparsers.add_parser("quickstart", help="Show a read-only daily command sequence")
+    quickstart_parser.add_argument("--json", action="store_true", help="Emit JSON object")
+    quickstart_parser.set_defaults(func=_run_commands_quickstart)
+
+    show_parser = commands_subparsers.add_parser("show", help="Show one command descriptor")
+    show_parser.add_argument("--command", required=True, help='Command name, for example "status overview"')
+    show_parser.add_argument("--json", action="store_true", help="Emit JSON object")
+    show_parser.set_defaults(func=_run_commands_show)
+
+
 def _add_baseline_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--project-root",
@@ -574,6 +599,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_baseline_parser(subparsers)
     _add_safety_parser(subparsers)
     _add_status_parser(subparsers)
+    _add_commands_parser(subparsers)
     return parser
 
 
@@ -991,6 +1017,123 @@ def _run_baseline_compare_parity(args: argparse.Namespace) -> int:
     else:
         print(format_baseline_parity(result, title="Baseline Compare Parity"))
     return 0 if result.parity_status in {"PASS", "WARN"} else 1
+
+
+def _run_commands_list(args: argparse.Namespace) -> int:
+    result = list_commands(category=args.category)
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(format_commands_list(result))
+    return 0
+
+
+def _run_commands_quickstart(args: argparse.Namespace) -> int:
+    result = quickstart()
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(format_commands_quickstart(result))
+    return 0
+
+
+def _run_commands_show(args: argparse.Namespace) -> int:
+    descriptor = show_command(args.command)
+    if args.json:
+        print(json.dumps(descriptor.to_dict(), indent=2))
+    else:
+        print(format_command_descriptor(descriptor))
+    return 0
+
+
+def format_commands_list(result: object) -> str:
+    data = result.to_dict()
+    summary = data["summary"]
+    field_labels = [
+        ("category", "category"),
+        ("total_count", "total_count"),
+        ("read_only_count", "read_only_count"),
+        ("writes_files_count", "writes_files_count"),
+        ("runs_ce_count", "runs_ce_count"),
+        ("replacement_for_powershell_count", "replacement_for_powershell_count"),
+    ]
+    lines = [_format_field_block("Command Inventory Summary", field_labels, summary)]
+
+    records = data.get("records") or []
+    lines.append("")
+    lines.append("Commands")
+    if not records:
+        lines.append("No commands found.")
+        return "\n".join(lines)
+
+    headers = ["command", "category", "read_only", "writes", "runs_ce", "risk", "typical_use"]
+    table_rows = [
+        [
+            str(item["command"]),
+            str(item["category"]),
+            str(item["read_only"]),
+            str(item["writes_files"]),
+            str(item["runs_ce"]),
+            str(item["risk_level"]),
+            str(item["typical_use"]),
+        ]
+        for item in records
+    ]
+    lines.extend(_format_table(headers, table_rows))
+    return "\n".join(lines)
+
+
+def format_commands_quickstart(result: object) -> str:
+    data = result.to_dict()
+    field_labels = [
+        ("summary", "summary"),
+        ("read_only", "read_only"),
+        ("runs_ce", "runs_ce"),
+        ("writes_files", "writes_files"),
+    ]
+    lines = [_format_field_block("Command Quickstart", field_labels, data)]
+    lines.append("")
+    lines.append("Steps")
+    headers = ["step", "command", "purpose", "notes"]
+    table_rows = [
+        [str(item["step"]), str(item["command"]), str(item["purpose"]), str(item["notes"])]
+        for item in data.get("steps", [])
+    ]
+    lines.extend(_format_table(headers, table_rows))
+    return "\n".join(lines)
+
+
+def format_command_descriptor(descriptor: object) -> str:
+    data = descriptor.to_dict()
+    field_labels = [
+        ("command", "command"),
+        ("category", "category"),
+        ("purpose", "purpose"),
+        ("read_only", "read_only"),
+        ("writes_files", "writes_files"),
+        ("runs_ce", "runs_ce"),
+        ("replacement_for_powershell", "replacement_for_powershell"),
+        ("related_powershell_command", "related_powershell_command"),
+        ("typical_use", "typical_use"),
+        ("risk_level", "risk_level"),
+    ]
+    lines = [_format_field_block("Command Descriptor", field_labels, data)]
+
+    for title, key in [
+        ("Parameters", "parameters"),
+        ("Examples", "examples"),
+        ("Safety Notes", "safety_notes"),
+        ("Related Commands", "related_commands"),
+    ]:
+        values = data.get(key) or []
+        lines.append("")
+        lines.append(title)
+        lines.append("-" * len(title))
+        if not values:
+            lines.append("-")
+        else:
+            lines.extend(str(value) for value in values)
+    return "\n".join(lines)
 
 
 def format_baseline_list(result: object) -> str:
@@ -2020,7 +2163,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         args = parser.parse_args(argv)
         return args.func(args)
-    except LogParseError as exc:
+    except (LogParseError, CommandInventoryError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
 

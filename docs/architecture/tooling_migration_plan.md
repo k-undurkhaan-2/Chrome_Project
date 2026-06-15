@@ -258,6 +258,8 @@ Phase 2.4 adds read-only Python baseline status views for listing local baseline
 
 Phase 2.5 adds a consolidated read-only Python status overview that aggregates existing safety, workflow status, baseline, and coverage helpers into one daily status entry point without replacing any PowerShell command.
 
+Phase 2.6 adds a read-only Python command inventory and quickstart index. This is a static help layer for discovering Python sidecar commands, their safety properties, related PowerShell workflow command, and common examples; it does not replace argparse `--help` or any PowerShell operator workflow.
+
 ### Phase 3: Thin PowerShell Wrapper
 
 - PowerShell becomes a thin command launcher.
