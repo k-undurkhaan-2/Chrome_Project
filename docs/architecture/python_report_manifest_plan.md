@@ -325,6 +325,20 @@ Still deferred:
 - manifest repair or cleanup commands
 - mutable JSON manifest support
 
+## Future Bundle Relationship
+
+Manifest entries can serve as a future source of truth for report bundle planning. A bundle preview could inspect `reports/python_tooling/manifest.jsonl`, select valid report entries, validate referenced report files, and show what would be packaged.
+
+Bundle output remains separate from manifest writing. The current manifest boundary does not authorize:
+
+- bundle directories
+- zip archives
+- copied reports
+- bundle manifests
+- bundle indexes
+
+Future bundle behavior must use a separate planning document and write contract. It must not expand `report export --record-manifest` implicitly.
+
 ## Recommended Implementation Order
 
 Recommended order:

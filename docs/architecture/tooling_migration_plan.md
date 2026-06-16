@@ -303,6 +303,8 @@ Phase 3.16 implements controlled real manifest recording through `report export 
 
 Phase 3.18 records the manifest real-write boundary after final smoke validation. The validated state remains: command inventory about `45`, `writes_files_count = 1`, `runs_ce_count = 0`, `report export` as the only write-capable Python command, no CE/runtime mutation, and no log/config/session/intake/baseline/registry writes. Future expansion must not add new write surfaces without a new contract, dry-run behavior where applicable, smoke validation, cleanup rules, and a checkpoint.
 
+Phase 3.19 adds planning for future Python report bundle / report package support. No implementation is added, no Python command is added, and no new write surface is authorized. Bundle directories, zip archives, copied reports, bundle manifests, and bundle indexes remain deferred until a separate contract, dry-run, smoke cleanup rules, and checkpoint are defined. `report export` remains the only write-capable Python command.
+
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 
 - Define request formats.

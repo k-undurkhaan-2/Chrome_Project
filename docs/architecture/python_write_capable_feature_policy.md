@@ -147,6 +147,22 @@ Report manifest or report index files are write-capable state, even if they live
 
 The report manifest write contract follows this policy and keeps manifest writing separate from read-only manifest preview/list/verify commands. Append-only JSONL may reduce corruption risk compared with mutable JSON, but it is still write-capable state and still needs validation, duplicate handling, failure recovery, protected-file hash checks, cleanup rules, and command inventory marking.
 
+## Bundle / Package State Note
+
+Report bundle export is a separate write-capable surface.
+
+A future bundle may create:
+
+- bundle directories
+- zip archives
+- bundle manifests
+- copied report files
+- Markdown or JSON indexes
+
+The report manifest write contract does not authorize bundle writes. Bundle directory, zip, index, copied report, and bundle manifest behavior require a separate planning document, a separate write contract, dry-run behavior, guarded smoke validation, cleanup rules, and a checkpoint before implementation.
+
+The first bundle contract must define its own approved roots and must not inherit permission to write `docs/reports/`, `log/`, registry, baseline, session, intake, local config, source, tests, or `docs/codex_tasks/`.
+
 ## Required Final Report Fields
 
 Every write-capable feature final report must include:
