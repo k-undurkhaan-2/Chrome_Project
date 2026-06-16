@@ -6,7 +6,7 @@ This document plans future Python report manifest / report index support for `D:
 
 A report manifest would be a persistent index or metadata record for report export outputs. It could help operators find exported reports, verify report hashes, inspect report provenance, and audit report generation history.
 
-Phase 3.12 was planning only. Phase 3.13 implements read-only manifest preview/list/verify commands. Manifest writing is still not implemented, `report export` behavior is unchanged, and no manifest file is written by these commands.
+Phase 3.12 was planning only. Phase 3.13 implements read-only manifest preview/list/verify commands. Phase 3.14 adds a write contract for future manifest append behavior. Manifest writing is still not implemented, `report export` behavior is unchanged, and no manifest file is written by these commands.
 
 ## Current Baseline
 
@@ -22,6 +22,7 @@ Current Python report tooling state:
 - `report export --dry-run` writes nothing.
 - `report preview` writes nothing and renders to stdout.
 - `report manifest preview/list/verify` are implemented as read-only commands.
+- the manifest write contract is documented.
 - manifest writing is not implemented.
 
 `report export` does not write:
@@ -238,6 +239,23 @@ Still deferred:
 - manifest cleanup
 - mutable manifest update behavior
 
+## Phase 3.14 Write Contract Status
+
+`docs/architecture/python_report_manifest_write_contract.md` defines the future boundary for append-only manifest JSONL writes.
+
+The contract documents:
+
+- approved first manifest location: `reports/python_tooling/manifest.jsonl`
+- append-only JSONL as the first format
+- `schema_version` as a required field
+- future `--record-manifest` command shape
+- write ordering after successful report export
+- partial-success behavior
+- dry-run semantics
+- cleanup policy
+
+No implementation is added by the contract. Manifest writing still requires a separate dry-run implementation phase, real-write implementation phase, smoke validation, and checkpoint.
+
 ## Recommended Implementation Order
 
 Recommended order:
@@ -250,7 +268,7 @@ Recommended order:
 6. manifest write implementation
 7. guarded smoke/checkpoint
 
-The first read-only implementation step is complete. The next step, if needed, is a manifest write contract. Manifest writing must not be added until that contract exists.
+The first read-only implementation step is complete. The manifest write contract is documented. Manifest writing must still not be added until a dedicated dry-run implementation phase is started.
 
 ## Explicit Non-Goals
 

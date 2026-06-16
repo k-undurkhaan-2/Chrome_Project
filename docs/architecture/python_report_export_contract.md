@@ -192,7 +192,9 @@ The smoke check should explicitly report all created report files and confirm no
 
 Current `report export` writes only the requested `.md` report file. It does not record a manifest, update an index, append JSONL, or write any persistent report metadata file.
 
-Manifest / report index support is deferred to a separate contract. A future manifest would introduce durable state beyond one report output, so it must define approved manifest locations, file format, append/update rules, failure handling, corruption recovery, and command inventory risk marking before implementation.
+Current `report export` does not record a manifest. Manifest / report index support is governed by `docs/architecture/python_report_manifest_write_contract.md`.
+
+A future `--record-manifest` flag must follow that contract. Current `report export` behavior remains unchanged until a separate implementation task explicitly adds the flag and validates the write boundary.
 
 ## Explicit Non-Goals
 

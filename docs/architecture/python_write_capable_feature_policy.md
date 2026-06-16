@@ -145,7 +145,7 @@ Every write-capable feature must include tests for:
 
 Report manifest or report index files are write-capable state, even if they live under an approved report root.
 
-Future manifest support requires a separate contract before implementation. Append-only JSONL may reduce corruption risk compared with mutable JSON, but it still needs validation, duplicate handling, failure recovery, protected-file hash checks, and command inventory marking.
+The report manifest write contract follows this policy and keeps manifest writing separate from read-only manifest preview/list/verify commands. Append-only JSONL may reduce corruption risk compared with mutable JSON, but it is still write-capable state and still needs validation, duplicate handling, failure recovery, protected-file hash checks, cleanup rules, and command inventory marking.
 
 ## Required Final Report Fields
 

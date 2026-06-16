@@ -295,6 +295,8 @@ Phase 3.12 adds planning for future Python report manifest / report index suppor
 
 Phase 3.13 adds read-only Python report manifest preview/list/verify commands. These commands discover approved manifest candidate paths, list and verify JSONL manifests when present, and report missing/unsupported manifests without creating or modifying files. Manifest writing remains deferred and `report export` remains the only write-capable Python command.
 
+Phase 3.14 documents the Python report manifest write contract. The contract plans future `--record-manifest` behavior, append-only `reports/python_tooling/manifest.jsonl`, write ordering, failure handling, dry-run semantics, and cleanup policy. No implementation is added; `report export` remains the only write-capable Python command.
+
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 
 - Define request formats.

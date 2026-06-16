@@ -131,6 +131,8 @@ Report manifest views are read-only:
 
 Manifest writing is not implemented. These commands do not create or modify manifest files.
 
+Future manifest writing requires a contract-backed `--record-manifest` implementation. Until that exists, use manifest commands only to preview, list, or verify existing manifest files.
+
 Representative commands:
 
 ```powershell
@@ -282,6 +284,11 @@ Phase 3 currently includes:
   - `report manifest verify`
   - no manifest writes
   - JSONL verify support only; JSON and Markdown indexes remain planned
+- report manifest write contract:
+  - future `--record-manifest`
+  - first approved manifest location: `reports/python_tooling/manifest.jsonl`
+  - append-only JSONL planned
+  - no implementation yet
 - report export dry-run:
   - `report export --dry-run`
   - no-write path safety preview
@@ -316,7 +323,7 @@ Dry-run first is recommended. Default behavior does not overwrite; use `--force`
 
 Possible next migration directions:
 
-- report manifest write contract
+- report manifest dry-run implementation
 - report bundle format planning
 - thin PowerShell read-only wrapper pilot
 - native backend contract planning
