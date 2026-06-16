@@ -285,6 +285,8 @@ Phase 3.6 implements `report export --dry-run` only. The command validates futur
 
 Phase 3.7 enables guarded Python `report export` writes. The command may create one `.md` report file only under `reports/python_tooling/` or `docs/reports/python_tooling/`, keeps `--dry-run` no-write behavior, rejects protected paths and path traversal, and refuses overwrite unless `--force` is supplied.
 
+Phase 3.8 documents the write-capable report export boundary. The boundary keeps report export limited to approved report roots, confirms no CE/runtime/log/config/session/intake/baseline/registry writes, and establishes that future write-capable Python work must use a similarly strict contract, smoke check, cleanup rule, and checkpoint process.
+
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 
 - Define request formats.

@@ -20,6 +20,20 @@ The current Python report layer is:
 
 The existing read-only sidecar remains the default Python tooling boundary. `report export` is the only Python tooling command with file-write capability.
 
+## Implementation Status
+
+Current implementation status:
+
+- `report preview` is stdout-only.
+- `report export --dry-run` is implemented and must not write files or create directories.
+- guarded real `report export` is implemented.
+- write scope is limited to `reports/python_tooling/` and `docs/reports/python_tooling/`.
+- checkpoint tag: `python-report-export-guarded-checkpoint-20260616`
+- smoke validation passed with protected files unchanged.
+- current pytest result: `114 passed`.
+
+No Python report command runs CE or writes config, logs, registry, baseline, session state, intake journal, or runtime files.
+
 ## Write-Capable Boundary
 
 `report export` is write-capable. It must be treated separately from the read-only command layer.

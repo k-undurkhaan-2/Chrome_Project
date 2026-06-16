@@ -136,6 +136,25 @@ python -m armedforces_tool report export --type full-status --out reports/python
 
 Supported preview types include `status-overview`, `safety-doctor`, `baseline-compare`, `case-summary`, `registry-summary`, `transaction-summary`, and `full-status`.
 
+## Report Export Boundary
+
+`report export` is currently the only write-capable Python command. Daily status checks should still begin with:
+
+```powershell
+python -m armedforces_tool status overview
+```
+
+Before real export, use one of the safer read/check paths:
+
+```powershell
+python -m armedforces_tool report preview --type full-status
+python -m armedforces_tool report export --dry-run --type full-status --out reports/python_tooling/full_status.md
+```
+
+Real export writes exactly one `.md` file only under `reports/python_tooling/` or `docs/reports/python_tooling/`. Existing targets are not overwritten unless `--force` is supplied. Protected paths remain rejected even with `--force`.
+
+See [Report Export Operator Guide](report_export_operator_guide.md) for the full boundary, cleanup rules, and smoke procedure.
+
 ### `commands`
 
 Discover Python sidecar commands and their safety properties. This is not a replacement for argparse `--help`; it is an operator index.
@@ -185,6 +204,7 @@ Other WARN or FAIL results should be reviewed before checkpointing.
 - `python-baseline-status-checkpoint-20260615`: Python baseline list/current/compare views.
 - `python-status-overview-checkpoint-20260615`: Python consolidated status overview.
 - `python-command-inventory-checkpoint-20260615`: Python command inventory, quickstart, and descriptor index.
+- `python-report-export-guarded-checkpoint-20260616`: Guarded real `report export` writes under approved report roots only.
 
 ## Recommended Smoke Commands
 
