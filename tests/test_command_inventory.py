@@ -19,14 +19,19 @@ def test_inventory_contains_daily_entry_points() -> None:
     assert "baseline compare" in commands
 
 
-def test_all_inventory_commands_are_read_only_sidecars() -> None:
+def test_inventory_commands_have_expected_safety_metadata() -> None:
     assert COMMANDS
     for descriptor in COMMANDS:
-        assert descriptor.read_only is True
-        assert descriptor.writes_files is False
         assert descriptor.runs_ce is False
         assert descriptor.replacement_for_powershell is False
-        assert descriptor.risk_level == "READ_ONLY"
+        if descriptor.command == "report export":
+            assert descriptor.read_only is False
+            assert descriptor.writes_files is True
+            assert descriptor.risk_level == "WRITE_CAPABLE"
+        else:
+            assert descriptor.read_only is True
+            assert descriptor.writes_files is False
+            assert descriptor.risk_level == "READ_ONLY"
 
 
 def test_category_filter_returns_only_baseline_commands() -> None:

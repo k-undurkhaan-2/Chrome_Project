@@ -34,10 +34,14 @@ class ReportExportDryRunResult:
     report_type: str
     dry_run: bool
     would_write: bool
+    wrote_file: bool
     target_path: str | None
+    output_path: str | None
     approved_output_root: str | None
     target_exists: bool
+    target_exists_before: bool
     would_overwrite: bool
+    overwritten: bool
     force: bool
     path_safety_status: str
     conclusion: str
@@ -46,6 +50,7 @@ class ReportExportDryRunResult:
     errors: list[str]
     content_line_count: int | None = None
     content_size_bytes: int | None = None
+    bytes_written: int | None = None
     read_only: bool = True
     writes_files: bool = False
     runs_ce: bool = False
@@ -55,10 +60,14 @@ class ReportExportDryRunResult:
             "report_type": self.report_type,
             "dry_run": self.dry_run,
             "would_write": self.would_write,
+            "wrote_file": self.wrote_file,
             "target_path": self.target_path,
+            "output_path": self.output_path,
             "approved_output_root": self.approved_output_root,
             "target_exists": self.target_exists,
+            "target_exists_before": self.target_exists_before,
             "would_overwrite": self.would_overwrite,
+            "overwritten": self.overwritten,
             "force": self.force,
             "path_safety_status": self.path_safety_status,
             "conclusion": self.conclusion,
@@ -67,6 +76,7 @@ class ReportExportDryRunResult:
             "errors": self.errors,
             "content_line_count": self.content_line_count,
             "content_size_bytes": self.content_size_bytes,
+            "bytes_written": self.bytes_written,
             "read_only": self.read_only,
             "writes_files": self.writes_files,
             "runs_ce": self.runs_ce,
@@ -86,16 +96,6 @@ def plan_report_export(
     generated_at: datetime | None = None,
 ) -> ReportExportDryRunResult:
     normalized_report_type = _normalize_report_type(report_type)
-    if not dry_run:
-        return _result(
-            report_type=normalized_report_type,
-            dry_run=False,
-            conclusion="REPORT_EXPORT_NOT_IMPLEMENTED",
-            path_safety_status="PATH_REJECTED",
-            errors=["real report export writing is not implemented; only --dry-run is currently supported"],
-            recommendation="Run the command again with --dry-run to validate the future export target.",
-        )
-
     target, target_errors = _target_from_args(
         report_type=normalized_report_type,
         output_dir=output_dir,
@@ -106,9 +106,9 @@ def plan_report_export(
     if target_errors:
         return _result(
             report_type=normalized_report_type,
-            dry_run=True,
+            dry_run=dry_run,
             target_path=str(target) if target is not None else None,
-            conclusion="REPORT_EXPORT_DRY_RUN_REJECTED",
+            conclusion=_rejected_conclusion(dry_run),
             path_safety_status="PATH_REJECTED",
             errors=target_errors,
             recommendation="Use --out or --output-dir under reports/python_tooling or docs/reports/python_tooling.",
@@ -119,11 +119,11 @@ def plan_report_export(
     if safety["errors"]:
         return _result(
             report_type=normalized_report_type,
-            dry_run=True,
+            dry_run=dry_run,
             target_path=str(target),
             approved_output_root=safety["approved_output_root"],
             target_exists=target.exists(),
-            conclusion="REPORT_EXPORT_DRY_RUN_REJECTED",
+            conclusion=_rejected_conclusion(dry_run),
             path_safety_status="PATH_REJECTED",
             errors=safety["errors"],
             recommendation="Choose a .md path under reports/python_tooling or docs/reports/python_tooling.",
@@ -134,11 +134,71 @@ def plan_report_export(
     would_overwrite = bool(target_exists and force)
     path_safety_status = "PATH_OK"
     if target_exists and not force:
-        warnings.append("target exists; real export would require --force")
-        path_safety_status = "PATH_WARN"
+        if dry_run:
+            warnings.append("target exists; real export would require --force")
+            path_safety_status = "PATH_WARN"
+        else:
+            return _result(
+                report_type=normalized_report_type,
+                dry_run=False,
+                target_path=str(target),
+                approved_output_root=safety["approved_output_root"],
+                target_exists=target_exists,
+                target_exists_before=target_exists,
+                force=force,
+                conclusion="REPORT_EXPORT_OVERWRITE_REJECTED",
+                path_safety_status="PATH_REJECTED",
+                errors=["target exists; rerun with --force to overwrite"],
+                recommendation="Choose a new .md target path or rerun with --force after reviewing the existing file.",
+            )
 
     preview = preview_report(report_type=normalized_report_type, latest=latest, profile=profile)
     content = preview.markdown
+    content_size_bytes = len(content.encode("utf-8"))
+    content_line_count = len(content.splitlines())
+
+    if not dry_run:
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(content, encoding="utf-8")
+        except OSError as exc:
+            return _result(
+                report_type=normalized_report_type,
+                dry_run=False,
+                target_path=str(target),
+                approved_output_root=safety["approved_output_root"],
+                target_exists=target_exists,
+                target_exists_before=target_exists,
+                force=force,
+                conclusion="REPORT_EXPORT_WRITE_FAILED",
+                path_safety_status="PATH_OK",
+                errors=[f"failed to write report: {exc}"],
+                recommendation="Inspect filesystem permissions and rerun only after the target path is safe.",
+                content_line_count=content_line_count,
+                content_size_bytes=content_size_bytes,
+            )
+        return _result(
+            report_type=normalized_report_type,
+            dry_run=False,
+            would_write=True,
+            wrote_file=True,
+            target_path=str(target),
+            approved_output_root=safety["approved_output_root"],
+            target_exists=True,
+            target_exists_before=target_exists,
+            would_overwrite=would_overwrite,
+            overwritten=bool(target_exists and force),
+            force=force,
+            conclusion="REPORT_EXPORT_OK",
+            path_safety_status=path_safety_status,
+            recommendation="Report file written under an approved output root.",
+            content_line_count=content_line_count,
+            content_size_bytes=content_size_bytes,
+            bytes_written=content_size_bytes,
+            read_only=False,
+            writes_files=True,
+        )
+
     return _result(
         report_type=normalized_report_type,
         dry_run=True,
@@ -151,31 +211,36 @@ def plan_report_export(
         path_safety_status=path_safety_status,
         warnings=warnings,
         recommendation="Dry-run only. No report file was written.",
-        content_line_count=len(content.splitlines()),
-        content_size_bytes=len(content.encode("utf-8")),
+        content_line_count=content_line_count,
+        content_size_bytes=content_size_bytes,
     )
 
 
 def format_report_export_dry_run(result: ReportExportDryRunResult) -> str:
+    title = "Report Export Dry Run" if result.dry_run else "Report Export"
     rows = [
         ("report_type", result.report_type),
         ("dry_run", result.dry_run),
         ("would_write", result.would_write),
+        ("wrote_file", result.wrote_file),
         ("target_path", result.target_path),
         ("approved_output_root", result.approved_output_root),
         ("target_exists", result.target_exists),
+        ("target_exists_before", result.target_exists_before),
         ("would_overwrite", result.would_overwrite),
+        ("overwritten", result.overwritten),
         ("force", result.force),
         ("path_safety_status", result.path_safety_status),
         ("conclusion", result.conclusion),
         ("content_line_count", result.content_line_count),
         ("content_size_bytes", result.content_size_bytes),
+        ("bytes_written", result.bytes_written),
         ("read_only", result.read_only),
         ("writes_files", result.writes_files),
         ("runs_ce", result.runs_ce),
     ]
     width = max(len(label) for label, _ in rows)
-    lines = ["Report Export Dry Run", "Field".ljust(width) + "  Value", "-".ljust(width, "-") + "  -----"]
+    lines = [title, "Field".ljust(width) + "  Value", "-".ljust(width, "-") + "  -----"]
     for label, value in rows:
         lines.append(f"{label.ljust(width)}  {_display(value)}")
     if result.warnings:
@@ -199,7 +264,7 @@ def _target_from_args(
     if output_dir and out:
         return None, ["use either --output-dir or --out, not both"]
     if not output_dir and not out:
-        return None, ["one of --output-dir or --out is required for dry-run target planning"]
+        return None, ["one of --output-dir or --out is required for report export"]
     if out:
         return _resolve_user_path(out, project_root), []
     timestamp = generated_at.astimezone(timezone.utc).strftime("%Y%m%d-%H%M%S")
@@ -258,21 +323,32 @@ def _result(
     target_path: str | None = None,
     approved_output_root: str | None = None,
     target_exists: bool = False,
+    target_exists_before: bool | None = None,
     would_overwrite: bool = False,
+    overwritten: bool = False,
+    would_write: bool = False,
+    wrote_file: bool = False,
     force: bool = False,
     warnings: list[str] | None = None,
     errors: list[str] | None = None,
     content_line_count: int | None = None,
     content_size_bytes: int | None = None,
+    bytes_written: int | None = None,
+    read_only: bool = True,
+    writes_files: bool = False,
 ) -> ReportExportDryRunResult:
     return ReportExportDryRunResult(
         report_type=report_type,
         dry_run=dry_run,
-        would_write=False,
+        would_write=would_write,
+        wrote_file=wrote_file,
         target_path=target_path,
+        output_path=target_path,
         approved_output_root=approved_output_root,
         target_exists=target_exists,
+        target_exists_before=target_exists if target_exists_before is None else target_exists_before,
         would_overwrite=would_overwrite,
+        overwritten=overwritten,
         force=force,
         path_safety_status=path_safety_status,
         conclusion=conclusion,
@@ -281,7 +357,14 @@ def _result(
         errors=errors or [],
         content_line_count=content_line_count,
         content_size_bytes=content_size_bytes,
+        bytes_written=bytes_written,
+        read_only=read_only,
+        writes_files=writes_files,
     )
+
+
+def _rejected_conclusion(dry_run: bool) -> str:
+    return "REPORT_EXPORT_DRY_RUN_REJECTED" if dry_run else "REPORT_EXPORT_REJECTED"
 
 
 def _is_relative_to(path: Path, root: Path) -> bool:

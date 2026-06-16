@@ -321,14 +321,17 @@ def test_preview_does_not_create_output_file(monkeypatch: pytest.MonkeyPatch, tm
     assert list(tmp_path.glob("*.md")) == []
 
 
-def test_command_inventory_includes_report_preview_only() -> None:
+def test_command_inventory_includes_report_commands() -> None:
     result = list_commands(category="report")
     commands = {record.command for record in result.records}
+    records = {record.command: record for record in result.records}
 
-    assert result.total_count == 2
+    assert result.total_count == 3
     assert "report preview" in commands
     assert "report export --dry-run" in commands
-    assert all(record.read_only is True for record in result.records)
-    assert all(record.writes_files is False for record in result.records)
+    assert "report export" in commands
+    assert records["report preview"].read_only is True
+    assert records["report export --dry-run"].read_only is True
+    assert records["report export"].read_only is False
+    assert records["report export"].writes_files is True
     assert all(record.runs_ce is False for record in result.records)
-    assert "report export" not in {record.command for record in list_commands().records}

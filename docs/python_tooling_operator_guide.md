@@ -121,7 +121,7 @@ python -m armedforces_tool transaction show --known-true-addr "0x2CA061C7D48"
 
 ### `report`
 
-Render existing Python read-only summaries as Markdown to stdout. This is preview-only: it does not write `.md` files, does not create directories, and does not implement `report export`.
+Render existing Python summaries as Markdown. `report preview` is stdout-only and never writes files. `report export --dry-run` validates a future output path without writing. `report export` can write one `.md` report file, but only under the approved roots `reports/python_tooling/` or `docs/reports/python_tooling/`.
 
 Representative commands:
 
@@ -130,6 +130,8 @@ python -m armedforces_tool report preview
 python -m armedforces_tool report preview --type baseline-compare
 python -m armedforces_tool report preview --type full-status
 python -m armedforces_tool report preview --type full-status --json
+python -m armedforces_tool report export --dry-run --type full-status --out reports/python_tooling/full_status.md
+python -m armedforces_tool report export --type full-status --out reports/python_tooling/full_status.md
 ```
 
 Supported preview types include `status-overview`, `safety-doctor`, `baseline-compare`, `case-summary`, `registry-summary`, `transaction-summary`, and `full-status`.
@@ -160,8 +162,9 @@ It must not:
 - perform guarded writes or restores
 - generate write or restore actions from transaction history
 - write Markdown report files from `report preview`
+- write report files outside `reports/python_tooling/` or `docs/reports/python_tooling/`
 
-Any future write-capable command must be designed as a separate explicit contract. Do not mix write-capable workflows into the current read-only Python sidecar layer.
+Write-capable behavior is currently limited to `report export` only. It does not run CE, does not mutate runtime/config/log/session/intake/baseline/registry state, rejects protected paths, rejects non-`.md` targets, and refuses overwrite unless `--force` is provided.
 
 ## Known Acceptable WARNs
 
@@ -198,6 +201,7 @@ python -m armedforces_tool report preview --type full-status
 
 python -m armedforces_tool report export --dry-run --type status-overview --output-dir reports/python_tooling
 python -m armedforces_tool report export --dry-run --type full-status --out reports/python_tooling/full_status_test.md
+python -m armedforces_tool report export --type full-status --out reports/python_tooling/full_status.md
 
 .venv\Scripts\python.exe -m pytest --basetemp .tmp_pytest
 Remove-Item -Recurse -Force .tmp_pytest -ErrorAction SilentlyContinue
@@ -205,7 +209,7 @@ Remove-Item -Recurse -Force .tmp_pytest -ErrorAction SilentlyContinue
 git status --short
 ```
 
-`report export --dry-run` validates future export paths and prints metadata only. It does not create directories, does not create `.md` files, and real report export writing remains unimplemented.
+`report export --dry-run` validates export paths and prints metadata only. It does not create directories and does not create `.md` files. Real `report export` creates the approved parent directory if needed and writes exactly one `.md` file under `reports/python_tooling/` or `docs/reports/python_tooling/`.
 
 ## Current Stable State
 
@@ -215,8 +219,8 @@ Current expected stable results:
 - `safety doctor = SAFE`
 - `baseline compare = BASELINE_COMPARE_PASS`
 - `case summary = COVERAGE_OK`
-- command inventory = 41 read-only commands after Phase 3.6 report export dry-run
-- pytest = 97 passed
+- command inventory includes read-only analysis commands plus one write-capable `report export` command
+- pytest = 114 passed
 
 ## Next Migration Candidates
 
@@ -224,7 +228,7 @@ Possible next read-only migration directions:
 
 - Python read-only registry view
 - Python read-only transaction history view
-- Python report export with controlled file writes, after a separate write-capable contract
+- additional report export polish after the controlled file-write contract
 - thin PowerShell wrappers that call Python
 - later native backend contract planning
 

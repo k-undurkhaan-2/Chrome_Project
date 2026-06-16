@@ -24,7 +24,7 @@ def _ts() -> datetime:
     return datetime(2026, 6, 15, 12, 34, 56, tzinfo=timezone.utc)
 
 
-def test_export_without_dry_run_is_rejected(tmp_path: Path) -> None:
+def test_real_export_writes_approved_markdown_file(tmp_path: Path) -> None:
     result = plan_report_export(
         report_type="full-status",
         dry_run=False,
@@ -32,10 +32,28 @@ def test_export_without_dry_run_is_rejected(tmp_path: Path) -> None:
         project_root=tmp_path,
     )
 
-    assert result.conclusion == "REPORT_EXPORT_NOT_IMPLEMENTED"
-    assert result.would_write is False
-    assert result.writes_files is False
-    assert result.errors
+    target = tmp_path / "reports" / "python_tooling" / "full_status.md"
+    assert result.conclusion == "REPORT_EXPORT_OK"
+    assert result.would_write is True
+    assert result.wrote_file is True
+    assert result.writes_files is True
+    assert result.read_only is False
+    assert result.bytes_written == len("# Fake Report\n\nbody\n".encode("utf-8"))
+    assert target.read_text(encoding="utf-8") == "# Fake Report\n\nbody\n"
+
+
+def test_real_export_writes_docs_approved_root(tmp_path: Path) -> None:
+    result = plan_report_export(
+        report_type="status-overview",
+        dry_run=False,
+        out="docs/reports/python_tooling/status.md",
+        project_root=tmp_path,
+    )
+
+    target = tmp_path / "docs" / "reports" / "python_tooling" / "status.md"
+    assert result.conclusion == "REPORT_EXPORT_OK"
+    assert result.wrote_file is True
+    assert target.exists()
 
 
 def test_dry_run_with_approved_output_dir_is_accepted(tmp_path: Path) -> None:
@@ -76,12 +94,12 @@ def test_dry_run_with_approved_out_is_accepted(tmp_path: Path) -> None:
 def test_path_traversal_is_rejected(tmp_path: Path) -> None:
     result = plan_report_export(
         report_type="full-status",
-        dry_run=True,
+        dry_run=False,
         out="../full_status.md",
         project_root=tmp_path,
     )
 
-    assert result.conclusion == "REPORT_EXPORT_DRY_RUN_REJECTED"
+    assert result.conclusion == "REPORT_EXPORT_REJECTED"
     assert result.path_safety_status == "PATH_REJECTED"
     assert any("path traversal" in error for error in result.errors)
 
@@ -142,6 +160,45 @@ def test_existing_target_without_force_warns_and_writes_nothing(tmp_path: Path) 
     assert target.read_text(encoding="utf-8") == "existing"
 
 
+def test_real_export_existing_target_without_force_is_rejected(tmp_path: Path) -> None:
+    target = tmp_path / "reports" / "python_tooling" / "existing.md"
+    target.parent.mkdir(parents=True)
+    target.write_text("existing", encoding="utf-8")
+
+    result = plan_report_export(
+        report_type="full-status",
+        dry_run=False,
+        out="reports/python_tooling/existing.md",
+        project_root=tmp_path,
+        force=False,
+    )
+
+    assert result.conclusion == "REPORT_EXPORT_OVERWRITE_REJECTED"
+    assert result.wrote_file is False
+    assert result.writes_files is False
+    assert target.read_text(encoding="utf-8") == "existing"
+
+
+def test_real_export_existing_target_with_force_overwrites(tmp_path: Path) -> None:
+    target = tmp_path / "reports" / "python_tooling" / "existing.md"
+    target.parent.mkdir(parents=True)
+    target.write_text("existing", encoding="utf-8")
+
+    result = plan_report_export(
+        report_type="full-status",
+        dry_run=False,
+        out="reports/python_tooling/existing.md",
+        project_root=tmp_path,
+        force=True,
+    )
+
+    assert result.conclusion == "REPORT_EXPORT_OK"
+    assert result.target_exists_before is True
+    assert result.overwritten is True
+    assert result.wrote_file is True
+    assert target.read_text(encoding="utf-8") == "# Fake Report\n\nbody\n"
+
+
 def test_force_changes_metadata_only_and_writes_nothing(tmp_path: Path) -> None:
     target = tmp_path / "reports" / "python_tooling" / "existing.md"
     target.parent.mkdir(parents=True)
@@ -173,17 +230,42 @@ def test_json_shape_reports_read_only_dry_run(tmp_path: Path) -> None:
     assert data["report_type"] == "full-status"
     assert data["dry_run"] is True
     assert data["would_write"] is False
+    assert data["wrote_file"] is False
     assert data["read_only"] is True
     assert data["writes_files"] is False
     assert data["runs_ce"] is False
     assert data["path_safety_status"] == "PATH_OK"
 
 
-def test_command_inventory_includes_report_export_dry_run() -> None:
+def test_json_shape_reports_real_write_metadata(tmp_path: Path) -> None:
+    data = plan_report_export(
+        report_type="full-status",
+        dry_run=False,
+        out="reports/python_tooling/full_status.md",
+        project_root=tmp_path,
+    ).to_dict()
+
+    assert data["report_type"] == "full-status"
+    assert data["dry_run"] is False
+    assert data["would_write"] is True
+    assert data["wrote_file"] is True
+    assert data["read_only"] is False
+    assert data["writes_files"] is True
+    assert data["runs_ce"] is False
+    assert data["conclusion"] == "REPORT_EXPORT_OK"
+
+
+def test_command_inventory_includes_report_export_modes() -> None:
     result = list_commands(category="report")
     commands = {record.command for record in result.records}
+    records = {record.command: record for record in result.records}
 
     assert "report preview" in commands
     assert "report export --dry-run" in commands
-    assert result.to_dict()["summary"]["writes_files_count"] == 0
+    assert "report export" in commands
+    assert records["report export --dry-run"].writes_files is False
+    assert records["report export"].writes_files is True
+    assert records["report export"].read_only is False
+    assert records["report export"].runs_ce is False
+    assert result.to_dict()["summary"]["writes_files_count"] == 1
     assert result.to_dict()["summary"]["runs_ce_count"] == 0

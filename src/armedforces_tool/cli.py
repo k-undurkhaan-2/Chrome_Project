@@ -581,9 +581,9 @@ def _add_report_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
 
     export = report_subparsers.add_parser(
         "export",
-        help="Dry-run report export path validation only; real writing is not implemented",
+        help="Export Markdown reports under approved output roots",
     )
-    export.add_argument("--dry-run", action="store_true", help="Required. Validate the future export target only.")
+    export.add_argument("--dry-run", action="store_true", help="Validate the export target without writing files.")
     export.add_argument(
         "--type",
         choices=REPORT_TYPES,
@@ -599,7 +599,7 @@ def _add_report_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
     )
     export.add_argument("--output-dir", default=None, help="Approved future output directory")
     export.add_argument("--out", default=None, help="Approved future .md output path")
-    export.add_argument("--force", action="store_true", help="Dry-run overwrite metadata only; never writes files")
+    export.add_argument("--force", action="store_true", help="Allow overwrite when the approved target already exists")
     export.add_argument("--json", action="store_true", help="Emit JSON object")
     export.set_defaults(func=_run_report_export)
 
@@ -1298,7 +1298,7 @@ def _run_report_export(args: argparse.Namespace) -> int:
         print(json.dumps(result.to_dict(), indent=2))
     else:
         print(format_report_export_dry_run(result))
-    return 0 if result.conclusion == "REPORT_EXPORT_DRY_RUN_OK" else 1
+    return 0 if result.conclusion in {"REPORT_EXPORT_DRY_RUN_OK", "REPORT_EXPORT_OK"} else 1
 
 
 def format_registry_summary(result: object) -> str:
