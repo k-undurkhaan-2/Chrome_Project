@@ -238,6 +238,25 @@ Current behavior:
 
 `report export --dry-run --record-manifest` remains no-write. `report export` without `--record-manifest` does not write a manifest.
 
+## Phase 3.17 Boundary Validation Note
+
+Final boundary smoke passed for this first-version implementation.
+
+Current validated boundary:
+
+- approved manifest location remains `reports/python_tooling/manifest.jsonl`
+- `report export --record-manifest` is supported only when the report output is under `reports/python_tooling/`
+- `docs/reports/python_tooling/*.md + --record-manifest` remains unsupported and fails closed
+- dry-run remains no-write
+- `report manifest preview`, `report manifest list`, and `report manifest verify` remain read-only
+- command inventory remains about `45` commands
+- `writes_files_count = 1`
+- `runs_ce_count = 0`
+- only `report export` is write-capable
+- no CE/runtime/log/config/session/intake/baseline/registry writes were introduced
+
+Any future expansion requires a new contract update, dry-run behavior where applicable, smoke validation, cleanup rules, and a checkpoint before implementation.
+
 ## Command Inventory Impact
 
 Inventory impact:

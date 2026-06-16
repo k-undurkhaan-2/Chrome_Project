@@ -301,6 +301,8 @@ Phase 3.15 implements dry-run planning for future report manifest writes through
 
 Phase 3.16 implements controlled real manifest recording through `report export --record-manifest`. The only supported manifest location is `reports/python_tooling/manifest.jsonl`, and the report output must also be under `reports/python_tooling/`. Dry-run remains no-write, `docs/reports/python_tooling/` is still unsupported for manifest recording, `report export` remains the only write-capable Python command, and no CE/runtime/log/config/session/intake/baseline/registry writes are introduced.
 
+Phase 3.18 records the manifest real-write boundary after final smoke validation. The validated state remains: command inventory about `45`, `writes_files_count = 1`, `runs_ce_count = 0`, `report export` as the only write-capable Python command, no CE/runtime mutation, and no log/config/session/intake/baseline/registry writes. Future expansion must not add new write surfaces without a new contract, dry-run behavior where applicable, smoke validation, cleanup rules, and a checkpoint.
+
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 
 - Define request formats.

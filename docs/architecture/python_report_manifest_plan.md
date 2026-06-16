@@ -299,6 +299,32 @@ Current behavior:
 
 The real-write smoke procedure must clean any smoke-created report and manifest files before completion.
 
+## Phase 3.17 Boundary Smoke Status
+
+Final boundary smoke passed for the first real manifest write boundary.
+
+Recorded state:
+
+- command inventory remains about `45` commands
+- `writes_files_count = 1`
+- `runs_ce_count = 0`
+- only write-capable Python command remains `report export`
+- dry-run with `--record-manifest` remains no-write
+- real `--record-manifest` writes only under `reports/python_tooling/`
+- manifest path is `reports/python_tooling/manifest.jsonl`
+- `docs/reports/python_tooling/*.md + --record-manifest` rejects with `MANIFEST_OUTPUT_ROOT_UNSUPPORTED`
+- `report manifest preview/list/verify` remain read-only
+- smoke-created report and manifest files were cleaned
+- pytest passed with `138 passed`
+
+Still deferred:
+
+- `docs/reports/python_tooling/` manifest support
+- manifest index / Markdown index generation
+- manifest compaction
+- manifest repair or cleanup commands
+- mutable JSON manifest support
+
 ## Recommended Implementation Order
 
 Recommended order:

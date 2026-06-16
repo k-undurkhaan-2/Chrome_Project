@@ -224,6 +224,7 @@ Other WARN or FAIL results should be reviewed before checkpointing.
 - `python-status-overview-checkpoint-20260615`: Python consolidated status overview.
 - `python-command-inventory-checkpoint-20260615`: Python command inventory, quickstart, and descriptor index.
 - `python-report-export-guarded-checkpoint-20260616`: Guarded real `report export` writes under approved report roots only.
+- `python-report-manifest-real-write-checkpoint-20260616`: Controlled `report export --record-manifest` writes under `reports/python_tooling/` only.
 
 ## Recommended Smoke Commands
 
@@ -251,6 +252,76 @@ git status --short
 `report export --dry-run` validates export paths and prints metadata only. It does not create directories and does not create `.md` files. Real `report export` creates the approved parent directory if needed and writes exactly one `.md` file under `reports/python_tooling/` or `docs/reports/python_tooling/`.
 
 With `--record-manifest`, real export is limited to `reports/python_tooling/` and appends exactly one JSONL row to `reports/python_tooling/manifest.jsonl` after the report file is written and hashed. `docs/reports/python_tooling/` remains valid for ordinary report export, but not for manifest-recorded export in the first implementation.
+
+## Report Manifest Current Workflow
+
+### Dry-Run Workflow
+
+Use dry-run first:
+
+```powershell
+python -m armedforces_tool report export --dry-run --type full-status --out reports/python_tooling/full_status.md --record-manifest
+```
+
+Expected behavior:
+
+- no report file is written
+- no manifest file is written
+- no report directory is created solely by dry-run
+- output shows `would_write_report=true`
+- output shows `would_write_manifest=true`
+- planned manifest path is `reports/python_tooling/manifest.jsonl`
+
+### Real Export Workflow
+
+After reviewing the dry-run result, real manifest-recorded export is:
+
+```powershell
+python -m armedforces_tool report export --type full-status --out reports/python_tooling/full_status.md --record-manifest
+```
+
+Expected behavior:
+
+- the report is written under `reports/python_tooling/`
+- one JSONL row is appended to `reports/python_tooling/manifest.jsonl`
+- `report export` remains the only write-capable Python command
+- no CE, runtime, log, config, session, intake, baseline, or registry file is modified
+
+Verify the result after writing:
+
+```powershell
+python -m armedforces_tool report manifest verify
+python -m armedforces_tool report manifest list
+```
+
+`report manifest preview`, `report manifest list`, and `report manifest verify` remain read-only. They must not modify manifest files and must not write runtime files.
+
+### Smoke Cleanup Rules
+
+For smoke-created report/manifest files:
+
+- remove smoke-created report files after validation
+- remove smoke-created `manifest.jsonl` only if it was created by that smoke
+- never delete pre-existing user reports
+- never delete a pre-existing user manifest
+- never delete `reports/python_tooling/` just because smoke validation completed
+
+### Unsupported First-Version Boundary
+
+This first manifest-recorded export boundary does not support:
+
+```text
+docs/reports/python_tooling/*.md + --record-manifest
+```
+
+That combination must fail closed with `MANIFEST_OUTPUT_ROOT_UNSUPPORTED` or an equivalent rejection. No `docs/reports/python_tooling/manifest.jsonl` should be written.
+
+Current command inventory boundary:
+
+- total commands: about `45`
+- `writes_files_count = 1`
+- `runs_ce_count = 0`
+- only write-capable Python command: `report export`
 
 ## Current Stable State
 
@@ -304,6 +375,7 @@ Phase 3 currently includes:
   - writes the report under `reports/python_tooling/`
   - appends `reports/python_tooling/manifest.jsonl`
   - `docs/reports/python_tooling/` with `--record-manifest` fails closed
+  - final boundary smoke passed with smoke-created report/manifest cleaned
 - report export dry-run:
   - `report export --dry-run`
   - no-write path safety preview
