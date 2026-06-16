@@ -305,6 +305,8 @@ Phase 3.18 records the manifest real-write boundary after final smoke validation
 
 Phase 3.19 adds planning for future Python report bundle / report package support. No implementation is added, no Python command is added, and no new write surface is authorized. Bundle directories, zip archives, copied reports, bundle manifests, and bundle indexes remain deferred until a separate contract, dry-run, smoke cleanup rules, and checkpoint are defined. `report export` remains the only write-capable Python command.
 
+Phase 3.20 adds the read-only preview/verify contract for future Python report bundle support. No implementation is added, no Python command is added, and no new write surface is authorized. Future bundle preview/verify must remain read-only with `writes_files=false` and `runs_ce=false`; bundle export remains deferred until a separate write-capable contract and checkpoint are defined. `report export` remains the only write-capable Python command.
+
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 
 - Define request formats.

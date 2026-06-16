@@ -163,6 +163,8 @@ The report manifest write contract does not authorize bundle writes. Bundle dire
 
 The first bundle contract must define its own approved roots and must not inherit permission to write `docs/reports/`, `log/`, registry, baseline, session, intake, local config, source, tests, or `docs/codex_tasks/`.
 
+Read-only bundle preview / verify contracts do not authorize bundle writes. A future `report bundle preview` or `report bundle verify` may inspect manifests and referenced report files only; it must not create bundle directories, zip archives, copied reports, bundle manifests, or indexes. Bundle export remains a separate write-capable surface and must follow the full lifecycle in this policy.
+
 ## Required Final Report Fields
 
 Every write-capable feature final report must include:

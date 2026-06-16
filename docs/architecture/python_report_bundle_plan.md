@@ -101,6 +101,22 @@ Read-only bundle preview should:
 
 Read-only bundle verification should inspect existing bundle candidates only after a write contract defines their format.
 
+## Read-Only Contract Status
+
+`docs/architecture/python_report_bundle_readonly_contract.md` defines the future boundary for read-only bundle preview / verify commands.
+
+The contract documents:
+
+- proposed read-only command shape
+- input discovery from `reports/python_tooling/manifest.jsonl`
+- path safety for referenced report files
+- preview and verify output models
+- planned status values
+- command inventory expectations
+- future test requirements
+
+Bundle implementation has not started. Bundle write/export still requires a separate write-capable contract before any dry-run or real write behavior is implemented.
+
 ## Proposed Future Command Shape
 
 Possible future commands only:
