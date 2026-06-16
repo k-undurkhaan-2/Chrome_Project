@@ -188,6 +188,12 @@ Smoke check must include:
 
 The smoke check should explicitly report all created report files and confirm no protected files changed.
 
+## Manifest / Report Index Boundary
+
+Current `report export` writes only the requested `.md` report file. It does not record a manifest, update an index, append JSONL, or write any persistent report metadata file.
+
+Manifest / report index support is deferred to a separate contract. A future manifest would introduce durable state beyond one report output, so it must define approved manifest locations, file format, append/update rules, failure handling, corruption recovery, and command inventory risk marking before implementation.
+
 ## Explicit Non-Goals
 
 This contract does not:

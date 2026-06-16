@@ -141,6 +141,12 @@ Every write-capable feature must include tests for:
 - protected hashes unchanged outside the allowed target
 - no CE unless explicitly part of the contract
 
+## Manifest / Index State Note
+
+Report manifest or report index files are write-capable state, even if they live under an approved report root.
+
+Future manifest support requires a separate contract before implementation. Append-only JSONL may reduce corruption risk compared with mutable JSON, but it still needs validation, duplicate handling, failure recovery, protected-file hash checks, and command inventory marking.
+
 ## Required Final Report Fields
 
 Every write-capable feature final report must include:

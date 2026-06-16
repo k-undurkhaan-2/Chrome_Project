@@ -291,6 +291,8 @@ Phase 3.10 records the current Phase 3 state. The read-only registry and transac
 
 Phase 3.11 documents the Python write-capable feature policy. Future write-capable work must use the same planning, contract, dry-run, smoke-check, cleanup, command-inventory, and checkpoint process established by guarded `report export`. At this point, `report export` remains the only write-capable Python command.
 
+Phase 3.12 adds planning for future Python report manifest / report index support. No implementation is added; `report export` remains the only write-capable Python command. Manifest support is treated as separate write-capable state and remains deferred until a dedicated contract, dry-run, validation, and checkpoint are defined.
+
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 
 - Define request formats.
