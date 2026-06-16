@@ -694,12 +694,14 @@ COMMANDS: list[CommandDescriptor] = [
         parameters=["--type", "--output-dir", "--out", "--force", "--latest", "--profile", "--record-manifest", "--json"],
         examples=[
             "python -m armedforces_tool report export --type full-status --out reports/python_tooling/full_status.md",
+            "python -m armedforces_tool report export --type full-status --out reports/python_tooling/full_status.md --record-manifest",
             "python -m armedforces_tool report export --type status-overview --output-dir docs/reports/python_tooling",
         ],
         safety_notes=[
             "Python sidecar command only.",
             "Does not run CE.",
             "Writes exactly one .md report file only under reports/python_tooling or docs/reports/python_tooling.",
+            "--record-manifest is supported only for reports/python_tooling outputs and appends reports/python_tooling/manifest.jsonl.",
             "Rejects protected paths, path traversal, non-.md targets, and existing files unless --force is supplied.",
             "Does not write config, logs, registry, baselines, session state, or intake journal files.",
             "Does not replace the related PowerShell workflow.",

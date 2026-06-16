@@ -4,7 +4,9 @@
 
 This contract defines the safety boundary for future Python report manifest writing in `D:\armedforces.io-v2`.
 
-Phase 3.14 only wrote the contract. Phase 3.15 implements dry-run planning for `--record-manifest`. Real manifest writing is still not implemented, `report export` behavior without `--record-manifest` is unchanged, and no write-capable command is added.
+Phase 3.14 wrote the contract. Phase 3.15 implemented dry-run planning for `--record-manifest`. Phase 3.16 implements the first controlled real manifest write path through `report export --record-manifest`.
+
+This implementation still does not add a new write-capable command. `report export` remains the only write-capable Python command.
 
 ## Current Baseline
 
@@ -14,10 +16,10 @@ Current Python tooling state:
 - `report manifest preview`, `report manifest list`, and `report manifest verify` are read-only.
 - `writes_files_count = 1`.
 - `runs_ce_count = 0`.
-- there is currently no runtime manifest write.
+- runtime manifest write is limited to `report export --record-manifest`.
 - no CE or runtime mutation exists in Python tooling.
 - `report export --dry-run --record-manifest` plans the future manifest entry and writes nothing.
-- real `report export --record-manifest` fails closed before any report or manifest write.
+- real `report export --record-manifest` writes the report under `reports/python_tooling/` and appends `reports/python_tooling/manifest.jsonl`.
 
 Current report export behavior remains unchanged:
 
@@ -27,7 +29,7 @@ Current report export behavior remains unchanged:
 
 ## Proposed Write Behavior
 
-Future manifest writing may be exposed as an explicit flag on `report export`:
+Manifest writing is exposed as an explicit flag on `report export`:
 
 ```powershell
 python -m armedforces_tool report export --type full-status --out reports/python_tooling/full_status.md --record-manifest
@@ -41,7 +43,7 @@ python -m armedforces_tool report export --dry-run --type full-status --out repo
 
 Required behavior:
 
-- `--record-manifest` is a future ability, not implemented by this contract.
+- `--record-manifest` is supported only under `reports/python_tooling/`.
 - manifest writing is allowed only after report export succeeds.
 - dry-run must not write a report or manifest.
 - `report export` without `--record-manifest` remains unchanged.
@@ -55,7 +57,7 @@ The first contract version uses the smallest write boundary:
 reports/python_tooling/manifest.jsonl
 ```
 
-Optional future candidate, not implemented by this contract:
+Optional future candidate, not implemented in Phase 3.16:
 
 ```text
 docs/reports/python_tooling/manifest.jsonl
@@ -178,7 +180,7 @@ Manifest entries are historical records. They should not be rewritten by ordinar
 
 ## Dry-Run Semantics
 
-Future dry-run behavior for `--record-manifest`:
+Dry-run behavior for `--record-manifest`:
 
 - display `would_write_report`
 - display `would_write_manifest`
@@ -213,17 +215,32 @@ Current behavior:
 
 The dry-run planned manifest path is always `reports/python_tooling/manifest.jsonl`, including when the report output path is under `docs/reports/python_tooling/`.
 
-Real manifest write behavior is still not implemented:
+## Phase 3.16 Real Write Implementation Note
+
+Implemented real command shape:
 
 ```powershell
 python -m armedforces_tool report export --type full-status --out reports/python_tooling/full_status.md --record-manifest
 ```
 
-This fails closed with `MANIFEST_WRITE_NOT_IMPLEMENTED` before any report or manifest write.
+Current behavior:
+
+- validates the report output path under `reports/python_tooling/`
+- rejects `docs/reports/python_tooling/` when `--record-manifest` is used
+- renders report content
+- preflights an existing `reports/python_tooling/manifest.jsonl`
+- rejects corrupt manifests and duplicate `report_id` values before writing the report
+- writes the report
+- computes file size and SHA256 after writing
+- appends exactly one JSONL manifest row
+- verifies that the manifest remains parseable
+- returns `REPORT_EXPORT_OK` with `manifest_written=true`
+
+`report export --dry-run --record-manifest` remains no-write. `report export` without `--record-manifest` does not write a manifest.
 
 ## Command Inventory Impact
 
-Future inventory impact:
+Inventory impact:
 
 - `report export` remains write-capable
 - no new write-capable command is required if `--record-manifest` is a flag on `report export`
@@ -288,7 +305,7 @@ If safe cleanup is not possible, leave the file in place and report the exact ma
 
 This contract does not authorize:
 
-- immediate manifest write implementation
+- additional standalone manifest write commands
 - `docs/reports` manifest writing
 - mutable JSON manifest
 - Markdown report index generation

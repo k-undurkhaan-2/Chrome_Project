@@ -6,7 +6,7 @@ This document plans future Python report manifest / report index support for `D:
 
 A report manifest would be a persistent index or metadata record for report export outputs. It could help operators find exported reports, verify report hashes, inspect report provenance, and audit report generation history.
 
-Phase 3.12 was planning only. Phase 3.13 implements read-only manifest preview/list/verify commands. Phase 3.14 adds a write contract for future manifest append behavior. Phase 3.15 implements dry-run planning for `--record-manifest`. Manifest writing is still not implemented, `report export` behavior without `--record-manifest` is unchanged, and no manifest file is written by these commands.
+Phase 3.12 was planning only. Phase 3.13 implements read-only manifest preview/list/verify commands. Phase 3.14 adds a write contract for manifest append behavior. Phase 3.15 implements dry-run planning for `--record-manifest`. Phase 3.16 implements controlled real `report export --record-manifest` for `reports/python_tooling/` only.
 
 ## Current Baseline
 
@@ -24,7 +24,8 @@ Current Python report tooling state:
 - `report manifest preview/list/verify` are implemented as read-only commands.
 - the manifest write contract is documented.
 - `report export --dry-run --record-manifest` plans the future manifest entry and writes nothing.
-- manifest writing is not implemented.
+- `report export --record-manifest` writes the report under `reports/python_tooling/` and appends `reports/python_tooling/manifest.jsonl`.
+- `docs/reports/python_tooling/` remains unsupported for `--record-manifest` in the first real-write version.
 
 `report export` does not write:
 
@@ -68,7 +69,7 @@ Allowed candidate locations for future design:
 - `docs/reports/python_tooling/manifest.jsonl`
 - `docs/reports/python_tooling/report_index.md`
 
-These locations are under the existing approved report roots. They are candidates only; no manifest location is implemented by this plan.
+The first implemented manifest location is `reports/python_tooling/manifest.jsonl`. Other locations remain candidates only.
 
 Explicitly forbidden manifest locations:
 
@@ -275,7 +276,28 @@ Current behavior:
 - plans manifest path `reports/python_tooling/manifest.jsonl`
 - includes planned manifest entry fields
 
-Real `--record-manifest` remains fail-closed and returns `MANIFEST_WRITE_NOT_IMPLEMENTED` before report export writes.
+Real `--record-manifest` is implemented in Phase 3.16 for `reports/python_tooling/` only.
+
+## Phase 3.16 Real Write Status
+
+Implemented real command shape:
+
+```powershell
+python -m armedforces_tool report export --type full-status --out reports/python_tooling/full_status.md --record-manifest
+```
+
+Current behavior:
+
+- validates the output path under `reports/python_tooling/`
+- rejects `docs/reports/python_tooling/` when `--record-manifest` is used
+- writes the report `.md`
+- appends one JSONL entry to `reports/python_tooling/manifest.jsonl`
+- records `schema_version`, `report_id`, `report_type`, `created_at`, `output_path`, `output_root`, `file_size`, `sha256`, `command`, `dry_run=false`, and `status=success`
+- rejects corrupt existing manifests before writing
+- rejects duplicate `report_id` before writing
+- keeps `report manifest preview/list/verify` read-only
+
+The real-write smoke procedure must clean any smoke-created report and manifest files before completion.
 
 ## Recommended Implementation Order
 
@@ -289,16 +311,16 @@ Recommended order:
 6. manifest write implementation
 7. guarded smoke/checkpoint
 
-The first read-only implementation step is complete. The manifest write contract is documented. The dry-run planning phase is implemented. Manifest writing must still not be added until a dedicated real-write implementation phase is started.
+The first read-only implementation step is complete. The manifest write contract is documented. The dry-run planning phase is implemented. The first real-write implementation is complete for `reports/python_tooling/manifest.jsonl`; manifest repair, cleanup, mutable JSON, and `docs/reports` manifest support remain deferred.
 
 ## Explicit Non-Goals
 
 This phase does not:
 
-- implement manifest writing commands
-- write manifest files
-- change `report export` behavior
-- add `--record-manifest`
+- add standalone manifest writing commands
+- write manifests outside `reports/python_tooling/manifest.jsonl`
+- add mutable manifest repair or cleanup
+- support `docs/reports/python_tooling/` manifest recording
 - migrate guarded write / restore
 - automate CE
 - write log/config/session/intake/baseline/registry

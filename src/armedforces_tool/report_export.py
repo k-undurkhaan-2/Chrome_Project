@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -60,6 +61,9 @@ class ReportExportDryRunResult:
     planned_report_path: str | None = None
     planned_manifest_path: str | None = None
     planned_manifest_entry: dict[str, object | None] | None = None
+    manifest_written: bool = False
+    manifest_path: str | None = None
+    manifest_entry: dict[str, object | None] | None = None
     read_only: bool = True
     writes_files: bool = False
     runs_ce: bool = False
@@ -92,6 +96,9 @@ class ReportExportDryRunResult:
             "planned_report_path": self.planned_report_path,
             "planned_manifest_path": self.planned_manifest_path,
             "planned_manifest_entry": self.planned_manifest_entry,
+            "manifest_written": self.manifest_written,
+            "manifest_path": self.manifest_path,
+            "manifest_entry": self.manifest_entry,
             "read_only": self.read_only,
             "writes_files": self.writes_files,
             "runs_ce": self.runs_ce,
@@ -152,6 +159,27 @@ def plan_report_export(
     target_exists = target.exists()
     would_overwrite = bool(target_exists and force)
     path_safety_status = "PATH_OK"
+    if record_manifest and safety["approved_output_root_relative"] != "reports/python_tooling":
+        return _result(
+            report_type=normalized_report_type,
+            dry_run=dry_run,
+            target_path=str(target),
+            approved_output_root=safety["approved_output_root"],
+            target_exists=target_exists,
+            target_exists_before=target_exists,
+            would_overwrite=would_overwrite,
+            force=force,
+            conclusion="MANIFEST_OUTPUT_ROOT_UNSUPPORTED",
+            path_safety_status="PATH_REJECTED",
+            errors=["--record-manifest only supports report outputs under reports/python_tooling in this version"],
+            recommendation="Use reports/python_tooling for manifest-recorded exports, or omit --record-manifest.",
+            record_manifest=True,
+            would_write_report=False,
+            would_write_manifest=False,
+            planned_report_path=str(target),
+            planned_manifest_path=REPORT_MANIFEST_PATH.as_posix(),
+        )
+
     if target_exists and not force:
         if dry_run:
             warnings.append("target exists; real export would require --force")
@@ -172,33 +200,54 @@ def plan_report_export(
                 record_manifest=record_manifest,
             )
 
-    if record_manifest and not dry_run:
-        return _result(
-            report_type=normalized_report_type,
-            dry_run=False,
-            target_path=str(target),
-            approved_output_root=safety["approved_output_root"],
-            target_exists=target_exists,
-            target_exists_before=target_exists,
-            would_overwrite=would_overwrite,
-            force=force,
-            conclusion="MANIFEST_WRITE_NOT_IMPLEMENTED",
-            path_safety_status=path_safety_status,
-            errors=["--record-manifest real writes are not implemented; rerun with --dry-run to preview."],
-            recommendation="Manifest recording is dry-run only in this phase. No report or manifest was written.",
-            record_manifest=True,
-            would_write_report=False,
-            would_write_manifest=False,
-            planned_report_path=str(target),
-            planned_manifest_path=REPORT_MANIFEST_PATH.as_posix(),
-        )
-
     preview = preview_report(report_type=normalized_report_type, latest=latest, profile=profile)
     content = preview.markdown
     content_size_bytes = len(content.encode("utf-8"))
     content_line_count = len(content.splitlines())
 
     if not dry_run:
+        manifest_path = (project_root.resolve() / REPORT_MANIFEST_PATH).resolve(strict=False)
+        manifest_entry: dict[str, object | None] | None = None
+        if record_manifest:
+            planned_sha256 = hashlib.sha256(content.encode("utf-8")).hexdigest()
+            manifest_entry = _real_manifest_entry(
+                report_type=normalized_report_type,
+                target=target,
+                project_root=project_root,
+                output_root=str(safety["approved_output_root_relative"] or ""),
+                created_at=planned_at,
+                file_size=content_size_bytes,
+                sha256=planned_sha256,
+                output_dir=output_dir,
+                out=out,
+                force=force,
+            )
+            preflight_errors = _preflight_manifest_for_append(
+                manifest_path=manifest_path,
+                report_id=str(manifest_entry["report_id"]),
+            )
+            if preflight_errors:
+                return _result(
+                    report_type=normalized_report_type,
+                    dry_run=False,
+                    target_path=str(target),
+                    approved_output_root=safety["approved_output_root"],
+                    target_exists=target_exists,
+                    target_exists_before=target_exists,
+                    force=force,
+                    conclusion="MANIFEST_PREFLIGHT_REJECTED",
+                    path_safety_status="PATH_OK",
+                    errors=preflight_errors,
+                    recommendation="Fix or verify the existing manifest before retrying manifest recording.",
+                    content_line_count=content_line_count,
+                    content_size_bytes=content_size_bytes,
+                    record_manifest=True,
+                    would_write_report=False,
+                    would_write_manifest=False,
+                    planned_report_path=str(target),
+                    planned_manifest_path=REPORT_MANIFEST_PATH.as_posix(),
+                    planned_manifest_entry=manifest_entry,
+                )
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(content, encoding="utf-8")
@@ -213,12 +262,77 @@ def plan_report_export(
                 force=force,
                 conclusion="REPORT_EXPORT_WRITE_FAILED",
                 path_safety_status="PATH_OK",
-            errors=[f"failed to write report: {exc}"],
-            recommendation="Inspect filesystem permissions and rerun only after the target path is safe.",
-            content_line_count=content_line_count,
-            content_size_bytes=content_size_bytes,
-            record_manifest=record_manifest,
-        )
+                errors=[f"failed to write report: {exc}"],
+                recommendation="Inspect filesystem permissions and rerun only after the target path is safe.",
+                content_line_count=content_line_count,
+                content_size_bytes=content_size_bytes,
+                record_manifest=record_manifest,
+            )
+        bytes_written = target.stat().st_size
+        sha256 = _sha256_file(target)
+        if record_manifest and manifest_entry is not None:
+            manifest_entry = dict(manifest_entry)
+            manifest_entry["file_size"] = bytes_written
+            manifest_entry["sha256"] = sha256
+            try:
+                with manifest_path.open("a", encoding="utf-8", newline="\n") as handle:
+                    handle.write(json.dumps(manifest_entry, sort_keys=True, separators=(",", ":")))
+                    handle.write("\n")
+            except OSError as exc:
+                return _result(
+                    report_type=normalized_report_type,
+                    dry_run=False,
+                    would_write=True,
+                    wrote_file=True,
+                    target_path=str(target),
+                    approved_output_root=safety["approved_output_root"],
+                    target_exists=True,
+                    target_exists_before=target_exists,
+                    would_overwrite=would_overwrite,
+                    overwritten=bool(target_exists and force),
+                    force=force,
+                    conclusion="REPORT_EXPORT_MANIFEST_APPEND_FAILED",
+                    path_safety_status=path_safety_status,
+                    errors=[f"report was written but manifest append failed: {exc}"],
+                    recommendation="Report exists but manifest is incomplete. Inspect the report and manifest before retrying.",
+                    content_line_count=content_line_count,
+                    content_size_bytes=content_size_bytes,
+                    bytes_written=bytes_written,
+                    record_manifest=True,
+                    manifest_written=False,
+                    manifest_path=REPORT_MANIFEST_PATH.as_posix(),
+                    manifest_entry=manifest_entry,
+                    read_only=False,
+                    writes_files=True,
+                )
+            verify_errors = _preflight_manifest_for_append(manifest_path=manifest_path, report_id="__no_duplicate_check_after_append__")
+            if verify_errors:
+                return _result(
+                    report_type=normalized_report_type,
+                    dry_run=False,
+                    would_write=True,
+                    wrote_file=True,
+                    target_path=str(target),
+                    approved_output_root=safety["approved_output_root"],
+                    target_exists=True,
+                    target_exists_before=target_exists,
+                    would_overwrite=would_overwrite,
+                    overwritten=bool(target_exists and force),
+                    force=force,
+                    conclusion="REPORT_EXPORT_MANIFEST_VERIFY_FAILED",
+                    path_safety_status=path_safety_status,
+                    errors=verify_errors,
+                    recommendation="Report and manifest were written, but manifest verification failed. Inspect before retrying.",
+                    content_line_count=content_line_count,
+                    content_size_bytes=content_size_bytes,
+                    bytes_written=bytes_written,
+                    record_manifest=True,
+                    manifest_written=True,
+                    manifest_path=REPORT_MANIFEST_PATH.as_posix(),
+                    manifest_entry=manifest_entry,
+                    read_only=False,
+                    writes_files=True,
+                )
         return _result(
             report_type=normalized_report_type,
             dry_run=False,
@@ -236,10 +350,13 @@ def plan_report_export(
             recommendation="Report file written under an approved output root.",
             content_line_count=content_line_count,
             content_size_bytes=content_size_bytes,
-            bytes_written=content_size_bytes,
+            bytes_written=bytes_written if record_manifest else content_size_bytes,
             read_only=False,
             writes_files=True,
             record_manifest=record_manifest,
+            manifest_written=bool(record_manifest),
+            manifest_path=REPORT_MANIFEST_PATH.as_posix() if record_manifest else None,
+            manifest_entry=manifest_entry,
         )
 
     planned_manifest_entry = None
@@ -313,6 +430,8 @@ def format_report_export_dry_run(result: ReportExportDryRunResult) -> str:
                 ("would_write_manifest", result.would_write_manifest),
                 ("planned_report_path", result.planned_report_path),
                 ("planned_manifest_path", result.planned_manifest_path),
+                ("manifest_written", result.manifest_written),
+                ("manifest_path", result.manifest_path),
             ]
         )
     width = max(len(label) for label, _ in rows)
@@ -328,6 +447,14 @@ def format_report_export_dry_run(result: ReportExportDryRunResult) -> str:
     if result.planned_manifest_entry:
         lines.extend(["", "Planned Manifest Entry"])
         entry_rows = [(key, _display(value)) for key, value in result.planned_manifest_entry.items()]
+        entry_width = max(len(label) for label, _ in entry_rows)
+        lines.append("Field".ljust(entry_width) + "  Value")
+        lines.append("-".ljust(entry_width, "-") + "  -----")
+        for label, value in entry_rows:
+            lines.append(f"{label.ljust(entry_width)}  {value}")
+    if result.manifest_entry:
+        lines.extend(["", "Manifest Entry"])
+        entry_rows = [(key, _display(value)) for key, value in result.manifest_entry.items()]
         entry_width = max(len(label) for label, _ in entry_rows)
         lines.append("Field".ljust(entry_width) + "  Value")
         lines.append("-".ljust(entry_width, "-") + "  -----")
@@ -431,6 +558,9 @@ def _result(
     planned_report_path: str | None = None,
     planned_manifest_path: str | None = None,
     planned_manifest_entry: dict[str, object | None] | None = None,
+    manifest_written: bool = False,
+    manifest_path: str | None = None,
+    manifest_entry: dict[str, object | None] | None = None,
     read_only: bool = True,
     writes_files: bool = False,
 ) -> ReportExportDryRunResult:
@@ -461,6 +591,9 @@ def _result(
         planned_report_path=planned_report_path,
         planned_manifest_path=planned_manifest_path,
         planned_manifest_entry=planned_manifest_entry,
+        manifest_written=manifest_written,
+        manifest_path=manifest_path,
+        manifest_entry=manifest_entry,
         read_only=read_only,
         writes_files=writes_files,
     )
@@ -504,12 +637,52 @@ def _planned_manifest_entry(
     }
 
 
-def _planned_manifest_command(*, report_type: str, output_dir: str | None, out: str | None) -> str:
+def _real_manifest_entry(
+    *,
+    report_type: str,
+    target: Path,
+    project_root: Path,
+    output_root: str,
+    created_at: datetime,
+    file_size: int,
+    sha256: str,
+    output_dir: str | None,
+    out: str | None,
+    force: bool,
+) -> dict[str, object | None]:
+    relative_output = _relative_display_path(target, project_root)
+    created_at_text = created_at.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    command = _planned_manifest_command(
+        report_type=report_type,
+        output_dir=output_dir,
+        out=out,
+        force=force,
+    )
+    report_id_source = f"{relative_output}|{created_at_text}|{sha256}"
+    report_id = hashlib.sha256(report_id_source.encode("utf-8")).hexdigest()
+    return {
+        "schema_version": REPORT_MANIFEST_SCHEMA_VERSION,
+        "report_id": report_id,
+        "report_type": report_type,
+        "created_at": created_at_text,
+        "output_path": relative_output,
+        "output_root": output_root,
+        "file_size": file_size,
+        "sha256": sha256,
+        "command": command,
+        "dry_run": False,
+        "status": "success",
+    }
+
+
+def _planned_manifest_command(*, report_type: str, output_dir: str | None, out: str | None, force: bool = False) -> str:
     parts = ["python -m armedforces_tool report export", f"--type {report_type}"]
     if out:
         parts.append(f"--out {out}")
     if output_dir:
         parts.append(f"--output-dir {output_dir}")
+    if force:
+        parts.append("--force")
     parts.append("--record-manifest")
     return " ".join(parts)
 
@@ -519,6 +692,50 @@ def _relative_display_path(path: Path, project_root: Path) -> str:
         return path.resolve(strict=False).relative_to(project_root.resolve()).as_posix()
     except ValueError:
         return str(path)
+
+
+def _preflight_manifest_for_append(*, manifest_path: Path, report_id: str) -> list[str]:
+    if not manifest_path.exists():
+        return []
+    errors: list[str] = []
+    seen_report_ids: set[str] = set()
+    try:
+        lines = manifest_path.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        return [f"failed to read existing manifest: {exc}"]
+
+    for line_number, raw_line in enumerate(lines, start=1):
+        if not raw_line.strip():
+            continue
+        try:
+            record = json.loads(raw_line)
+        except json.JSONDecodeError as exc:
+            errors.append(f"line {line_number}: invalid JSON: {exc.msg}")
+            continue
+        if not isinstance(record, dict):
+            errors.append(f"line {line_number}: entry is not a JSON object")
+            continue
+        schema_version = record.get("schema_version")
+        existing_report_id = record.get("report_id")
+        if schema_version != REPORT_MANIFEST_SCHEMA_VERSION:
+            errors.append(f"line {line_number}: unsupported schema_version: {schema_version}")
+        if not isinstance(existing_report_id, str) or not existing_report_id:
+            errors.append(f"line {line_number}: missing report_id")
+            continue
+        if existing_report_id in seen_report_ids:
+            errors.append(f"line {line_number}: duplicate existing report_id: {existing_report_id}")
+        seen_report_ids.add(existing_report_id)
+        if existing_report_id == report_id:
+            errors.append(f"duplicate report_id: {report_id}")
+    return errors
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _rejected_conclusion(dry_run: bool) -> str:

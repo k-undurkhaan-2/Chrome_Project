@@ -299,6 +299,8 @@ Phase 3.14 documents the Python report manifest write contract. The contract pla
 
 Phase 3.15 implements dry-run planning for future report manifest writes through `report export --dry-run --record-manifest`. It plans the manifest path and entry fields without writing reports, manifests, directories, logs, registry, baseline, session, intake, or local config files. Real `--record-manifest` fails closed with no write; `report export` remains the only write-capable Python command.
 
+Phase 3.16 implements controlled real manifest recording through `report export --record-manifest`. The only supported manifest location is `reports/python_tooling/manifest.jsonl`, and the report output must also be under `reports/python_tooling/`. Dry-run remains no-write, `docs/reports/python_tooling/` is still unsupported for manifest recording, `report export` remains the only write-capable Python command, and no CE/runtime/log/config/session/intake/baseline/registry writes are introduced.
+
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 
 - Define request formats.

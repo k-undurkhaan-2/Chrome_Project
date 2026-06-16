@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -9,6 +10,7 @@ import pytest
 from armedforces_tool import report_export
 from armedforces_tool.command_inventory import list_commands
 from armedforces_tool.report_export import plan_report_export
+from armedforces_tool.report_manifest import analyze_report_manifest
 
 
 @pytest.fixture(autouse=True)
@@ -137,7 +139,7 @@ def test_record_manifest_dry_run_json_shape_contains_entry(tmp_path: Path) -> No
     assert not (tmp_path / "reports").exists()
 
 
-def test_record_manifest_real_export_fails_closed_before_write(tmp_path: Path) -> None:
+def test_record_manifest_real_export_writes_report_and_manifest(tmp_path: Path) -> None:
     result = plan_report_export(
         report_type="full-status",
         dry_run=False,
@@ -146,13 +148,33 @@ def test_record_manifest_real_export_fails_closed_before_write(tmp_path: Path) -
         record_manifest=True,
     )
 
-    assert result.conclusion == "MANIFEST_WRITE_NOT_IMPLEMENTED"
-    assert result.wrote_file is False
-    assert result.would_write_report is False
-    assert result.would_write_manifest is False
-    assert result.writes_files is False
-    assert result.read_only is True
-    assert not (tmp_path / "reports").exists()
+    target = tmp_path / "reports" / "python_tooling" / "full_status_manifest.md"
+    manifest = tmp_path / "reports" / "python_tooling" / "manifest.jsonl"
+    assert result.conclusion == "REPORT_EXPORT_OK"
+    assert result.wrote_file is True
+    assert result.manifest_written is True
+    assert result.manifest_path == "reports/python_tooling/manifest.jsonl"
+    assert result.writes_files is True
+    assert result.read_only is False
+    assert target.read_text(encoding="utf-8") == "# Fake Report\n\nbody\n"
+    assert manifest.exists()
+
+    lines = manifest.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 1
+    entry = json.loads(lines[0])
+    assert entry["schema_version"] == "1"
+    assert entry["report_type"] == "full-status"
+    assert entry["output_path"] == "reports/python_tooling/full_status_manifest.md"
+    assert entry["output_root"] == "reports/python_tooling"
+    assert entry["file_size"] == target.stat().st_size
+    assert entry["sha256"]
+    assert entry["dry_run"] is False
+    assert entry["status"] == "success"
+
+    verify = analyze_report_manifest(action="verify", project_root=tmp_path)
+    assert verify.status == "OK"
+    assert verify.entry_count == 1
+    assert verify.missing_report_count == 0
 
 
 def test_record_manifest_does_not_change_non_record_export_behavior(tmp_path: Path) -> None:
@@ -214,7 +236,7 @@ def test_record_manifest_protected_path_rejected(tmp_path: Path) -> None:
     assert result.planned_manifest_entry is None
 
 
-def test_record_manifest_docs_reports_policy_uses_reports_manifest(tmp_path: Path) -> None:
+def test_record_manifest_docs_reports_policy_rejects_before_write(tmp_path: Path) -> None:
     result = plan_report_export(
         report_type="full-status",
         dry_run=True,
@@ -223,12 +245,115 @@ def test_record_manifest_docs_reports_policy_uses_reports_manifest(tmp_path: Pat
         record_manifest=True,
     )
 
-    assert result.conclusion == "REPORT_EXPORT_DRY_RUN_OK"
+    assert result.conclusion == "MANIFEST_OUTPUT_ROOT_UNSUPPORTED"
+    assert result.would_write_report is False
+    assert result.would_write_manifest is False
     assert result.planned_manifest_path == "reports/python_tooling/manifest.jsonl"
-    assert result.planned_manifest_entry is not None
-    assert result.planned_manifest_entry["output_root"] == "docs/reports/python_tooling"
+    assert result.planned_manifest_entry is None
     assert not (tmp_path / "docs" / "reports").exists()
     assert not (tmp_path / "reports").exists()
+
+
+def test_record_manifest_real_docs_reports_rejects_before_write(tmp_path: Path) -> None:
+    result = plan_report_export(
+        report_type="full-status",
+        dry_run=False,
+        out="docs/reports/python_tooling/full_status_manifest.md",
+        project_root=tmp_path,
+        record_manifest=True,
+    )
+
+    assert result.conclusion == "MANIFEST_OUTPUT_ROOT_UNSUPPORTED"
+    assert result.wrote_file is False
+    assert result.manifest_written is False
+    assert not (tmp_path / "docs" / "reports").exists()
+    assert not (tmp_path / "reports").exists()
+
+
+def test_record_manifest_existing_corrupt_manifest_rejects_before_report_write(tmp_path: Path) -> None:
+    manifest = tmp_path / "reports" / "python_tooling" / "manifest.jsonl"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text("{not json}\n", encoding="utf-8")
+
+    result = plan_report_export(
+        report_type="full-status",
+        dry_run=False,
+        out="reports/python_tooling/full_status_manifest.md",
+        project_root=tmp_path,
+        record_manifest=True,
+    )
+
+    assert result.conclusion == "MANIFEST_PREFLIGHT_REJECTED"
+    assert result.wrote_file is False
+    assert result.manifest_written is False
+    assert not (tmp_path / "reports" / "python_tooling" / "full_status_manifest.md").exists()
+    assert manifest.read_text(encoding="utf-8") == "{not json}\n"
+
+
+def test_record_manifest_duplicate_report_id_rejects_before_report_write(tmp_path: Path) -> None:
+    target = tmp_path / "reports" / "python_tooling" / "full_status_manifest.md"
+    first = plan_report_export(
+        report_type="full-status",
+        dry_run=False,
+        out="reports/python_tooling/full_status_manifest.md",
+        project_root=tmp_path,
+        record_manifest=True,
+        generated_at=_ts(),
+    )
+    assert first.conclusion == "REPORT_EXPORT_OK"
+    target.unlink()
+
+    result = plan_report_export(
+        report_type="full-status",
+        dry_run=False,
+        out="reports/python_tooling/full_status_manifest.md",
+        project_root=tmp_path,
+        record_manifest=True,
+        generated_at=_ts(),
+    )
+
+    assert result.conclusion == "MANIFEST_PREFLIGHT_REJECTED"
+    assert result.wrote_file is False
+    assert result.manifest_written is False
+    assert not target.exists()
+
+
+def test_record_manifest_force_appends_new_entry_without_mutating_old_entry(tmp_path: Path) -> None:
+    target = tmp_path / "reports" / "python_tooling" / "full_status_manifest.md"
+    target.parent.mkdir(parents=True)
+    target.write_text("old", encoding="utf-8")
+    old_entry = {
+        "schema_version": "1",
+        "report_id": "old-report",
+        "report_type": "full-status",
+        "created_at": "2026-06-15T00:00:00Z",
+        "output_path": "reports/python_tooling/old.md",
+        "output_root": "reports/python_tooling",
+        "file_size": 3,
+        "sha256": "old",
+        "command": "old",
+        "dry_run": False,
+        "status": "success",
+    }
+    manifest = tmp_path / "reports" / "python_tooling" / "manifest.jsonl"
+    manifest.write_text(json.dumps(old_entry, sort_keys=True) + "\n", encoding="utf-8")
+
+    result = plan_report_export(
+        report_type="full-status",
+        dry_run=False,
+        out="reports/python_tooling/full_status_manifest.md",
+        project_root=tmp_path,
+        record_manifest=True,
+        force=True,
+    )
+
+    assert result.conclusion == "REPORT_EXPORT_OK"
+    assert result.overwritten is True
+    lines = manifest.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 2
+    assert json.loads(lines[0]) == old_entry
+    assert json.loads(lines[1])["status"] == "success"
+    assert target.read_text(encoding="utf-8") == "# Fake Report\n\nbody\n"
 
 
 def test_path_traversal_is_rejected(tmp_path: Path) -> None:
