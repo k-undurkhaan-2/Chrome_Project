@@ -293,6 +293,8 @@ Phase 3.11 documents the Python write-capable feature policy. Future write-capab
 
 Phase 3.12 adds planning for future Python report manifest / report index support. No implementation is added; `report export` remains the only write-capable Python command. Manifest support is treated as separate write-capable state and remains deferred until a dedicated contract, dry-run, validation, and checkpoint are defined.
 
+Phase 3.13 adds read-only Python report manifest preview/list/verify commands. These commands discover approved manifest candidate paths, list and verify JSONL manifests when present, and report missing/unsupported manifests without creating or modifying files. Manifest writing remains deferred and `report export` remains the only write-capable Python command.
+
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 
 - Define request formats.

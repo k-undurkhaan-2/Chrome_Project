@@ -618,6 +618,7 @@ COMMANDS: list[CommandDescriptor] = [
             "python -m armedforces_tool report preview --type full-status --json",
         ],
         related_commands=[
+            "report manifest preview",
             "status overview",
             "safety doctor",
             "baseline compare",
@@ -625,6 +626,45 @@ COMMANDS: list[CommandDescriptor] = [
             "registry summary",
             "transaction summary",
         ],
+    ),
+    _descriptor(
+        "report manifest preview",
+        "report",
+        "Preview report manifest discovery and metadata without writing files.",
+        "Check whether an approved report manifest exists before list or verify.",
+        related_powershell_command=None,
+        parameters=["--path", "--json"],
+        examples=[
+            "python -m armedforces_tool report manifest preview",
+            "python -m armedforces_tool report manifest preview --json",
+        ],
+        related_commands=["report manifest list", "report manifest verify", "report export"],
+    ),
+    _descriptor(
+        "report manifest list",
+        "report",
+        "List JSONL report manifest entries without writing files.",
+        "Inspect existing report manifest records under approved report roots.",
+        related_powershell_command=None,
+        parameters=["--path", "--json"],
+        examples=[
+            "python -m armedforces_tool report manifest list",
+            "python -m armedforces_tool report manifest list --json",
+        ],
+        related_commands=["report manifest preview", "report manifest verify"],
+    ),
+    _descriptor(
+        "report manifest verify",
+        "report",
+        "Verify JSONL report manifest records without writing files.",
+        "Check required fields, duplicate report IDs, and missing referenced report files.",
+        related_powershell_command=None,
+        parameters=["--path", "--json"],
+        examples=[
+            "python -m armedforces_tool report manifest verify",
+            "python -m armedforces_tool report manifest verify --json",
+        ],
+        related_commands=["report manifest preview", "report manifest list"],
     ),
     _descriptor(
         "report export --dry-run",

@@ -123,6 +123,14 @@ python -m armedforces_tool transaction show --known-true-addr "0x2CA061C7D48"
 
 Render existing Python summaries as Markdown. `report preview` is stdout-only and never writes files. `report export --dry-run` validates a future output path without writing. `report export` can write one `.md` report file, but only under the approved roots `reports/python_tooling/` or `docs/reports/python_tooling/`.
 
+Report manifest views are read-only:
+
+- `report manifest preview` discovers candidate manifest paths and reports `NO_MANIFEST` when none exists.
+- `report manifest list` lists JSONL manifest entries if a manifest exists.
+- `report manifest verify` validates required fields, duplicate `report_id` values, and missing referenced report files.
+
+Manifest writing is not implemented. These commands do not create or modify manifest files.
+
 Representative commands:
 
 ```powershell
@@ -130,6 +138,9 @@ python -m armedforces_tool report preview
 python -m armedforces_tool report preview --type baseline-compare
 python -m armedforces_tool report preview --type full-status
 python -m armedforces_tool report preview --type full-status --json
+python -m armedforces_tool report manifest preview
+python -m armedforces_tool report manifest list
+python -m armedforces_tool report manifest verify
 python -m armedforces_tool report export --dry-run --type full-status --out reports/python_tooling/full_status.md
 python -m armedforces_tool report export --type full-status --out reports/python_tooling/full_status.md
 ```
@@ -265,6 +276,12 @@ Phase 3 currently includes:
   - `full-status` defaults to CLI-friendly text
   - Markdown output requires `--format markdown`
   - checkpoints: `python-report-preview-checkpoint-20260615`, `python-report-preview-cli-checkpoint-20260615`
+- report manifest read-only views:
+  - `report manifest preview`
+  - `report manifest list`
+  - `report manifest verify`
+  - no manifest writes
+  - JSONL verify support only; JSON and Markdown indexes remain planned
 - report export dry-run:
   - `report export --dry-run`
   - no-write path safety preview
@@ -278,7 +295,7 @@ Phase 3 currently includes:
 
 Current command inventory state:
 
-- total commands = `42`
+- total commands = `45`
 - `writes_files_count = 1`
 - `runs_ce_count = 0`
 - only write-capable command = `report export`
@@ -299,7 +316,7 @@ Dry-run first is recommended. Default behavior does not overwrite; use `--force`
 
 Possible next migration directions:
 
-- report manifest planning
+- report manifest write contract
 - report bundle format planning
 - thin PowerShell read-only wrapper pilot
 - native backend contract planning

@@ -28,6 +28,7 @@ from .registry_status import (
     analyze_registry_summary,
 )
 from .report_export import format_report_export_dry_run, plan_report_export
+from .report_manifest import analyze_report_manifest, format_report_manifest
 from .report_preview import REPORT_TYPES, ReportPreviewError, preview_report
 from .sample_plan import analyze_retest_queue, analyze_sample_plan, retest_queue_parity, sample_plan_parity
 from .safety import (
@@ -602,6 +603,22 @@ def _add_report_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
     export.add_argument("--force", action="store_true", help="Allow overwrite when the approved target already exists")
     export.add_argument("--json", action="store_true", help="Emit JSON object")
     export.set_defaults(func=_run_report_export)
+
+    manifest = report_subparsers.add_parser("manifest", help="Read-only report manifest preview/list/verify helpers")
+    manifest_subparsers = manifest.add_subparsers(dest="manifest_command", required=True)
+    for command, help_text in [
+        ("preview", "Preview discovered report manifest metadata without writing files"),
+        ("list", "List report manifest entries without writing files"),
+        ("verify", "Verify report manifest entries without writing files"),
+    ]:
+        parser = manifest_subparsers.add_parser(command, help=help_text)
+        parser.add_argument(
+            "--path",
+            default=None,
+            help="Optional manifest path under reports/python_tooling or docs/reports/python_tooling",
+        )
+        parser.add_argument("--json", action="store_true", help="Emit JSON object")
+        parser.set_defaults(func=_run_report_manifest)
 
 
 def _add_commands_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -1299,6 +1316,15 @@ def _run_report_export(args: argparse.Namespace) -> int:
     else:
         print(format_report_export_dry_run(result))
     return 0 if result.conclusion in {"REPORT_EXPORT_DRY_RUN_OK", "REPORT_EXPORT_OK"} else 1
+
+
+def _run_report_manifest(args: argparse.Namespace) -> int:
+    result = analyze_report_manifest(action=args.manifest_command, path=args.path)
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(format_report_manifest(result))
+    return 0 if result.status in {"OK", "NO_MANIFEST"} else 1
 
 
 def format_registry_summary(result: object) -> str:
