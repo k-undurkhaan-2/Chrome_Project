@@ -4,23 +4,24 @@
 
 This contract defines the boundary for future Python report bundle read-only preview / verify commands in `D:\armedforces.io-v2`.
 
-This phase only writes the contract. It does not implement bundle preview, bundle verify, bundle export, or any Python command.
+Phase 3.20 wrote the contract. Phase 3.21 implements the read-only bundle preview / verify commands. It does not implement bundle export or any write-capable bundle behavior.
 
 ## Current Baseline
 
 Current Python report tooling state:
 
-- report bundle support currently exists only as a planning document.
+- report bundle read-only preview / verify are implemented.
 - `report export` is the only write-capable Python command.
 - `report manifest preview`, `report manifest list`, and `report manifest verify` are read-only.
+- `report bundle preview` and `report bundle verify` are read-only.
 - `writes_files_count = 1`.
 - `runs_ce_count = 0`.
 - no CE or runtime mutation exists in Python tooling.
 - no bundle output exists.
 
-## Proposed Read-Only Command Shape
+## Read-Only Command Shape
 
-Possible future commands only:
+Implemented read-only commands:
 
 ```powershell
 python -m armedforces_tool report bundle preview
@@ -31,15 +32,13 @@ Optional future parameters:
 
 - `--manifest reports/python_tooling/manifest.jsonl`
 - `--json`
-- `--include full-status`
-- `--bundle-type status`
 - `--limit N`
 
-These commands are not implemented by this contract.
+These commands are status/preview commands only. They do not create a bundle directory, copy reports, write a bundle manifest, or create a zip archive.
 
 ## Read-Only Guarantees
 
-Future read-only bundle commands must not:
+Read-only bundle commands must not:
 
 - create a bundle directory
 - create a zip archive
@@ -62,7 +61,7 @@ Default input:
 reports/python_tooling/manifest.jsonl
 ```
 
-Future preview / verify may:
+Preview / verify may:
 
 - inspect manifest entries
 - verify referenced report files exist
@@ -142,7 +141,7 @@ Planned statuses:
 
 ## Command Inventory Expectations
 
-Future implementation expectations:
+Implementation expectations:
 
 - total command count may increase
 - `report bundle preview` must be `read_only=true`
@@ -154,9 +153,9 @@ Future implementation expectations:
 - `runs_ce_count` must remain `0`
 - only `report export` remains write-capable
 
-## Tests Required For Future Implementation
+## Tests Required
 
-Future tests should cover:
+Tests should cover:
 
 - no manifest -> `NO_MANIFEST`
 - valid manifest + referenced reports -> `OK`
@@ -180,7 +179,6 @@ Tests should use fixtures or temporary directories and must not write runtime re
 
 This contract does not authorize:
 
-- implementing bundle preview/verify
 - implementing bundle export
 - creating a bundle directory
 - creating a zip archive

@@ -27,6 +27,7 @@ from .registry_status import (
     analyze_registry_show,
     analyze_registry_summary,
 )
+from .report_bundle import analyze_report_bundle, format_report_bundle
 from .report_export import format_report_export_dry_run, plan_report_export
 from .report_manifest import analyze_report_manifest, format_report_manifest
 from .report_preview import REPORT_TYPES, ReportPreviewError, preview_report
@@ -624,6 +625,22 @@ def _add_report_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
         )
         parser.add_argument("--json", action="store_true", help="Emit JSON object")
         parser.set_defaults(func=_run_report_manifest)
+
+    bundle = report_subparsers.add_parser("bundle", help="Read-only report bundle preview/verify helpers")
+    bundle_subparsers = bundle.add_subparsers(dest="bundle_command", required=True)
+    for command, help_text in [
+        ("preview", "Preview report bundle shape from the runtime report manifest without writing files"),
+        ("verify", "Verify runtime report manifest entries for future bundle readiness without writing files"),
+    ]:
+        parser = bundle_subparsers.add_parser(command, help=help_text)
+        parser.add_argument(
+            "--manifest",
+            default=None,
+            help="Optional manifest path; only reports/python_tooling/manifest.jsonl is accepted",
+        )
+        parser.add_argument("--limit", type=int, default=None, help="Limit manifest entries considered")
+        parser.add_argument("--json", action="store_true", help="Emit JSON object")
+        parser.set_defaults(func=_run_report_bundle)
 
 
 def _add_commands_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -1331,6 +1348,15 @@ def _run_report_manifest(args: argparse.Namespace) -> int:
     else:
         print(format_report_manifest(result))
     return 0 if result.status in {"OK", "NO_MANIFEST"} else 1
+
+
+def _run_report_bundle(args: argparse.Namespace) -> int:
+    result = analyze_report_bundle(action=args.bundle_command, manifest=args.manifest, limit=args.limit)
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(format_report_bundle(result))
+    return 0 if result.status in {"OK", "NO_MANIFEST", "MISSING_REPORTS", "NOT_READY"} else 1
 
 
 def format_registry_summary(result: object) -> str:

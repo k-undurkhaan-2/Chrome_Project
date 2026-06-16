@@ -307,6 +307,8 @@ Phase 3.19 adds planning for future Python report bundle / report package suppor
 
 Phase 3.20 adds the read-only preview/verify contract for future Python report bundle support. No implementation is added, no Python command is added, and no new write surface is authorized. Future bundle preview/verify must remain read-only with `writes_files=false` and `runs_ce=false`; bundle export remains deferred until a separate write-capable contract and checkpoint are defined. `report export` remains the only write-capable Python command.
 
+Phase 3.21 implements Python `report bundle preview` and `report bundle verify` as read-only views over `reports/python_tooling/manifest.jsonl`. The implementation does not create bundle directories, zip archives, copied reports, bundle manifests, indexes, reports, logs, registry files, baselines, session state, intake journals, or local config. No new write surface is added; `report export` remains the only write-capable Python command.
+
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 
 - Define request formats.

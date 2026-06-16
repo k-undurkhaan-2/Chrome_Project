@@ -667,6 +667,32 @@ COMMANDS: list[CommandDescriptor] = [
         related_commands=["report manifest preview", "report manifest list"],
     ),
     _descriptor(
+        "report bundle preview",
+        "report",
+        "Preview a future report bundle shape without writing files.",
+        "Read reports/python_tooling/manifest.jsonl and show what would be considered for a bundle.",
+        related_powershell_command=None,
+        parameters=["--manifest", "--limit", "--json"],
+        examples=[
+            "python -m armedforces_tool report bundle preview",
+            "python -m armedforces_tool report bundle preview --json",
+        ],
+        related_commands=["report bundle verify", "report manifest verify", "report export"],
+    ),
+    _descriptor(
+        "report bundle verify",
+        "report",
+        "Verify report manifest readiness for a future bundle without writing files.",
+        "Check manifest validity, duplicate report IDs, and referenced report file availability.",
+        related_powershell_command=None,
+        parameters=["--manifest", "--limit", "--json"],
+        examples=[
+            "python -m armedforces_tool report bundle verify",
+            "python -m armedforces_tool report bundle verify --json",
+        ],
+        related_commands=["report bundle preview", "report manifest verify"],
+    ),
+    _descriptor(
         "report export --dry-run",
         "report",
         "Validate a future report export target without writing files.",

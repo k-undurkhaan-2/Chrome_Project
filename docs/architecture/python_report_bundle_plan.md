@@ -4,7 +4,7 @@
 
 This document plans future Python report bundle / report package support for `D:\armedforces.io-v2`.
 
-A report bundle would package or archive Python tooling report outputs, related manifest entries, and a compact index into a single operator-facing artifact. This phase is planning-only. It does not implement bundle behavior, add a Python command, or add write-capable behavior.
+A report bundle would package or archive Python tooling report outputs, related manifest entries, and a compact index into a single operator-facing artifact. Planning is complete and read-only preview / verify support is implemented. Bundle export remains deferred and no new write-capable behavior is authorized.
 
 ## Current Baseline
 
@@ -12,6 +12,7 @@ Current Python report tooling state:
 
 - `report export` is implemented.
 - `report export --record-manifest` is implemented.
+- `report bundle preview` and `report bundle verify` are implemented as read-only commands.
 - first-version manifest path: `reports/python_tooling/manifest.jsonl`.
 - `report export` is the only write-capable Python command.
 - `writes_files_count = 1`.
@@ -87,19 +88,19 @@ Candidate `included_reports` fields:
 
 ## Read-Only First Strategy
 
-Future implementation should start with read-only bundle preview and verification.
+The first implementation starts with read-only bundle preview and verification.
 
-Read-only bundle preview should:
+Read-only bundle preview:
 
-- preview what would be bundled
-- inspect existing manifest entries
-- validate referenced report files
-- show missing or invalid report references
-- write nothing
-- create no zip archive
-- create no directory
+- previews what would be bundled
+- inspects existing manifest entries
+- validates referenced report files
+- shows missing or invalid report references
+- writes nothing
+- creates no zip archive
+- creates no directory
 
-Read-only bundle verification should inspect existing bundle candidates only after a write contract defines their format.
+Read-only bundle verification checks runtime manifest readiness for a future bundle and still writes nothing. Existing bundle candidate verification can be added later only after a write contract defines their format.
 
 ## Read-Only Contract Status
 
@@ -115,7 +116,7 @@ The contract documents:
 - command inventory expectations
 - future test requirements
 
-Bundle implementation has not started. Bundle write/export still requires a separate write-capable contract before any dry-run or real write behavior is implemented.
+Read-only bundle preview / verify are implemented. Bundle write/export still requires a separate write-capable contract before any dry-run or real write behavior is implemented.
 
 ## Proposed Future Command Shape
 
@@ -129,7 +130,7 @@ python -m armedforces_tool report bundle export --out reports/python_tooling/bun
 python -m armedforces_tool report bundle export --zip --out reports/python_tooling/bundles/<bundle_id>.zip
 ```
 
-These commands are not implemented by this plan.
+Only `report bundle preview` and `report bundle verify` are implemented. Bundle export commands remain unimplemented and unauthorized.
 
 ## Safety Model
 
@@ -192,7 +193,7 @@ Recommended order:
 
 This phase does not:
 
-- implement bundle commands
+- implement bundle export
 - write bundle files, directories, or zip archives
 - modify `report export`
 - modify the manifest writer

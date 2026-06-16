@@ -129,6 +129,13 @@ Report manifest views are read-only:
 - `report manifest list` lists JSONL manifest entries if a manifest exists.
 - `report manifest verify` validates required fields, duplicate `report_id` values, and missing referenced report files.
 
+Report bundle views are read-only:
+
+- `report bundle preview` reads `reports/python_tooling/manifest.jsonl` and previews a future bundle shape.
+- `report bundle verify` validates bundle readiness from the runtime report manifest and referenced report files.
+- These commands do not create bundle directories, zip files, copied reports, `bundle_manifest.json`, or `index.md`.
+- Bundle export is not implemented.
+
 Manifest recording is available through `report export --record-manifest` for reports written under `reports/python_tooling/`. It writes the report and appends one JSONL record to `reports/python_tooling/manifest.jsonl`.
 
 Manifest dry-run planning remains no-write. `report export --dry-run --record-manifest` previews the report path, planned manifest path, and planned manifest entry without creating directories, a report, or a manifest.
@@ -145,6 +152,8 @@ python -m armedforces_tool report preview --type full-status --json
 python -m armedforces_tool report manifest preview
 python -m armedforces_tool report manifest list
 python -m armedforces_tool report manifest verify
+python -m armedforces_tool report bundle preview
+python -m armedforces_tool report bundle verify
 python -m armedforces_tool report export --dry-run --type full-status --out reports/python_tooling/full_status.md
 python -m armedforces_tool report export --dry-run --type full-status --out reports/python_tooling/full_status.md --record-manifest
 python -m armedforces_tool report export --type full-status --out reports/python_tooling/full_status.md
@@ -318,7 +327,7 @@ That combination must fail closed with `MANIFEST_OUTPUT_ROOT_UNSUPPORTED` or an 
 
 Current command inventory boundary:
 
-- total commands: about `45`
+- total commands: about `47`
 - `writes_files_count = 1`
 - `runs_ce_count = 0`
 - only write-capable Python command: `report export`
@@ -376,6 +385,12 @@ Phase 3 currently includes:
   - appends `reports/python_tooling/manifest.jsonl`
   - `docs/reports/python_tooling/` with `--record-manifest` fails closed
   - final boundary smoke passed with smoke-created report/manifest cleaned
+- report bundle read-only views:
+  - `report bundle preview`
+  - `report bundle verify`
+  - reads only `reports/python_tooling/manifest.jsonl` by default
+  - no bundle directory, zip, copied report, bundle manifest, or index writes
+  - bundle export remains deferred
 - report export dry-run:
   - `report export --dry-run`
   - no-write path safety preview
