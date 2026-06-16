@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -11,6 +12,8 @@ APPROVED_OUTPUT_ROOTS = (
     Path("reports/python_tooling"),
     Path("docs/reports/python_tooling"),
 )
+REPORT_MANIFEST_PATH = Path("reports/python_tooling/manifest.jsonl")
+REPORT_MANIFEST_SCHEMA_VERSION = "1"
 
 PROTECTED_PATHS = (
     Path("log"),
@@ -51,6 +54,12 @@ class ReportExportDryRunResult:
     content_line_count: int | None = None
     content_size_bytes: int | None = None
     bytes_written: int | None = None
+    record_manifest: bool = False
+    would_write_report: bool | None = None
+    would_write_manifest: bool | None = None
+    planned_report_path: str | None = None
+    planned_manifest_path: str | None = None
+    planned_manifest_entry: dict[str, object | None] | None = None
     read_only: bool = True
     writes_files: bool = False
     runs_ce: bool = False
@@ -77,6 +86,12 @@ class ReportExportDryRunResult:
             "content_line_count": self.content_line_count,
             "content_size_bytes": self.content_size_bytes,
             "bytes_written": self.bytes_written,
+            "record_manifest": self.record_manifest,
+            "would_write_report": self.would_write_report,
+            "would_write_manifest": self.would_write_manifest,
+            "planned_report_path": self.planned_report_path,
+            "planned_manifest_path": self.planned_manifest_path,
+            "planned_manifest_entry": self.planned_manifest_entry,
             "read_only": self.read_only,
             "writes_files": self.writes_files,
             "runs_ce": self.runs_ce,
@@ -92,15 +107,17 @@ def plan_report_export(
     force: bool = False,
     latest: int = 20,
     profile: str = "full",
+    record_manifest: bool = False,
     project_root: Path = DEFAULT_PROJECT_ROOT,
     generated_at: datetime | None = None,
 ) -> ReportExportDryRunResult:
     normalized_report_type = _normalize_report_type(report_type)
+    planned_at = generated_at or datetime.now(timezone.utc)
     target, target_errors = _target_from_args(
         report_type=normalized_report_type,
         output_dir=output_dir,
         out=out,
-        generated_at=generated_at or datetime.now(timezone.utc),
+        generated_at=planned_at,
         project_root=project_root,
     )
     if target_errors:
@@ -112,6 +129,7 @@ def plan_report_export(
             path_safety_status="PATH_REJECTED",
             errors=target_errors,
             recommendation="Use --out or --output-dir under reports/python_tooling or docs/reports/python_tooling.",
+            record_manifest=record_manifest,
         )
 
     assert target is not None
@@ -127,6 +145,7 @@ def plan_report_export(
             path_safety_status="PATH_REJECTED",
             errors=safety["errors"],
             recommendation="Choose a .md path under reports/python_tooling or docs/reports/python_tooling.",
+            record_manifest=record_manifest,
         )
 
     warnings = list(safety["warnings"])
@@ -150,7 +169,29 @@ def plan_report_export(
                 path_safety_status="PATH_REJECTED",
                 errors=["target exists; rerun with --force to overwrite"],
                 recommendation="Choose a new .md target path or rerun with --force after reviewing the existing file.",
+                record_manifest=record_manifest,
             )
+
+    if record_manifest and not dry_run:
+        return _result(
+            report_type=normalized_report_type,
+            dry_run=False,
+            target_path=str(target),
+            approved_output_root=safety["approved_output_root"],
+            target_exists=target_exists,
+            target_exists_before=target_exists,
+            would_overwrite=would_overwrite,
+            force=force,
+            conclusion="MANIFEST_WRITE_NOT_IMPLEMENTED",
+            path_safety_status=path_safety_status,
+            errors=["--record-manifest real writes are not implemented; rerun with --dry-run to preview."],
+            recommendation="Manifest recording is dry-run only in this phase. No report or manifest was written.",
+            record_manifest=True,
+            would_write_report=False,
+            would_write_manifest=False,
+            planned_report_path=str(target),
+            planned_manifest_path=REPORT_MANIFEST_PATH.as_posix(),
+        )
 
     preview = preview_report(report_type=normalized_report_type, latest=latest, profile=profile)
     content = preview.markdown
@@ -172,11 +213,12 @@ def plan_report_export(
                 force=force,
                 conclusion="REPORT_EXPORT_WRITE_FAILED",
                 path_safety_status="PATH_OK",
-                errors=[f"failed to write report: {exc}"],
-                recommendation="Inspect filesystem permissions and rerun only after the target path is safe.",
-                content_line_count=content_line_count,
-                content_size_bytes=content_size_bytes,
-            )
+            errors=[f"failed to write report: {exc}"],
+            recommendation="Inspect filesystem permissions and rerun only after the target path is safe.",
+            content_line_count=content_line_count,
+            content_size_bytes=content_size_bytes,
+            record_manifest=record_manifest,
+        )
         return _result(
             report_type=normalized_report_type,
             dry_run=False,
@@ -197,6 +239,20 @@ def plan_report_export(
             bytes_written=content_size_bytes,
             read_only=False,
             writes_files=True,
+            record_manifest=record_manifest,
+        )
+
+    planned_manifest_entry = None
+    if record_manifest:
+        planned_manifest_entry = _planned_manifest_entry(
+            report_type=normalized_report_type,
+            target=target,
+            project_root=project_root,
+            output_root=str(safety["approved_output_root_relative"] or ""),
+            planned_at=planned_at,
+            content_size_bytes=content_size_bytes,
+            output_dir=output_dir,
+            out=out,
         )
 
     return _result(
@@ -210,9 +266,19 @@ def plan_report_export(
         conclusion="REPORT_EXPORT_DRY_RUN_OK",
         path_safety_status=path_safety_status,
         warnings=warnings,
-        recommendation="Dry-run only. No report file was written.",
+        recommendation=(
+            "Dry-run only. No report or manifest file was written."
+            if record_manifest
+            else "Dry-run only. No report file was written."
+        ),
         content_line_count=content_line_count,
         content_size_bytes=content_size_bytes,
+        record_manifest=record_manifest,
+        would_write_report=True if record_manifest else None,
+        would_write_manifest=True if record_manifest else None,
+        planned_report_path=str(target) if record_manifest else None,
+        planned_manifest_path=REPORT_MANIFEST_PATH.as_posix() if record_manifest else None,
+        planned_manifest_entry=planned_manifest_entry,
     )
 
 
@@ -239,6 +305,16 @@ def format_report_export_dry_run(result: ReportExportDryRunResult) -> str:
         ("writes_files", result.writes_files),
         ("runs_ce", result.runs_ce),
     ]
+    if result.record_manifest:
+        rows.extend(
+            [
+                ("record_manifest", result.record_manifest),
+                ("would_write_report", result.would_write_report),
+                ("would_write_manifest", result.would_write_manifest),
+                ("planned_report_path", result.planned_report_path),
+                ("planned_manifest_path", result.planned_manifest_path),
+            ]
+        )
     width = max(len(label) for label, _ in rows)
     lines = [title, "Field".ljust(width) + "  Value", "-".ljust(width, "-") + "  -----"]
     for label, value in rows:
@@ -249,6 +325,14 @@ def format_report_export_dry_run(result: ReportExportDryRunResult) -> str:
     if result.errors:
         lines.extend(["", "Errors"])
         lines.extend(f"- {error}" for error in result.errors)
+    if result.planned_manifest_entry:
+        lines.extend(["", "Planned Manifest Entry"])
+        entry_rows = [(key, _display(value)) for key, value in result.planned_manifest_entry.items()]
+        entry_width = max(len(label) for label, _ in entry_rows)
+        lines.append("Field".ljust(entry_width) + "  Value")
+        lines.append("-".ljust(entry_width, "-") + "  -----")
+        for label, value in entry_rows:
+            lines.append(f"{label.ljust(entry_width)}  {value}")
     lines.extend(["", "Recommendation", result.recommendation])
     return "\n".join(lines)
 
@@ -278,7 +362,13 @@ def _validate_target_path(*, target: Path, project_root: Path) -> dict[str, obje
     project_root_resolved = project_root.resolve()
     target_resolved = target.resolve(strict=False)
     approved_roots = [(project_root_resolved / root).resolve(strict=False) for root in APPROVED_OUTPUT_ROOTS]
-    approved_root = next((root for root in approved_roots if _is_relative_to(target_resolved, root)), None)
+    approved_root = None
+    approved_root_relative = None
+    for root_index, root in enumerate(approved_roots):
+        if _is_relative_to(target_resolved, root):
+            approved_root = root
+            approved_root_relative = APPROVED_OUTPUT_ROOTS[root_index]
+            break
 
     if ".." in target.parts:
         errors.append("path traversal is not allowed")
@@ -295,6 +385,7 @@ def _validate_target_path(*, target: Path, project_root: Path) -> dict[str, obje
 
     return {
         "approved_output_root": str(approved_root) if approved_root is not None else None,
+        "approved_output_root_relative": approved_root_relative.as_posix() if approved_root_relative is not None else None,
         "warnings": warnings,
         "errors": errors,
     }
@@ -334,6 +425,12 @@ def _result(
     content_line_count: int | None = None,
     content_size_bytes: int | None = None,
     bytes_written: int | None = None,
+    record_manifest: bool = False,
+    would_write_report: bool | None = None,
+    would_write_manifest: bool | None = None,
+    planned_report_path: str | None = None,
+    planned_manifest_path: str | None = None,
+    planned_manifest_entry: dict[str, object | None] | None = None,
     read_only: bool = True,
     writes_files: bool = False,
 ) -> ReportExportDryRunResult:
@@ -358,9 +455,70 @@ def _result(
         content_line_count=content_line_count,
         content_size_bytes=content_size_bytes,
         bytes_written=bytes_written,
+        record_manifest=record_manifest,
+        would_write_report=would_write_report,
+        would_write_manifest=would_write_manifest,
+        planned_report_path=planned_report_path,
+        planned_manifest_path=planned_manifest_path,
+        planned_manifest_entry=planned_manifest_entry,
         read_only=read_only,
         writes_files=writes_files,
     )
+
+
+def _planned_manifest_entry(
+    *,
+    report_type: str,
+    target: Path,
+    project_root: Path,
+    output_root: str,
+    planned_at: datetime,
+    content_size_bytes: int,
+    output_dir: str | None,
+    out: str | None,
+) -> dict[str, object | None]:
+    relative_output = _relative_display_path(target, project_root)
+    created_at = planned_at.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    command = _planned_manifest_command(
+        report_type=report_type,
+        output_dir=output_dir,
+        out=out,
+    )
+    report_id_source = f"{relative_output}|{report_type}|{command}"
+    report_id = f"planned-{hashlib.sha256(report_id_source.encode('utf-8')).hexdigest()[:16]}"
+    return {
+        "schema_version": REPORT_MANIFEST_SCHEMA_VERSION,
+        "report_id": report_id,
+        "report_type": report_type,
+        "planned_created_at": created_at,
+        "created_at": None,
+        "output_path": relative_output,
+        "output_root": output_root,
+        "file_size": None,
+        "planned_file_size": content_size_bytes,
+        "sha256": None,
+        "planned_sha256": "would_compute_after_write",
+        "command": command,
+        "dry_run": False,
+        "status": "planned_success",
+    }
+
+
+def _planned_manifest_command(*, report_type: str, output_dir: str | None, out: str | None) -> str:
+    parts = ["python -m armedforces_tool report export", f"--type {report_type}"]
+    if out:
+        parts.append(f"--out {out}")
+    if output_dir:
+        parts.append(f"--output-dir {output_dir}")
+    parts.append("--record-manifest")
+    return " ".join(parts)
+
+
+def _relative_display_path(path: Path, project_root: Path) -> str:
+    try:
+        return path.resolve(strict=False).relative_to(project_root.resolve()).as_posix()
+    except ValueError:
+        return str(path)
 
 
 def _rejected_conclusion(dry_run: bool) -> str:

@@ -601,6 +601,7 @@ def _add_report_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
     export.add_argument("--output-dir", default=None, help="Approved future output directory")
     export.add_argument("--out", default=None, help="Approved future .md output path")
     export.add_argument("--force", action="store_true", help="Allow overwrite when the approved target already exists")
+    export.add_argument("--record-manifest", action="store_true", help="Dry-run future report manifest recording")
     export.add_argument("--json", action="store_true", help="Emit JSON object")
     export.set_defaults(func=_run_report_export)
 
@@ -1310,6 +1311,7 @@ def _run_report_export(args: argparse.Namespace) -> int:
         force=args.force,
         latest=args.latest,
         profile=args.profile,
+        record_manifest=args.record_manifest,
     )
     if args.json:
         print(json.dumps(result.to_dict(), indent=2))

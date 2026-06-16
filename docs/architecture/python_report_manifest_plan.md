@@ -6,7 +6,7 @@ This document plans future Python report manifest / report index support for `D:
 
 A report manifest would be a persistent index or metadata record for report export outputs. It could help operators find exported reports, verify report hashes, inspect report provenance, and audit report generation history.
 
-Phase 3.12 was planning only. Phase 3.13 implements read-only manifest preview/list/verify commands. Phase 3.14 adds a write contract for future manifest append behavior. Manifest writing is still not implemented, `report export` behavior is unchanged, and no manifest file is written by these commands.
+Phase 3.12 was planning only. Phase 3.13 implements read-only manifest preview/list/verify commands. Phase 3.14 adds a write contract for future manifest append behavior. Phase 3.15 implements dry-run planning for `--record-manifest`. Manifest writing is still not implemented, `report export` behavior without `--record-manifest` is unchanged, and no manifest file is written by these commands.
 
 ## Current Baseline
 
@@ -23,6 +23,7 @@ Current Python report tooling state:
 - `report preview` writes nothing and renders to stdout.
 - `report manifest preview/list/verify` are implemented as read-only commands.
 - the manifest write contract is documented.
+- `report export --dry-run --record-manifest` plans the future manifest entry and writes nothing.
 - manifest writing is not implemented.
 
 `report export` does not write:
@@ -254,7 +255,27 @@ The contract documents:
 - dry-run semantics
 - cleanup policy
 
-No implementation is added by the contract. Manifest writing still requires a separate dry-run implementation phase, real-write implementation phase, smoke validation, and checkpoint.
+No implementation is added by the contract. The dry-run planning phase is now implemented; manifest writing still requires a separate real-write implementation phase, smoke validation, and checkpoint.
+
+## Phase 3.15 Dry-Run Planning Status
+
+Implemented dry-run command shape:
+
+```powershell
+python -m armedforces_tool report export --dry-run --type full-status --out reports/python_tooling/full_status.md --record-manifest
+```
+
+Current behavior:
+
+- writes no report
+- writes no manifest
+- creates no directories
+- reports `would_write_report=true`
+- reports `would_write_manifest=true`
+- plans manifest path `reports/python_tooling/manifest.jsonl`
+- includes planned manifest entry fields
+
+Real `--record-manifest` remains fail-closed and returns `MANIFEST_WRITE_NOT_IMPLEMENTED` before report export writes.
 
 ## Recommended Implementation Order
 
@@ -268,7 +289,7 @@ Recommended order:
 6. manifest write implementation
 7. guarded smoke/checkpoint
 
-The first read-only implementation step is complete. The manifest write contract is documented. Manifest writing must still not be added until a dedicated dry-run implementation phase is started.
+The first read-only implementation step is complete. The manifest write contract is documented. The dry-run planning phase is implemented. Manifest writing must still not be added until a dedicated real-write implementation phase is started.
 
 ## Explicit Non-Goals
 

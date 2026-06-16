@@ -297,6 +297,8 @@ Phase 3.13 adds read-only Python report manifest preview/list/verify commands. T
 
 Phase 3.14 documents the Python report manifest write contract. The contract plans future `--record-manifest` behavior, append-only `reports/python_tooling/manifest.jsonl`, write ordering, failure handling, dry-run semantics, and cleanup policy. No implementation is added; `report export` remains the only write-capable Python command.
 
+Phase 3.15 implements dry-run planning for future report manifest writes through `report export --dry-run --record-manifest`. It plans the manifest path and entry fields without writing reports, manifests, directories, logs, registry, baseline, session, intake, or local config files. Real `--record-manifest` fails closed with no write; `report export` remains the only write-capable Python command.
+
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 
 - Define request formats.

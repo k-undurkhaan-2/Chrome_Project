@@ -91,6 +91,146 @@ def test_dry_run_with_approved_out_is_accepted(tmp_path: Path) -> None:
     assert not (tmp_path / "docs" / "reports").exists()
 
 
+def test_record_manifest_dry_run_plans_manifest_and_writes_nothing(tmp_path: Path) -> None:
+    result = plan_report_export(
+        report_type="full-status",
+        dry_run=True,
+        out="reports/python_tooling/full_status_manifest.md",
+        project_root=tmp_path,
+        record_manifest=True,
+    )
+
+    assert result.conclusion == "REPORT_EXPORT_DRY_RUN_OK"
+    assert result.record_manifest is True
+    assert result.would_write_report is True
+    assert result.would_write_manifest is True
+    assert result.planned_report_path is not None
+    assert result.planned_manifest_path == "reports/python_tooling/manifest.jsonl"
+    assert result.planned_manifest_entry is not None
+    assert result.planned_manifest_entry["schema_version"] == "1"
+    assert result.planned_manifest_entry["report_type"] == "full-status"
+    assert result.planned_manifest_entry["output_path"] == "reports/python_tooling/full_status_manifest.md"
+    assert result.planned_manifest_entry["output_root"] == "reports/python_tooling"
+    assert result.planned_manifest_entry["dry_run"] is False
+    assert result.planned_manifest_entry["status"] == "planned_success"
+    assert result.planned_manifest_entry["planned_file_size"] == len("# Fake Report\n\nbody\n".encode("utf-8"))
+    assert result.read_only is True
+    assert result.writes_files is False
+    assert not (tmp_path / "reports").exists()
+
+
+def test_record_manifest_dry_run_json_shape_contains_entry(tmp_path: Path) -> None:
+    data = plan_report_export(
+        report_type="full-status",
+        dry_run=True,
+        out="reports/python_tooling/full_status_manifest.md",
+        project_root=tmp_path,
+        record_manifest=True,
+    ).to_dict()
+
+    assert data["record_manifest"] is True
+    assert data["would_write_report"] is True
+    assert data["would_write_manifest"] is True
+    assert data["planned_manifest_path"] == "reports/python_tooling/manifest.jsonl"
+    assert data["planned_manifest_entry"]["report_id"].startswith("planned-")
+    assert data["planned_manifest_entry"]["planned_sha256"] == "would_compute_after_write"
+    assert not (tmp_path / "reports").exists()
+
+
+def test_record_manifest_real_export_fails_closed_before_write(tmp_path: Path) -> None:
+    result = plan_report_export(
+        report_type="full-status",
+        dry_run=False,
+        out="reports/python_tooling/full_status_manifest.md",
+        project_root=tmp_path,
+        record_manifest=True,
+    )
+
+    assert result.conclusion == "MANIFEST_WRITE_NOT_IMPLEMENTED"
+    assert result.wrote_file is False
+    assert result.would_write_report is False
+    assert result.would_write_manifest is False
+    assert result.writes_files is False
+    assert result.read_only is True
+    assert not (tmp_path / "reports").exists()
+
+
+def test_record_manifest_does_not_change_non_record_export_behavior(tmp_path: Path) -> None:
+    result = plan_report_export(
+        report_type="full-status",
+        dry_run=False,
+        out="reports/python_tooling/full_status.md",
+        project_root=tmp_path,
+    )
+
+    target = tmp_path / "reports" / "python_tooling" / "full_status.md"
+    assert result.conclusion == "REPORT_EXPORT_OK"
+    assert result.record_manifest is False
+    assert result.wrote_file is True
+    assert result.writes_files is True
+    assert target.read_text(encoding="utf-8") == "# Fake Report\n\nbody\n"
+
+
+def test_record_manifest_bad_path_rejected(tmp_path: Path) -> None:
+    result = plan_report_export(
+        report_type="full-status",
+        dry_run=True,
+        out="outside/full_status.md",
+        project_root=tmp_path,
+        record_manifest=True,
+    )
+
+    assert result.conclusion == "REPORT_EXPORT_DRY_RUN_REJECTED"
+    assert result.record_manifest is True
+    assert result.planned_manifest_entry is None
+    assert not (tmp_path / "outside").exists()
+
+
+def test_record_manifest_traversal_rejected(tmp_path: Path) -> None:
+    result = plan_report_export(
+        report_type="full-status",
+        dry_run=True,
+        out="../full_status.md",
+        project_root=tmp_path,
+        record_manifest=True,
+    )
+
+    assert result.conclusion == "REPORT_EXPORT_DRY_RUN_REJECTED"
+    assert any("path traversal" in error for error in result.errors)
+    assert result.planned_manifest_entry is None
+
+
+def test_record_manifest_protected_path_rejected(tmp_path: Path) -> None:
+    result = plan_report_export(
+        report_type="full-status",
+        dry_run=True,
+        out="log/full_status.md",
+        project_root=tmp_path,
+        record_manifest=True,
+    )
+
+    assert result.conclusion == "REPORT_EXPORT_DRY_RUN_REJECTED"
+    assert any("protected" in error for error in result.errors)
+    assert result.planned_manifest_entry is None
+
+
+def test_record_manifest_docs_reports_policy_uses_reports_manifest(tmp_path: Path) -> None:
+    result = plan_report_export(
+        report_type="full-status",
+        dry_run=True,
+        out="docs/reports/python_tooling/full_status_manifest.md",
+        project_root=tmp_path,
+        record_manifest=True,
+    )
+
+    assert result.conclusion == "REPORT_EXPORT_DRY_RUN_OK"
+    assert result.planned_manifest_path == "reports/python_tooling/manifest.jsonl"
+    assert result.planned_manifest_entry is not None
+    assert result.planned_manifest_entry["output_root"] == "docs/reports/python_tooling"
+    assert not (tmp_path / "docs" / "reports").exists()
+    assert not (tmp_path / "reports").exists()
+
+
 def test_path_traversal_is_rejected(tmp_path: Path) -> None:
     result = plan_report_export(
         report_type="full-status",
@@ -267,5 +407,7 @@ def test_command_inventory_includes_report_export_modes() -> None:
     assert records["report export"].writes_files is True
     assert records["report export"].read_only is False
     assert records["report export"].runs_ce is False
+    assert "--record-manifest" in records["report export --dry-run"].parameters
+    assert "--record-manifest" in records["report export"].parameters
     assert result.to_dict()["summary"]["writes_files_count"] == 1
     assert result.to_dict()["summary"]["runs_ce_count"] == 0

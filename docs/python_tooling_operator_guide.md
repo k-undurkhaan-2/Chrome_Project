@@ -129,9 +129,9 @@ Report manifest views are read-only:
 - `report manifest list` lists JSONL manifest entries if a manifest exists.
 - `report manifest verify` validates required fields, duplicate `report_id` values, and missing referenced report files.
 
-Manifest writing is not implemented. These commands do not create or modify manifest files.
+Manifest write dry-run planning is available through `report export --dry-run --record-manifest`. It previews the report path, planned manifest path, and planned manifest entry without writing a report or manifest.
 
-Future manifest writing requires a contract-backed `--record-manifest` implementation. Until that exists, use manifest commands only to preview, list, or verify existing manifest files.
+Real manifest writing is not implemented. `report export --record-manifest` without `--dry-run` fails closed before writing the report or manifest.
 
 Representative commands:
 
@@ -144,6 +144,7 @@ python -m armedforces_tool report manifest preview
 python -m armedforces_tool report manifest list
 python -m armedforces_tool report manifest verify
 python -m armedforces_tool report export --dry-run --type full-status --out reports/python_tooling/full_status.md
+python -m armedforces_tool report export --dry-run --type full-status --out reports/python_tooling/full_status.md --record-manifest
 python -m armedforces_tool report export --type full-status --out reports/python_tooling/full_status.md
 ```
 
@@ -288,7 +289,12 @@ Phase 3 currently includes:
   - future `--record-manifest`
   - first approved manifest location: `reports/python_tooling/manifest.jsonl`
   - append-only JSONL planned
-  - no implementation yet
+  - real manifest writing is not implemented
+- report manifest dry-run planning:
+  - `report export --dry-run --record-manifest`
+  - no report write
+  - no manifest write
+  - real `--record-manifest` fails closed
 - report export dry-run:
   - `report export --dry-run`
   - no-write path safety preview
@@ -323,7 +329,7 @@ Dry-run first is recommended. Default behavior does not overwrite; use `--force`
 
 Possible next migration directions:
 
-- report manifest dry-run implementation
+- report manifest real write implementation
 - report bundle format planning
 - thin PowerShell read-only wrapper pilot
 - native backend contract planning

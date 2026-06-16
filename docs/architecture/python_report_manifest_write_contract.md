@@ -4,7 +4,7 @@
 
 This contract defines the safety boundary for future Python report manifest writing in `D:\armedforces.io-v2`.
 
-This task only writes the contract. It does not implement manifest writing, change `report export`, add `--record-manifest`, add a Python command, or add write-capable behavior.
+Phase 3.14 only wrote the contract. Phase 3.15 implements dry-run planning for `--record-manifest`. Real manifest writing is still not implemented, `report export` behavior without `--record-manifest` is unchanged, and no write-capable command is added.
 
 ## Current Baseline
 
@@ -16,6 +16,8 @@ Current Python tooling state:
 - `runs_ce_count = 0`.
 - there is currently no runtime manifest write.
 - no CE or runtime mutation exists in Python tooling.
+- `report export --dry-run --record-manifest` plans the future manifest entry and writes nothing.
+- real `report export --record-manifest` fails closed before any report or manifest write.
 
 Current report export behavior remains unchanged:
 
@@ -189,6 +191,36 @@ Future dry-run behavior for `--record-manifest`:
 
 Dry-run must be safe to execute repeatedly.
 
+## Phase 3.15 Dry-Run Implementation Note
+
+Implemented dry-run command shape:
+
+```powershell
+python -m armedforces_tool report export --dry-run --type full-status --out reports/python_tooling/full_status.md --record-manifest
+```
+
+Current behavior:
+
+- validates the report output path
+- renders report content for metadata only
+- sets `would_write_report=true`
+- sets `would_write_manifest=true`
+- plans `reports/python_tooling/manifest.jsonl`
+- prints a planned manifest entry
+- writes no report
+- writes no manifest
+- creates no directories
+
+The dry-run planned manifest path is always `reports/python_tooling/manifest.jsonl`, including when the report output path is under `docs/reports/python_tooling/`.
+
+Real manifest write behavior is still not implemented:
+
+```powershell
+python -m armedforces_tool report export --type full-status --out reports/python_tooling/full_status.md --record-manifest
+```
+
+This fails closed with `MANIFEST_WRITE_NOT_IMPLEMENTED` before any report or manifest write.
+
 ## Command Inventory Impact
 
 Future inventory impact:
@@ -265,4 +297,3 @@ This contract does not authorize:
 - PowerShell/Lua/runtime changes
 - log/config/session/intake/baseline/registry writes
 - algorithm rewrite
-
