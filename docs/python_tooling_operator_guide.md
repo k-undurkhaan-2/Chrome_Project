@@ -185,6 +185,8 @@ It must not:
 
 Write-capable behavior is currently limited to `report export` only. It does not run CE, does not mutate runtime/config/log/session/intake/baseline/registry state, rejects protected paths, rejects non-`.md` targets, and refuses overwrite unless `--force` is provided.
 
+Future Python write-capable commands must follow the [Python Write-Capable Feature Policy](architecture/python_write_capable_feature_policy.md). At the current checkpoint, `report export` remains the only write-capable Python command and is limited to approved report roots.
+
 ## Known Acceptable WARNs
 
 The following parity WARN results are currently acceptable and are not Python failures:
@@ -303,7 +305,7 @@ Possible next migration directions:
 - native backend contract planning
 - write-capable feature policy template
 
-Future write-capable Python commands must use the same pattern as `report export`: explicit contract, dry-run where applicable, path/state protections, validation smoke, cleanup rules, and checkpoint.
+Future write-capable Python commands must use the same pattern as `report export`: explicit policy, contract, dry-run where applicable, path/state protections, validation smoke, cleanup rules, and checkpoint.
 
 Still active non-goals:
 

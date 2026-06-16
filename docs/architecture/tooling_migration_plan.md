@@ -289,6 +289,8 @@ Phase 3.8 documents the write-capable report export boundary. The boundary keeps
 
 Phase 3.10 records the current Phase 3 state. The read-only registry and transaction tracks are complete; report preview and guarded report export are complete; `report export` is the only write-capable Python command; and future write-capable commands must follow the same contract, validation, cleanup, and checkpoint process.
 
+Phase 3.11 documents the Python write-capable feature policy. Future write-capable work must use the same planning, contract, dry-run, smoke-check, cleanup, command-inventory, and checkpoint process established by guarded `report export`. At this point, `report export` remains the only write-capable Python command.
+
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 
 - Define request formats.
