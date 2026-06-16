@@ -626,4 +626,17 @@ COMMANDS: list[CommandDescriptor] = [
             "transaction summary",
         ],
     ),
+    _descriptor(
+        "report export --dry-run",
+        "report",
+        "Validate a future report export target without writing files.",
+        "Preview the path safety and metadata for a future Markdown export.",
+        related_powershell_command=None,
+        parameters=["--dry-run", "--type", "--output-dir", "--out", "--force", "--latest", "--profile", "--json"],
+        examples=[
+            "python -m armedforces_tool report export --dry-run --type status-overview --output-dir reports/python_tooling",
+            "python -m armedforces_tool report export --dry-run --type full-status --out reports/python_tooling/full_status_test.md --json",
+        ],
+        related_commands=["report preview", "status overview"],
+    ),
 ]

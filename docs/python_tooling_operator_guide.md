@@ -196,11 +196,16 @@ python -m armedforces_tool baseline compare
 python -m armedforces_tool case summary --latest 20 --profile full
 python -m armedforces_tool report preview --type full-status
 
+python -m armedforces_tool report export --dry-run --type status-overview --output-dir reports/python_tooling
+python -m armedforces_tool report export --dry-run --type full-status --out reports/python_tooling/full_status_test.md
+
 .venv\Scripts\python.exe -m pytest --basetemp .tmp_pytest
 Remove-Item -Recurse -Force .tmp_pytest -ErrorAction SilentlyContinue
 
 git status --short
 ```
+
+`report export --dry-run` validates future export paths and prints metadata only. It does not create directories, does not create `.md` files, and real report export writing remains unimplemented.
 
 ## Current Stable State
 
@@ -210,7 +215,7 @@ Current expected stable results:
 - `safety doctor = SAFE`
 - `baseline compare = BASELINE_COMPARE_PASS`
 - `case summary = COVERAGE_OK`
-- command inventory = 40 read-only commands after Phase 3.4 report preview
+- command inventory = 41 read-only commands after Phase 3.6 report export dry-run
 - pytest = 97 passed
 
 ## Next Migration Candidates

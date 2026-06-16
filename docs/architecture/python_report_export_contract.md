@@ -194,3 +194,18 @@ If implementation is approved later, the recommended order is:
 2. Create a separate checkpoint.
 3. Then implement real `.md` writing under approved output roots.
 
+## Phase 3.6 Dry-Run Implementation Note
+
+`report export --dry-run` is the only implemented export command shape in Phase 3.6.
+
+It validates approved output roots, target extension, protected paths, traversal, existing target state, and `--force` overwrite metadata. It prints the target plan and content summary only.
+
+It does not:
+
+- create output directories
+- write `.md` report files
+- write logs, registry files, baselines, session state, intake journal, or local config
+- run CE
+- enable real `report export`
+
+Calling `report export` without `--dry-run` must continue to fail with `REPORT_EXPORT_NOT_IMPLEMENTED`.

@@ -281,6 +281,8 @@ Phase 3.4 adds Python `report preview` as a stdout-only Markdown renderer over e
 
 Phase 3.5 defines the write-capable contract for future Python `report export` only. There is no implementation yet; file-writing report export remains gated behind approved output roots, path safety rules, dry-run behavior, overwrite policy, tests, and a separate checkpoint.
 
+Phase 3.6 implements `report export --dry-run` only. The command validates future report paths under approved output roots and prints export metadata, but it does not create directories and does not write `.md` report files. Real report export writing remains deferred.
+
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 
 - Define request formats.

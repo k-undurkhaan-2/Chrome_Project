@@ -27,6 +27,7 @@ from .registry_status import (
     analyze_registry_show,
     analyze_registry_summary,
 )
+from .report_export import format_report_export_dry_run, plan_report_export
 from .report_preview import REPORT_TYPES, ReportPreviewError, preview_report
 from .sample_plan import analyze_retest_queue, analyze_sample_plan, retest_queue_parity, sample_plan_parity
 from .safety import (
@@ -577,6 +578,30 @@ def _add_report_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
     )
     preview.add_argument("--json", action="store_true", help="Emit JSON object containing Markdown")
     preview.set_defaults(func=_run_report_preview)
+
+    export = report_subparsers.add_parser(
+        "export",
+        help="Dry-run report export path validation only; real writing is not implemented",
+    )
+    export.add_argument("--dry-run", action="store_true", help="Required. Validate the future export target only.")
+    export.add_argument(
+        "--type",
+        choices=REPORT_TYPES,
+        default="status-overview",
+        help="Report type to plan for export",
+    )
+    export.add_argument("--latest", type=int, default=20, help="Number of latest records to inspect")
+    export.add_argument(
+        "--profile",
+        choices=("full", "quick"),
+        default="full",
+        help="Validation profile filter",
+    )
+    export.add_argument("--output-dir", default=None, help="Approved future output directory")
+    export.add_argument("--out", default=None, help="Approved future .md output path")
+    export.add_argument("--force", action="store_true", help="Dry-run overwrite metadata only; never writes files")
+    export.add_argument("--json", action="store_true", help="Emit JSON object")
+    export.set_defaults(func=_run_report_export)
 
 
 def _add_commands_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -1257,6 +1282,23 @@ def _run_report_preview(args: argparse.Namespace) -> int:
         output = result.markdown if args.format == "markdown" else (result.cli_text or result.markdown)
         print(output, end="" if output.endswith("\n") else "\n")
     return 0
+
+
+def _run_report_export(args: argparse.Namespace) -> int:
+    result = plan_report_export(
+        report_type=args.type,
+        dry_run=args.dry_run,
+        output_dir=args.output_dir,
+        out=args.out,
+        force=args.force,
+        latest=args.latest,
+        profile=args.profile,
+    )
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(format_report_export_dry_run(result))
+    return 0 if result.conclusion == "REPORT_EXPORT_DRY_RUN_OK" else 1
 
 
 def format_registry_summary(result: object) -> str:
