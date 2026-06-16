@@ -242,15 +242,83 @@ Current expected stable results:
 - command inventory includes read-only analysis commands plus one write-capable `report export` command
 - pytest = 114 passed
 
+## Phase 3 Current State
+
+Phase 3 currently includes:
+
+- registry read-only view:
+  - `registry summary`
+  - `registry list`
+  - `registry show`
+  - checkpoint: `python-registry-status-checkpoint-20260615`
+- transaction history read-only view:
+  - `transaction summary`
+  - `transaction list`
+  - `transaction show`
+  - write/restore history is visible but not executable
+  - checkpoint: `python-transaction-history-checkpoint-20260615`
+- report preview:
+  - `report preview`
+  - stdout-only
+  - `full-status` defaults to CLI-friendly text
+  - Markdown output requires `--format markdown`
+  - checkpoints: `python-report-preview-checkpoint-20260615`, `python-report-preview-cli-checkpoint-20260615`
+- report export dry-run:
+  - `report export --dry-run`
+  - no-write path safety preview
+  - checkpoint: `python-report-export-dry-run-checkpoint-20260615`
+- guarded report export:
+  - first write-capable Python command
+  - writes only approved `.md` reports under `reports/python_tooling/` or `docs/reports/python_tooling/`
+  - default no overwrite
+  - `--force` applies only under approved roots
+  - checkpoints: `python-report-export-guarded-checkpoint-20260616`, `python-report-export-boundary-checkpoint-20260616`
+
+Current command inventory state:
+
+- total commands = `42`
+- `writes_files_count = 1`
+- `runs_ce_count = 0`
+- only write-capable command = `report export`
+- `report export --dry-run` remains read-only
+- all non-`report export` commands remain read-only
+
+Safe report export flow:
+
+```powershell
+python -m armedforces_tool report preview --type full-status
+python -m armedforces_tool report export --dry-run --type full-status --out reports/python_tooling/full_status.md
+python -m armedforces_tool report export --type full-status --out reports/python_tooling/full_status.md
+```
+
+Dry-run first is recommended. Default behavior does not overwrite; use `--force` only intentionally. Never export outside approved roots.
+
 ## Next Migration Candidates
 
-Possible next read-only migration directions:
+Possible next migration directions:
+
+- report manifest planning
+- report bundle format planning
+- thin PowerShell read-only wrapper pilot
+- native backend contract planning
+- write-capable feature policy template
+
+Future write-capable Python commands must use the same pattern as `report export`: explicit contract, dry-run where applicable, path/state protections, validation smoke, cleanup rules, and checkpoint.
+
+Still active non-goals:
+
+- no CE automation
+- no guarded write / restore migration
+- no Python writes to log, config, session, intake, baseline, or registry files
+- no PowerShell workflow mutation replacement
+- no Lua/runtime changes
+- no algorithm rewrite
+
+Previous candidate tracks completed in Phase 3:
 
 - Python read-only registry view
 - Python read-only transaction history view
-- additional report export polish after the controlled file-write contract
-- thin PowerShell wrappers that call Python
-- later native backend contract planning
+- report preview / export boundary
 
 Do not migrate guarded write / restore yet.
 

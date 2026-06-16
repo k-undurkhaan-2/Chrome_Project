@@ -132,6 +132,20 @@ The checkpoint means:
 - pytest passed with `114 passed`
 - protected files were unchanged
 
+## Phase 3 Current State
+
+Current report tooling state:
+
+- `report preview` is stdout-only.
+- `report preview --type full-status` defaults to CLI-friendly text.
+- Markdown preview output requires `--format markdown`.
+- `report export --dry-run` is no-write.
+- guarded `report export` is the only write-capable Python command.
+- command inventory state:
+  - total commands = `42`
+  - `writes_files_count = 1`
+  - `runs_ce_count = 0`
+
 ## Next Steps
 
 Possible future directions:
