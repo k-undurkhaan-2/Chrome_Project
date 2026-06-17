@@ -337,6 +337,8 @@ Phase 4.5 implements the first read-only PowerShell thin wrapper at `src/python_
 
 Phase 4.7 records the read-only wrapper checkpoint and operator documentation wrap-up. The wrapper provides operator convenience for read-only Python tooling only. Legacy mutation PowerShell workflows remain unchanged, and there is still no CE/log/config/session/baseline/intake/registry migration.
 
+Phase 4.8 records the Python tooling final state / handoff summary. The wrapper tooling is complete as a read-only layer, no mutation workflow has been migrated, and any future mutation migration must be handled as separate planning, contract, validation, cleanup, and checkpoint work.
+
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 
 - Define request formats.

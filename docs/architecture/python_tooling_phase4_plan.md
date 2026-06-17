@@ -91,6 +91,8 @@ Phase 4.4 status: the read-only PowerShell wrapper contract is documented in `do
 
 Phase 4.7 status: operator documentation has been wrapped up after the read-only wrapper checkpoint `python-tooling-powershell-wrapper-readonly-checkpoint-20260616`. The wrapper remains read-only, no new write surface is introduced, and write-capable wrapper behavior remains deferred.
 
+Phase 4.8 status: final state / handoff documentation is recorded in `docs/architecture/python_tooling_phase4_final_state.md`. The read-only wrapper checkpoint is documented, Phase 4 is ready for handoff after commit, and no new write surface is introduced.
+
 ### Track E: Native Backend Contract
 
 Native backend planning is a long-term direction.
@@ -125,9 +127,10 @@ Recommended order:
 4. Phase 4.5: read-only PowerShell thin wrapper pilot
 5. Phase 4.6: read-only PowerShell thin wrapper boundary smoke
 6. Phase 4.7: read-only PowerShell wrapper operator docs wrap-up
-7. Phase 4.8: zip bundle export contract
-8. Phase 4.9: zip bundle export dry-run
-9. Phase 4.10+: only then consider real zip export
+7. Phase 4.8: Python tooling Phase 4 final state / handoff
+8. Phase 5 option A: write-capable wrapper policy planning, if explicitly scoped
+9. Phase 5 option B: runtime write/restore migration planning, if explicitly scoped
+10. Phase 5 option C: operator quick reference / troubleshooting consolidation
 
 Do not go directly into:
 

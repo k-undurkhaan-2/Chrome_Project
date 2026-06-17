@@ -79,6 +79,8 @@ Expected stable results:
 
 The read-only wrapper is available for the same safe daily checks.
 
+Before starting the next tooling phase, review `docs/architecture/python_tooling_phase4_final_state.md` for the frozen wrapper boundary and handoff state.
+
 Checkpoint tag:
 
 ```text

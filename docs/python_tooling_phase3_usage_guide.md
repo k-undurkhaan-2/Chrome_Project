@@ -211,6 +211,8 @@ Deferred features:
 
 A read-only PowerShell thin wrapper is available for the safest daily status checks.
 
+Phase 4 final state is summarized in `docs/architecture/python_tooling_phase4_final_state.md`. Phase 3 direct Python usage remains valid.
+
 The wrapper is checkpointed at:
 
 ```text
