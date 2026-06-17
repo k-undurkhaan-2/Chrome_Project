@@ -327,6 +327,8 @@ Phase 3.32 records the current Phase 3 report, manifest, and bundle state in `do
 
 Phase 4.1 adds the Python tooling Phase 4 roadmap in `docs/architecture/python_tooling_phase4_plan.md`. The Phase 3 final checkpoint is complete, and the recommended next path is operator guide hardening before any new write surface. There is no implementation in Phase 4.1; zip export, `--force` / overwrite, `docs/reports` bundle output, CE automation, and runtime mutation remain deferred.
 
+Phase 4.2 hardens the operator documentation after the Phase 3 final checkpoint. `docs/python_tooling_phase3_usage_guide.md` records safe daily checks, read-only commands, dry-run no-write commands, write-capable boundaries, troubleshooting, and Git hygiene. This is documentation-only and does not change Python behavior.
+
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 
 - Define request formats.

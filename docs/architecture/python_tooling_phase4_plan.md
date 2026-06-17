@@ -107,6 +107,8 @@ Scope:
 - consolidate troubleshooting notes
 - make Phase 3 operator boundaries easier to follow
 
+Phase 4.2 status: operator guide hardening is documented through `docs/python_tooling_phase3_usage_guide.md`. This adds no implementation, no Python command, and no new write surface.
+
 ## Recommended Next Path
 
 Recommended order:
