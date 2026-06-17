@@ -4,7 +4,7 @@
 
 This contract defines the controlled write boundary for future Python report bundle export support in `D:\armedforces.io-v2`.
 
-Phase 3.24 wrote the contract. Phase 3.25 implements dry-run planning only. It does not implement real bundle export or add write-capable behavior.
+Phase 3.24 wrote the contract. Phase 3.25 implements dry-run planning only. Phase 3.26 final smoke passed for the dry-run boundary. It does not implement real bundle export or add write-capable behavior.
 
 ## Current Baseline
 
@@ -16,6 +16,8 @@ Current Python report tooling state:
 - `runs_ce_count = 0`.
 - no CE/runtime mutation exists in Python tooling.
 - bundle export dry-run planning is implemented.
+- Phase 3.26 dry-run boundary final smoke passed.
+- checkpoint tag: `python-report-bundle-export-dry-run-checkpoint-20260616`.
 - real bundle export is not implemented.
 - there is no runtime bundle output.
 
@@ -36,6 +38,29 @@ Contract rules:
 - bundle export is a new write-capable surface.
 - `report bundle preview` and `report bundle verify` do not authorize export.
 - this contract does not change `report export`, manifest writer, or read-only bundle behavior.
+
+## Dry-Run Boundary Status
+
+The implemented dry-run path is limited to path validation and export planning.
+
+Phase 3.26 final smoke confirmed:
+
+- directory dry-run writes nothing
+- zip dry-run writes nothing
+- JSON dry-run writes nothing
+- real bundle export returns `BUNDLE_EXPORT_NOT_IMPLEMENTED`
+- no bundle directory is created
+- no zip archive is created
+- no copied reports are created
+- no `bundle_manifest.json` is created
+- no `index.md` is created
+- no runtime report, runtime manifest, or runtime bundle artifact is created
+- no log/config/session/intake/baseline/registry write occurs
+- command inventory remains `writes_files_count = 1`
+- command inventory remains `runs_ce_count = 0`
+- `report export` remains the only write-capable Python command
+
+Real bundle export remains deferred. A future real write phase must still follow the approved bundle root, no-overwrite default, cleanup rules, protected artifact checks, smoke validation, and checkpoint process defined by this contract and the Python write-capable feature policy.
 
 ## Approved Output Boundary
 

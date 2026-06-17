@@ -14,6 +14,7 @@ Current Python report tooling state:
 - `report export --record-manifest` is implemented.
 - `report bundle preview` and `report bundle verify` are implemented as read-only commands.
 - `report bundle export --dry-run` is implemented as no-write planning.
+- Phase 3.26 bundle export dry-run boundary final smoke passed.
 - Phase 3.22 read-only boundary final smoke passed.
 - first-version manifest path: `reports/python_tooling/manifest.jsonl`.
 - `report export` is the only write-capable Python command.
@@ -22,6 +23,27 @@ Current Python report tooling state:
 - no CE or runtime mutation exists in Python tooling.
 - no writes to `log/`, config, session, intake, baseline, or registry files are authorized by report tooling.
 - no bundle directory, zip, copied report, `bundle_manifest.json`, or `index.md` is implemented.
+
+## Bundle Export Dry-Run Boundary
+
+Bundle export dry-run planning is implemented for future directory and zip bundle outputs.
+
+The dry-run boundary is:
+
+- no bundle directory creation
+- no zip archive creation
+- no copied report files
+- no `bundle_manifest.json`
+- no `index.md`
+- no runtime report write
+- no runtime manifest write
+- no runtime bundle write
+- no log/config/session/intake/baseline/registry write
+- no CE or runtime mutation
+
+Phase 3.26 final smoke confirmed that directory dry-run, zip dry-run, and JSON dry-run paths are no-write. It also confirmed that real bundle export fails closed with `BUNDLE_EXPORT_NOT_IMPLEMENTED`.
+
+Real bundle directory or zip export remains deferred. No new write surface has been added; `report export` remains the only write-capable Python command.
 
 ## Why Bundle Needs Separate Planning
 

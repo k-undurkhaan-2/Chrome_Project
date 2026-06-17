@@ -207,6 +207,39 @@ Bundle export real write is not implemented. Bundle preview, verify, and dry-run
 
 The bundle export contract is documented in `architecture/python_report_bundle_export_contract.md`. Dry-run planning is implemented, but real bundle export remains future behavior. Current inventory remains `writes_files_count = 1`, and `report export` remains the only write-capable Python command.
 
+## Report bundle export dry-run workflow
+
+Use bundle export dry-run to validate a future bundle output path and preview bundle metadata without creating a bundle:
+
+```powershell
+python -m armedforces_tool report bundle export --dry-run --out reports/python_tooling/bundles/<bundle_id>/
+python -m armedforces_tool report bundle export --dry-run --zip --out reports/python_tooling/bundles/<bundle_id>.zip
+python -m armedforces_tool report bundle export --dry-run --out reports/python_tooling/bundles/<bundle_id>/ --json
+```
+
+Current dry-run boundary:
+
+- dry-run commands do not create bundle directories
+- dry-run commands do not create zip archives
+- dry-run commands do not copy report files
+- dry-run commands do not write `bundle_manifest.json`
+- dry-run commands do not write `index.md`
+- dry-run commands do not write the report manifest
+- dry-run commands do not write reports, docs, logs, config, session state, intake state, baselines, or registry files
+- when the runtime manifest is absent, dry-run returns `NO_MANIFEST` or `NOT_READY`
+- real `report bundle export` without `--dry-run` still returns `BUNDLE_EXPORT_NOT_IMPLEMENTED`
+- real bundle export is not implemented
+
+Phase 3.26 final smoke confirmed the no-write boundary for directory, zip, and JSON dry-run paths. It also confirmed that real bundle export fails closed and that no bundle directory, zip archive, `bundle_manifest.json`, `index.md`, runtime report, runtime manifest, or runtime bundle artifact was created.
+
+Current inventory boundary:
+
+- commands: `48`
+- `writes_files_count = 1`
+- `runs_ce_count = 0`
+- only `report export` is write-capable
+- `report bundle export --dry-run` is read-only
+
 ## Report Export Boundary
 
 `report export` is currently the only write-capable Python command. Daily status checks should still begin with:

@@ -315,6 +315,8 @@ Phase 3.24 adds the Python report bundle export contract. This is documentation 
 
 Phase 3.25 implements Python `report bundle export --dry-run` planning only. The dry-run validates future directory or zip bundle output paths, previews bundle metadata, and writes nothing. Real bundle export remains unimplemented and fails closed without `--dry-run`. No new write surface is added; `report export` remains the only write-capable Python command.
 
+Phase 3.27 documents the report bundle export dry-run boundary after final smoke validation. Bundle export dry-run remains no-write, real bundle export remains deferred, `report export` remains the only write-capable Python command, `writes_files_count` remains `1`, and `runs_ce_count` remains `0`. Future real bundle export must follow the Python write-capable feature policy with a separate implementation, smoke validation, cleanup rules, and checkpoint process.
+
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 
 - Define request formats.
