@@ -325,6 +325,8 @@ Phase 3.31 documents the report bundle directory export boundary after final smo
 
 Phase 3.32 records the current Phase 3 report, manifest, and bundle state in `docs/architecture/python_tooling_phase3_summary.md`. The documented boundary remains `writes_files_count = 2`, `runs_ce_count = 0`, with write-capable commands limited to `report export` and `report bundle export`. No CE/runtime/log/config/session/intake/baseline/registry mutation is introduced by this documentation phase. Future write surfaces still require a separate contract, dry-run behavior where applicable, smoke validation, cleanup rules, and checkpoint.
 
+Phase 4.1 adds the Python tooling Phase 4 roadmap in `docs/architecture/python_tooling_phase4_plan.md`. The Phase 3 final checkpoint is complete, and the recommended next path is operator guide hardening before any new write surface. There is no implementation in Phase 4.1; zip export, `--force` / overwrite, `docs/reports` bundle output, CE automation, and runtime mutation remain deferred.
+
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 
 - Define request formats.

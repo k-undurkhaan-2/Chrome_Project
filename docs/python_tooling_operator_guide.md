@@ -567,6 +567,19 @@ python -m armedforces_tool status overview
 python -m armedforces_tool commands list --category report
 ```
 
+## Phase 4 Roadmap
+
+Phase 3 is closed at the final checkpoint `python-tooling-phase3-final-checkpoint-20260616`.
+
+The Phase 4 roadmap is documented in `architecture/python_tooling_phase4_plan.md`.
+
+Current daily commands remain unchanged. Current write-capable Python commands remain:
+
+- `report export`
+- `report bundle export`
+
+Report manifest commands remain read-only. Report bundle preview / verify remain read-only. Zip export, bundle overwrite / `--force`, and `docs/reports` bundle output remain deferred.
+
 Safe report export flow:
 
 ```powershell
