@@ -76,6 +76,8 @@ This file does not exist yet. It should not be created until a dedicated impleme
 
 Each wrapper command should map to one Python command and forward the exit code. If arguments are added later, the wrapper should validate only shell-level input shape and delegate domain validation to Python.
 
+Phase 4.4 adds a dedicated read-only wrapper contract in `docs/architecture/python_tooling_powershell_wrapper_contract.md`. Wrapper implementation has not started. The first implementation must remain read-only and must not expose report export, manifest recording, bundle export, CE/runtime commands, or PowerShell mutation workflows.
+
 ## Safety Model
 
 Safety constraints:

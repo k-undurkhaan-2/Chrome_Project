@@ -331,6 +331,8 @@ Phase 4.2 hardens the operator documentation after the Phase 3 final checkpoint.
 
 Phase 4.3 adds planning for a future read-only PowerShell thin wrapper around selected Python sidecar commands. This is documentation-only: no wrapper is implemented, no `.ps1` file is added, no Python command is added, and no new write surface is introduced. Any future wrapper should start with read-only status, inventory, preview, manifest verify, and bundle verify commands only. Write-capable report export, manifest recording, bundle export, CE/runtime operations, and PowerShell mutation workflow replacement remain deferred.
 
+Phase 4.4 adds the read-only PowerShell wrapper contract. This is documentation-only: no `.ps1` file is added, no implementation is added, no Python command is added, and no behavior changes. The contract keeps first-phase wrapper scope read-only and explicitly defers write-capable wrapper behavior, real report export, manifest recording, bundle export, CE/runtime operations, and PowerShell mutation workflow replacement.
+
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 
 - Define request formats.

@@ -211,6 +211,8 @@ Deferred features:
 
 A read-only PowerShell thin wrapper is planned, but it is not implemented yet.
 
+The wrapper contract exists in `docs/architecture/python_tooling_powershell_wrapper_contract.md`, but operators should not rely on a wrapper yet.
+
 Current operator commands should still call Python directly:
 
 ```powershell
