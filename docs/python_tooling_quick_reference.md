@@ -99,6 +99,8 @@ These commands:
 - must not be executed during docs-only or read-only smoke tasks
 - require a separate task, explicit output path, safety boundary, and validation before use
 
+Report/bundle UX polish planning exists in `docs/architecture/python_tooling_report_bundle_ux_plan.md`. Current daily workflow is unchanged. `report export` and `report bundle export` remain write-capable direct Python commands only.
+
 ## Common Status Meanings
 
 ### `SAFE`

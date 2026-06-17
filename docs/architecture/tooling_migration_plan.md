@@ -345,6 +345,8 @@ Phase 5.1 improves operator documentation only through `docs/python_tooling_quic
 
 Phase 5.2 adds read-only PowerShell wrapper regression tests only. No mutation migration has started, wrapper behavior is unchanged, and legacy mutation workflows remain unchanged.
 
+Phase 5.3 plans report/bundle export UX polish only. Export write surface is unchanged, no mutation migration has started, and legacy mutation workflows remain unchanged.
+
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 
 - Define request formats.

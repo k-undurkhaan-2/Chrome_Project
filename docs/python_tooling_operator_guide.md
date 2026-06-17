@@ -153,6 +153,8 @@ These tests cover wrapper read-only behavior only. They do not authorize write-c
 
 Use the detailed workflow in `docs/python_tooling_phase3_usage_guide.md`.
 
+Report/bundle export UX polish planning exists in `docs/architecture/python_tooling_report_bundle_ux_plan.md`. Current report/bundle commands remain unchanged, and the read-only wrapper still does not support write-capable export commands.
+
 Short form:
 
 ```powershell
