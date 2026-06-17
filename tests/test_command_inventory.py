@@ -24,7 +24,7 @@ def test_inventory_commands_have_expected_safety_metadata() -> None:
     for descriptor in COMMANDS:
         assert descriptor.runs_ce is False
         assert descriptor.replacement_for_powershell is False
-        if descriptor.command == "report export":
+        if descriptor.command in {"report export", "report bundle export"}:
             assert descriptor.read_only is False
             assert descriptor.writes_files is True
             assert descriptor.risk_level == "WRITE_CAPABLE"

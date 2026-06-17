@@ -631,7 +631,7 @@ def _add_report_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
         parser.add_argument("--json", action="store_true", help="Emit JSON object")
         parser.set_defaults(func=_run_report_manifest)
 
-    bundle = report_subparsers.add_parser("bundle", help="Read-only report bundle preview/verify helpers")
+    bundle = report_subparsers.add_parser("bundle", help="Report bundle preview, verify, and guarded export helpers")
     bundle_subparsers = bundle.add_subparsers(dest="bundle_command", required=True)
     for command, help_text in [
         ("preview", "Preview report bundle shape from the runtime report manifest without writing files"),
@@ -649,10 +649,10 @@ def _add_report_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
 
     bundle_export = bundle_subparsers.add_parser(
         "export",
-        help="Preview future report bundle export without writing files",
+        help="Export a directory report bundle or preview bundle export without writing files",
     )
-    bundle_export.add_argument("--dry-run", action="store_true", help="Required; preview only and write nothing")
-    bundle_export.add_argument("--zip", action="store_true", help="Plan a future zip bundle output")
+    bundle_export.add_argument("--dry-run", action="store_true", help="Preview only and write nothing")
+    bundle_export.add_argument("--zip", action="store_true", help="Plan a future zip bundle output; real zip export is unsupported")
     bundle_export.add_argument("--out", default=None, help="Future bundle output path under reports/python_tooling/bundles")
     bundle_export.add_argument(
         "--manifest",
@@ -1392,7 +1392,11 @@ def _run_report_bundle_export(args: argparse.Namespace) -> int:
         print(json.dumps(result.to_dict(), indent=2))
     else:
         print(format_report_bundle_export_plan(result))
-    return 0 if result.status in {"OK", "NO_MANIFEST", "MISSING_REPORTS", "NOT_READY"} else 1
+    if result.status == "BUNDLE_EXPORT_OK":
+        return 0
+    if args.dry_run and result.status in {"OK", "NO_MANIFEST", "MISSING_REPORTS", "NOT_READY"}:
+        return 0
+    return 1
 
 
 def format_registry_summary(result: object) -> str:

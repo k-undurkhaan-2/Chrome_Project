@@ -319,6 +319,8 @@ Phase 3.27 documents the report bundle export dry-run boundary after final smoke
 
 Phase 3.28 refines the future real bundle export contract to a directory-only first implementation. No implementation is added, no new write surface is enabled, zip export remains deferred, and `report export` remains the only write-capable Python command.
 
+Phase 3.29 implements directory-only Python report bundle export. `report bundle export --out reports/python_tooling/bundles/<bundle_id>/` can write a guarded directory bundle with copied reports, `bundle_manifest.json`, and `index.md` under the approved bundle root. Zip export and `--force` remain unsupported, dry-run remains no-write, `writes_files_count` is expected to be `2`, write-capable commands are `report export` and `report bundle export`, and `runs_ce_count` remains `0`.
+
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 
 - Define request formats.

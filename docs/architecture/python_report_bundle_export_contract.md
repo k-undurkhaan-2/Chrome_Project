@@ -4,26 +4,27 @@
 
 This contract defines the controlled write boundary for future Python report bundle export support in `D:\armedforces.io-v2`.
 
-Phase 3.24 wrote the contract. Phase 3.25 implements dry-run planning only. Phase 3.26 final smoke passed for the dry-run boundary. It does not implement real bundle export or add write-capable behavior.
+Phase 3.24 wrote the contract. Phase 3.25 implements dry-run planning only. Phase 3.26 final smoke passed for the dry-run boundary. Phase 3.29 implements directory-only real bundle export.
 
 ## Current Baseline
 
 Current Python report tooling state:
 
 - `report bundle preview` and `report bundle verify` are implemented and read-only.
-- `report export` is the only write-capable Python command.
-- `writes_files_count = 1`.
+- `report bundle export` is implemented as a directory-only write-capable command.
+- write-capable Python commands are `report export` and `report bundle export`.
+- `writes_files_count = 2`.
 - `runs_ce_count = 0`.
 - no CE/runtime mutation exists in Python tooling.
 - bundle export dry-run planning is implemented.
 - Phase 3.26 dry-run boundary final smoke passed.
 - checkpoint tag: `python-report-bundle-export-dry-run-checkpoint-20260616`.
-- real bundle export is not implemented.
-- there is no runtime bundle output.
+- real directory bundle export is implemented.
+- zip bundle export is not implemented.
 
-## Proposed Write Behavior
+## Write Behavior
 
-Future commands only:
+Current command shape:
 
 ```powershell
 python -m armedforces_tool report bundle export --dry-run
@@ -34,14 +35,15 @@ python -m armedforces_tool report bundle export --zip --out reports/python_tooli
 Contract rules:
 
 - dry-run is implemented and must remain no-write.
-- real export must go through a separate implementation phase.
-- bundle export is a new write-capable surface.
+- real directory export is implemented.
+- real zip export remains unsupported / fail-closed.
+- bundle export is a write-capable surface.
 - `report bundle preview` and `report bundle verify` do not authorize export.
 - this contract does not change `report export`, manifest writer, or read-only bundle behavior.
 
 ## First real export scope: directory bundle only
 
-The first future real write implementation may only allow directory bundle output:
+The first real write implementation only allows directory bundle output:
 
 ```text
 reports/python_tooling/bundles/<bundle_id>/
@@ -58,7 +60,7 @@ The first implementation must explicitly defer or reject:
 - log/config/session/intake/baseline/registry writes
 - writes outside `reports/python_tooling/bundles/<bundle_id>/`
 
-Real directory export remains future write-capable behavior. It is not implemented in the current phase.
+Real directory export is implemented. Zip export remains deferred.
 
 ### Directory bundle output structure
 
@@ -81,9 +83,9 @@ Requirements:
 - `bundle_manifest.json` is bundle metadata, not report manifest state
 - `index.md` is a readable generated summary, not a source of truth
 
-### Planned real export command shape
+### Real export command shape
 
-Future directory-only command:
+Directory-only command:
 
 ```powershell
 python -m armedforces_tool report bundle export --out reports/python_tooling/bundles/<bundle_id>/
@@ -94,11 +96,9 @@ First implementation constraints:
 - no `--zip` support
 - `--zip` remains fail-closed / unsupported
 - dry-run behavior remains no-write
-- real directory export is future write-capable behavior
-- after future implementation, command inventory is expected to change:
-  - `writes_files_count` increases from `1` to `2`
-  - `report bundle export` becomes write-capable
-  - `runs_ce_count` remains `0`
+- `writes_files_count = 2`
+- `report bundle export` is write-capable
+- `runs_ce_count = 0`
 
 ### Preconditions before write
 
@@ -190,7 +190,7 @@ Rules:
 - no zip creation in the first real export implementation
 - zip export requires a separate contract refinement and smoke validation
 
-### Required tests for future directory implementation
+### Required tests for directory implementation
 
 Future tests must cover:
 
@@ -210,11 +210,11 @@ Future tests must cover:
 - source manifest unchanged
 - source reports unchanged
 - no zip created
-- command inventory `writes_files_count` increases to `2` only after real implementation
+- command inventory `writes_files_count = 2`
 - `runs_ce_count` remains `0`
 - no log/config/session/intake/baseline/registry writes
 
-### Required smoke for future directory implementation
+### Required smoke for directory implementation
 
 Future smoke must include:
 
@@ -232,12 +232,12 @@ Future smoke must include:
 
 The implemented dry-run path is limited to path validation and export planning.
 
-Phase 3.26 final smoke confirmed:
+Phase 3.26 final smoke confirmed the dry-run boundary before real directory export was implemented:
 
 - directory dry-run writes nothing
 - zip dry-run writes nothing
 - JSON dry-run writes nothing
-- real bundle export returns `BUNDLE_EXPORT_NOT_IMPLEMENTED`
+- real bundle export returned `BUNDLE_EXPORT_NOT_IMPLEMENTED` at that checkpoint
 - no bundle directory is created
 - no zip archive is created
 - no copied reports are created
@@ -245,11 +245,11 @@ Phase 3.26 final smoke confirmed:
 - no `index.md` is created
 - no runtime report, runtime manifest, or runtime bundle artifact is created
 - no log/config/session/intake/baseline/registry write occurs
-- command inventory remains `writes_files_count = 1`
-- command inventory remains `runs_ce_count = 0`
-- `report export` remains the only write-capable Python command
+- command inventory remained `writes_files_count = 1` at that checkpoint
+- command inventory remained `runs_ce_count = 0`
+- `report export` was the only write-capable Python command at that checkpoint
 
-Real bundle export remains deferred. A future real write phase must still follow the approved bundle root, no-overwrite default, cleanup rules, protected artifact checks, smoke validation, and checkpoint process defined by this contract and the Python write-capable feature policy.
+Directory bundle export now follows the approved bundle root, no-overwrite default, cleanup rules, protected artifact checks, smoke validation, and checkpoint process defined by this contract and the Python write-capable feature policy. Zip export remains deferred and requires a future contract refinement.
 
 ## Approved Output Boundary
 

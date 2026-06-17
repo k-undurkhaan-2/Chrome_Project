@@ -530,9 +530,10 @@ def test_command_inventory_includes_report_export_modes() -> None:
     assert "report export" in commands
     assert records["report export --dry-run"].writes_files is False
     assert records["report export"].writes_files is True
+    assert records["report bundle export"].writes_files is True
     assert records["report export"].read_only is False
     assert records["report export"].runs_ce is False
     assert "--record-manifest" in records["report export --dry-run"].parameters
     assert "--record-manifest" in records["report export"].parameters
-    assert result.to_dict()["summary"]["writes_files_count"] == 1
+    assert result.to_dict()["summary"]["writes_files_count"] == 2
     assert result.to_dict()["summary"]["runs_ce_count"] == 0

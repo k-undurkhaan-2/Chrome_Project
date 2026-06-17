@@ -326,7 +326,7 @@ def test_command_inventory_includes_report_commands() -> None:
     commands = {record.command for record in result.records}
     records = {record.command: record for record in result.records}
 
-    assert result.total_count == 9
+    assert result.total_count == 10
     assert "report preview" in commands
     assert "report manifest preview" in commands
     assert "report manifest list" in commands
@@ -334,6 +334,7 @@ def test_command_inventory_includes_report_commands() -> None:
     assert "report bundle preview" in commands
     assert "report bundle verify" in commands
     assert "report bundle export --dry-run" in commands
+    assert "report bundle export" in commands
     assert "report export --dry-run" in commands
     assert "report export" in commands
     assert records["report preview"].read_only is True
@@ -343,12 +344,14 @@ def test_command_inventory_includes_report_commands() -> None:
     assert records["report bundle preview"].read_only is True
     assert records["report bundle verify"].read_only is True
     assert records["report bundle export --dry-run"].read_only is True
+    assert records["report bundle export"].read_only is False
     assert records["report manifest preview"].writes_files is False
     assert records["report manifest list"].writes_files is False
     assert records["report manifest verify"].writes_files is False
     assert records["report bundle preview"].writes_files is False
     assert records["report bundle verify"].writes_files is False
     assert records["report bundle export --dry-run"].writes_files is False
+    assert records["report bundle export"].writes_files is True
     assert records["report export --dry-run"].read_only is True
     assert records["report export"].read_only is False
     assert records["report export"].writes_files is True

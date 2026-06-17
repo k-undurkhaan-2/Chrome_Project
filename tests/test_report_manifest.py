@@ -134,7 +134,7 @@ def test_command_inventory_flags_manifest_commands_read_only() -> None:
         assert records[command].runs_ce is False
         assert records[command].risk_level == "READ_ONLY"
 
-    assert result.to_dict()["summary"]["writes_files_count"] == 1
+    assert result.to_dict()["summary"]["writes_files_count"] == 2
     assert result.to_dict()["summary"]["runs_ce_count"] == 0
     assert records["report export"].writes_files is True
 
@@ -144,7 +144,7 @@ def test_global_inventory_keeps_only_report_export_write_capable() -> None:
     data = result.to_dict()["summary"]
     write_capable = [record.command for record in result.records if record.writes_files]
 
-    assert data["writes_files_count"] == 1
+    assert data["writes_files_count"] == 2
     assert data["runs_ce_count"] == 0
-    assert write_capable == ["report export"]
+    assert write_capable == ["report bundle export", "report export"]
     assert show_command("report manifest verify").read_only is True

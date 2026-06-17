@@ -4,7 +4,7 @@
 
 This document plans future Python report bundle / report package support for `D:\armedforces.io-v2`.
 
-A report bundle would package or archive Python tooling report outputs, related manifest entries, and a compact index into a single operator-facing artifact. Planning is complete and read-only preview / verify support is implemented. Bundle export remains deferred and no new write-capable behavior is authorized.
+A report bundle packages Python tooling report outputs, related manifest entries, and a compact index into a single operator-facing artifact. Planning is complete, read-only preview / verify support is implemented, dry-run planning is implemented, and directory-only real export is implemented. Zip export remains deferred.
 
 ## Current Baseline
 
@@ -14,15 +14,17 @@ Current Python report tooling state:
 - `report export --record-manifest` is implemented.
 - `report bundle preview` and `report bundle verify` are implemented as read-only commands.
 - `report bundle export --dry-run` is implemented as no-write planning.
+- `report bundle export --out reports/python_tooling/bundles/<bundle_id>/` is implemented as directory-only real export.
 - Phase 3.26 bundle export dry-run boundary final smoke passed.
 - Phase 3.22 read-only boundary final smoke passed.
 - first-version manifest path: `reports/python_tooling/manifest.jsonl`.
-- `report export` is the only write-capable Python command.
-- `writes_files_count = 1`.
+- write-capable Python commands are `report export` and `report bundle export`.
+- `writes_files_count = 2`.
 - `runs_ce_count = 0`.
 - no CE or runtime mutation exists in Python tooling.
 - no writes to `log/`, config, session, intake, baseline, or registry files are authorized by report tooling.
-- no bundle directory, zip, copied report, `bundle_manifest.json`, or `index.md` is implemented.
+- directory bundle export can create a bundle directory, copied report files, `bundle_manifest.json`, and `index.md` under `reports/python_tooling/bundles/<bundle_id>/`.
+- zip bundle export is not implemented.
 
 ## Bundle Export Dry-Run Boundary
 
@@ -43,7 +45,7 @@ The dry-run boundary is:
 
 Phase 3.26 final smoke confirmed that directory dry-run, zip dry-run, and JSON dry-run paths are no-write. It also confirmed that real bundle export fails closed with `BUNDLE_EXPORT_NOT_IMPLEMENTED`.
 
-Real bundle directory or zip export remains deferred. No new write surface has been added; `report export` remains the only write-capable Python command.
+Real directory bundle export is implemented. Zip export remains deferred. `report bundle export --dry-run` remains no-write.
 
 ## Directory-Only First Real Export Plan
 
@@ -53,16 +55,16 @@ The first real bundle export target is narrowed to directory-only output:
 reports/python_tooling/bundles/<bundle_id>/
 ```
 
-This future implementation remains deferred. Current behavior is unchanged:
+This implementation is now available as directory-only real export. Current behavior:
 
 - `report bundle export --dry-run` remains no-write
-- real bundle directory export is not implemented
+- real bundle directory export is implemented
 - zip export is not implemented
 - `--zip` remains unsupported / fail-closed for the first real write phase
-- no bundle directory, zip archive, copied report, `bundle_manifest.json`, or `index.md` is created today
-- `report export` remains the only write-capable Python command
+- real directory export can create only the approved bundle directory, copied reports, `bundle_manifest.json`, and `index.md`
+- write-capable Python commands are `report export` and `report bundle export`
 
-The directory-only phase is intentionally smaller than the full bundle plan. It would validate `reports/python_tooling/manifest.jsonl`, copy only referenced reports under `reports/python_tooling/`, write a bundle-local `bundle_manifest.json`, write a bundle-local `index.md`, and leave source reports and source manifest unchanged.
+The directory-only phase is intentionally smaller than the full bundle plan. It validates `reports/python_tooling/manifest.jsonl`, copies only referenced reports under `reports/python_tooling/`, writes a bundle-local `bundle_manifest.json`, writes a bundle-local `index.md`, and leaves source reports and source manifest unchanged.
 
 Zip bundle export requires a later contract refinement and separate smoke validation.
 
