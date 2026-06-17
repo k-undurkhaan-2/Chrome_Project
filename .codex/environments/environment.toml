@@ -7,12 +7,12 @@ script = ""
 
 [[actions]]
 name = "post-quick"
-icon = "tool"
+icon = "run"
 command = "powershell -NoProfile -ExecutionPolicy Bypass -File .\\src\\test_session_tool.ps1 post-quick"
 
 [[actions]]
 name = "post-full"
-icon = "tool"
+icon = "run"
 command = "powershell -NoProfile -ExecutionPolicy Bypass -File .\\src\\test_session_tool.ps1 post-full"
 
 [[actions]]
@@ -22,7 +22,7 @@ command = "powershell -NoProfile -ExecutionPolicy Bypass -File .\\src\\batch_log
 
 [[actions]]
 name = "pytest"
-icon = "tool"
+icon = "test"
 command = "powershell -NoProfile -ExecutionPolicy Bypass -File .\\src\\run_pytest_action.ps1"
 
 [[actions]]
