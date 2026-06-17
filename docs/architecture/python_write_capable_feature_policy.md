@@ -165,6 +165,10 @@ The first bundle contract must define its own approved roots and must not inheri
 
 Read-only bundle preview / verify contracts do not authorize bundle writes. A future `report bundle preview` or `report bundle verify` may inspect manifests and referenced report files only; it must not create bundle directories, zip archives, copied reports, bundle manifests, or indexes. Bundle export remains a separate write-capable surface and must follow the full lifecycle in this policy.
 
+The report bundle export contract is documented separately in `docs/architecture/python_report_bundle_export_contract.md`. If implemented as a new command, bundle export would become the second write-capable Python command and would increase `writes_files_count` from `1` to `2`. It still must keep `runs_ce_count = 0`, must include a no-write dry-run phase, must define smoke cleanup rules, and must reach a checkpoint before any real bundle write behavior is expanded.
+
+The report manifest write contract does not authorize bundle export. Bundle export may read `reports/python_tooling/manifest.jsonl`, but it must not mutate that manifest unless a future contract explicitly defines additional manifest state behavior.
+
 ## Required Final Report Fields
 
 Every write-capable feature final report must include:

@@ -197,6 +197,8 @@ Current inventory boundary:
 
 Bundle export is not implemented. Bundle preview / verify do not authorize any bundle write. A future bundle export requires a separate write-capable contract, dry-run phase, smoke validation, cleanup rules, and checkpoint.
 
+The future bundle export contract is documented in `architecture/python_report_bundle_export_contract.md`. It plans only future behavior. Current inventory remains `writes_files_count = 1`, and `report export` remains the only write-capable Python command.
+
 ## Report Export Boundary
 
 `report export` is currently the only write-capable Python command. Daily status checks should still begin with:

@@ -311,6 +311,8 @@ Phase 3.21 implements Python `report bundle preview` and `report bundle verify` 
 
 Phase 3.23 records the report bundle read-only boundary after final smoke validation. `report bundle preview` and `report bundle verify` remain read-only, final smoke passed, no new write surface was added, and `report export` remains the only write-capable Python command. Future bundle export must follow the write-capable feature policy with a separate contract, dry-run phase, smoke validation, cleanup rules, and checkpoint before any real bundle write behavior is implemented.
 
+Phase 3.24 adds the Python report bundle export contract. This is documentation only: no bundle export implementation is added, no Python command is added, and no new write surface is enabled. `report export` remains the only write-capable Python command. Future bundle export must still proceed through dry-run implementation, smoke validation, cleanup rules, and checkpoint before any real bundle write behavior is allowed.
+
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 
 - Define request formats.

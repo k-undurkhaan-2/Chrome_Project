@@ -201,7 +201,7 @@ This contract does not authorize:
 
 Future bundle export still requires:
 
-- a separate write-capable contract
+- the separate write-capable contract in `docs/architecture/python_report_bundle_export_contract.md`
 - a dry-run phase
 - smoke validation
 - cleanup rules for smoke-created artifacts
@@ -209,3 +209,5 @@ Future bundle export still requires:
 - command inventory updates that clearly mark any new write-capable surface
 
 Until that gate is complete, `report bundle preview` and `report bundle verify` remain read-only and `report export` remains the only write-capable Python command.
+
+The export contract does not change this read-only boundary. Preview and verify still do not create bundle directories, zip archives, copied reports, bundle manifests, indexes, or runtime state.

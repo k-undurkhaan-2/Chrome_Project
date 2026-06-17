@@ -124,6 +124,8 @@ Read-only bundle preview / verify are implemented. Bundle write/export still req
 
 The read-only boundary final smoke confirmed that preview / verify returned clear status, rejected bad manifest paths, kept command inventory at `writes_files_count = 1` and `runs_ce_count = 0`, and created no runtime report, manifest, or bundle artifacts.
 
+`docs/architecture/python_report_bundle_export_contract.md` now defines the future write boundary for bundle export. It does not implement bundle export, enable a bundle write surface, or change preview / verify behavior.
+
 ## Proposed Future Command Shape
 
 Possible future commands only:
@@ -144,7 +146,7 @@ Bundle export is a new write-capable surface.
 
 Required safety rules for any future bundle write:
 
-- separate bundle write contract before implementation
+- follow the bundle write contract before implementation
 - dry-run first
 - explicit approved bundle root
 - path traversal rejection
