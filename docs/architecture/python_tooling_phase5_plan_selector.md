@@ -177,6 +177,8 @@ Optional alternative:
 Phase 5.1b: read-only wrapper test hardening
 ```
 
+Phase 5.2 status: Option D has been selected and completed as read-only wrapper test hardening. The test coverage is boundary-only and does not change wrapper behavior, Python behavior, or write surface.
+
 ## Stop Conditions
 
 Stop before starting a Phase 5 task if:

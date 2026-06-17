@@ -343,6 +343,8 @@ Phase 5.0 adds the Python tooling next-work selector / planning gate. Mutation m
 
 Phase 5.1 improves operator documentation only through `docs/python_tooling_quick_reference.md`. No mutation migration has started, and legacy mutation workflows remain unchanged.
 
+Phase 5.2 adds read-only PowerShell wrapper regression tests only. No mutation migration has started, wrapper behavior is unchanged, and legacy mutation workflows remain unchanged.
+
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 
 - Define request formats.

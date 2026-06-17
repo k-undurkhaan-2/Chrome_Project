@@ -139,6 +139,16 @@ Forbidden commands must be rejected nonzero and must not trigger any Python writ
 
 The wrapper does not run CE and does not write report, manifest, bundle, log, config, registry, baseline, session, or intake state.
 
+### Wrapper Boundary Tests
+
+To validate the read-only wrapper boundary:
+
+```powershell
+.venv\Scripts\python.exe -m pytest tests/test_python_tooling_wrapper_readonly.py --basetemp .tmp_pytest
+```
+
+These tests cover wrapper read-only behavior only. They do not authorize write-capable wrapper behavior and do not replace full pytest or smoke validation.
+
 ## Safe Report Workflow
 
 Use the detailed workflow in `docs/python_tooling_phase3_usage_guide.md`.

@@ -148,6 +148,8 @@ Phase 5 selector note: `docs/architecture/python_tooling_phase5_plan_selector.md
 
 Phase 5.1 note: `docs/python_tooling_quick_reference.md` adds docs-only operator quick reference / troubleshooting consolidation. The Phase 4 frozen boundary remains unchanged.
 
+Phase 5.2 note: the read-only wrapper now has dedicated boundary tests in `tests/test_python_tooling_wrapper_readonly.py`. The Phase 4 frozen boundary remains unchanged.
+
 ## Final Safety Statement
 
 Phase 4 leaves Python tooling with stable read-only status/report visibility and a read-only PowerShell convenience wrapper, while preserving all CE/runtime/log/config/session/baseline/intake mutation boundaries.

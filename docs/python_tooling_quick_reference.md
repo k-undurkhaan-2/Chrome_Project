@@ -215,6 +215,16 @@ Stop if:
 - any command requires real export / bundle export
 - any protected path is requested to be bypassed
 
+## Wrapper Boundary Tests
+
+Read-only wrapper regression coverage is available through pytest:
+
+```powershell
+.venv\Scripts\python.exe -m pytest tests/test_python_tooling_wrapper_readonly.py --basetemp .tmp_pytest
+```
+
+These tests validate the read-only wrapper boundary only. Daily operator workflow is unchanged.
+
 ## Quick Decision Table
 
 | Need | Use command | Writes files? | Runs CE? | Safe for daily read-only? | Notes |
