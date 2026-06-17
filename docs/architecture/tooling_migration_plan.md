@@ -329,6 +329,8 @@ Phase 4.1 adds the Python tooling Phase 4 roadmap in `docs/architecture/python_t
 
 Phase 4.2 hardens the operator documentation after the Phase 3 final checkpoint. `docs/python_tooling_phase3_usage_guide.md` records safe daily checks, read-only commands, dry-run no-write commands, write-capable boundaries, troubleshooting, and Git hygiene. This is documentation-only and does not change Python behavior.
 
+Phase 4.3 adds planning for a future read-only PowerShell thin wrapper around selected Python sidecar commands. This is documentation-only: no wrapper is implemented, no `.ps1` file is added, no Python command is added, and no new write surface is introduced. Any future wrapper should start with read-only status, inventory, preview, manifest verify, and bundle verify commands only. Write-capable report export, manifest recording, bundle export, CE/runtime operations, and PowerShell mutation workflow replacement remain deferred.
+
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 
 - Define request formats.

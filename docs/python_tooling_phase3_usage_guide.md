@@ -207,6 +207,21 @@ Deferred features:
 - CE/native runtime mutation
 - PowerShell mutation replacement
 
+## Future PowerShell Wrapper
+
+A read-only PowerShell thin wrapper is planned, but it is not implemented yet.
+
+Current operator commands should still call Python directly:
+
+```powershell
+.venv\Scripts\python.exe -m armedforces_tool status overview
+.venv\Scripts\python.exe -m armedforces_tool report preview --type full-status
+.venv\Scripts\python.exe -m armedforces_tool report manifest verify
+.venv\Scripts\python.exe -m armedforces_tool report bundle verify
+```
+
+The planned wrapper should start with read-only commands only. Do not rely on a wrapper for report export, manifest recording, bundle export, CE operations, write / restore operations, local config mutation, or any session/intake mutation.
+
 ## Troubleshooting
 
 ### Python Not On PATH

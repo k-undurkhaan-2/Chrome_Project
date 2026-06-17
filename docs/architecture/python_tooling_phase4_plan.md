@@ -85,6 +85,8 @@ Boundaries:
 
 This is a lower-risk Phase 4 starting point than new write surfaces.
 
+Phase 4.3 status: read-only PowerShell thin wrapper planning is documented in `docs/architecture/python_tooling_powershell_wrapper_plan.md`. This is planning only: no wrapper is implemented, no `.ps1` file is added, no Python command is added, and no new write surface is introduced.
+
 ### Track E: Native Backend Contract
 
 Native backend planning is a long-term direction.
@@ -115,9 +117,10 @@ Recommended order:
 
 1. Phase 4.2: operator guide hardening / Phase 3 usage guide
 2. Phase 4.3: read-only PowerShell thin wrapper planning
-3. Phase 4.4: zip bundle export contract
-4. Phase 4.5: zip bundle export dry-run
-5. Phase 4.6+: only then consider real zip export
+3. Phase 4.4: read-only PowerShell thin wrapper pilot, if explicitly scoped
+4. Phase 4.5: zip bundle export contract
+5. Phase 4.6: zip bundle export dry-run
+6. Phase 4.7+: only then consider real zip export
 
 Do not go directly into:
 
