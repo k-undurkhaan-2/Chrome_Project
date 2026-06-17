@@ -89,6 +89,8 @@ Phase 4.3 status: read-only PowerShell thin wrapper planning is documented in `d
 
 Phase 4.4 status: the read-only PowerShell wrapper contract is documented in `docs/architecture/python_tooling_powershell_wrapper_contract.md`. There is still no implementation, no `.ps1` file, no Python command, and no behavior change. Any future wrapper implementation must stay read-only first; write-capable wrapper behavior remains deferred.
 
+Phase 4.7 status: operator documentation has been wrapped up after the read-only wrapper checkpoint `python-tooling-powershell-wrapper-readonly-checkpoint-20260616`. The wrapper remains read-only, no new write surface is introduced, and write-capable wrapper behavior remains deferred.
+
 ### Track E: Native Backend Contract
 
 Native backend planning is a long-term direction.
@@ -120,10 +122,12 @@ Recommended order:
 1. Phase 4.2: operator guide hardening / Phase 3 usage guide
 2. Phase 4.3: read-only PowerShell thin wrapper planning
 3. Phase 4.4: read-only PowerShell thin wrapper contract
-4. Phase 4.5: read-only PowerShell thin wrapper pilot, if explicitly scoped
-5. Phase 4.6: zip bundle export contract
-6. Phase 4.7: zip bundle export dry-run
-7. Phase 4.8+: only then consider real zip export
+4. Phase 4.5: read-only PowerShell thin wrapper pilot
+5. Phase 4.6: read-only PowerShell thin wrapper boundary smoke
+6. Phase 4.7: read-only PowerShell wrapper operator docs wrap-up
+7. Phase 4.8: zip bundle export contract
+8. Phase 4.9: zip bundle export dry-run
+9. Phase 4.10+: only then consider real zip export
 
 Do not go directly into:
 

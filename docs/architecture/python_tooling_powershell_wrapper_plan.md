@@ -190,3 +190,15 @@ Phase 4.5 adds `src/python_tooling_wrapper.ps1` as the first read-only implement
 - `bundle-verify`
 
 The wrapper still does not expose report export, manifest recording, bundle export dry-run, real bundle export, CE/runtime operations, write / restore workflows, local config mutation, or any log/session/intake/baseline/registry writes.
+
+## Phase 4.6 / 4.7 Boundary And Operator Docs
+
+The read-only wrapper boundary smoke passed and the checkpoint tag is:
+
+```text
+python-tooling-powershell-wrapper-readonly-checkpoint-20260616
+```
+
+Operator usage is documented with `powershell -NoProfile -ExecutionPolicy Bypass -File .\src\python_tooling_wrapper.ps1 ...` because local direct script execution may be blocked by PowerShell `ExecutionPolicy`.
+
+Any future wrapper work must remain gated by separate planning, contract, implementation, smoke validation, cleanup policy, and checkpoint. Write-capable wrapper behavior remains deferred.

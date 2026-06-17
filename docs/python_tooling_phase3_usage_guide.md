@@ -211,17 +211,27 @@ Deferred features:
 
 A read-only PowerShell thin wrapper is available for the safest daily status checks.
 
-Wrapper command examples:
+The wrapper is checkpointed at:
 
-```powershell
-.\src\python_tooling_wrapper.ps1 status
-.\src\python_tooling_wrapper.ps1 inventory
-.\src\python_tooling_wrapper.ps1 report-status
-.\src\python_tooling_wrapper.ps1 manifest-verify
-.\src\python_tooling_wrapper.ps1 bundle-verify
+```text
+python-tooling-powershell-wrapper-readonly-checkpoint-20260616
 ```
 
+Recommended wrapper invocation uses `ExecutionPolicy Bypass`:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\src\python_tooling_wrapper.ps1 status
+powershell -NoProfile -ExecutionPolicy Bypass -File .\src\python_tooling_wrapper.ps1 inventory
+powershell -NoProfile -ExecutionPolicy Bypass -File .\src\python_tooling_wrapper.ps1 report-status
+powershell -NoProfile -ExecutionPolicy Bypass -File .\src\python_tooling_wrapper.ps1 manifest-verify
+powershell -NoProfile -ExecutionPolicy Bypass -File .\src\python_tooling_wrapper.ps1 bundle-verify
+```
+
+Direct `.\src\python_tooling_wrapper.ps1 ...` execution may be blocked by local PowerShell `ExecutionPolicy`. Use the command shape above; do not change system policy for the project.
+
 The wrapper is read-only and exposes only the commands above. It does not wrap report export, manifest recording, bundle export dry-run, real bundle export, CE operations, write / restore operations, local config mutation, or session/intake mutation.
+
+Write-capable commands remain direct Python commands only and must not be wrapped yet.
 
 Direct Python usage remains valid:
 

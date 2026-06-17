@@ -8,6 +8,8 @@ This task only writes the contract. It does not implement the wrapper, add a Pow
 
 Phase 4.5 implementation status: `src/python_tooling_wrapper.ps1` has been added as the first read-only wrapper implementation under this contract. It supports only `status`, `inventory`, `report-status`, `manifest-verify`, and `bundle-verify`; it does not expose report export, manifest recording, bundle export dry-run, real bundle export, CE/runtime commands, or PowerShell mutation workflows.
 
+Phase 4.6 / 4.7 status: the read-only implementation passed boundary smoke and is checkpointed at `python-tooling-powershell-wrapper-readonly-checkpoint-20260616`. The confirmed allowed commands are `status`, `inventory`, `report-status`, `manifest-verify`, and `bundle-verify`. Forbidden write-capable / runtime-adjacent commands were confirmed rejected nonzero. Write-capable wrapper behavior remains deferred.
+
 ## Current Baseline
 
 Current stable baseline:
@@ -240,6 +242,8 @@ Read-only wrapper implementation must not opportunistically add write-capable wr
 `report export` and `report bundle export` must not be included as convenience shortcuts in the first wrapper.
 
 The wrapper must not bypass Python command inventory. If a command is write-capable in inventory, it must not be exposed by a read-only wrapper phase.
+
+The checkpointed read-only wrapper boundary must remain intact until a future task adds a separate plan, contract, implementation, smoke validation, cleanup policy, and checkpoint for any broader wrapper scope.
 
 ## Explicit Non-Goals
 

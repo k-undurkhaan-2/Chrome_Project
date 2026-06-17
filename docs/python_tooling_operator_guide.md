@@ -77,17 +77,59 @@ Expected stable results:
 
 ## Read-Only PowerShell Wrapper
 
-The read-only wrapper is available for the same safe daily checks:
+The read-only wrapper is available for the same safe daily checks.
 
-```powershell
-.\src\python_tooling_wrapper.ps1 status
-.\src\python_tooling_wrapper.ps1 inventory
-.\src\python_tooling_wrapper.ps1 report-status
-.\src\python_tooling_wrapper.ps1 manifest-verify
-.\src\python_tooling_wrapper.ps1 bundle-verify
+Checkpoint tag:
+
+```text
+python-tooling-powershell-wrapper-readonly-checkpoint-20260616
 ```
 
-The wrapper is a thin bridge to `.venv\Scripts\python.exe -m armedforces_tool ...`. It does not expose report export, manifest recording, bundle export dry-run, real bundle export, CE operations, write / restore operations, or local state mutation.
+Wrapper file:
+
+```text
+src/python_tooling_wrapper.ps1
+```
+
+The wrapper is a thin bridge to `.venv\Scripts\python.exe -m armedforces_tool ...`. It does not replace Python command inventory, and it does not replace legacy PowerShell mutation workflows.
+
+Recommended invocation:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\src\python_tooling_wrapper.ps1 status
+powershell -NoProfile -ExecutionPolicy Bypass -File .\src\python_tooling_wrapper.ps1 inventory
+powershell -NoProfile -ExecutionPolicy Bypass -File .\src\python_tooling_wrapper.ps1 report-status
+powershell -NoProfile -ExecutionPolicy Bypass -File .\src\python_tooling_wrapper.ps1 manifest-verify
+powershell -NoProfile -ExecutionPolicy Bypass -File .\src\python_tooling_wrapper.ps1 bundle-verify
+```
+
+Direct execution such as `.\src\python_tooling_wrapper.ps1 status` may be blocked by local PowerShell `ExecutionPolicy`. That is local policy behavior, not wrapper failure. Operators do not need to change system `ExecutionPolicy`; use `-ExecutionPolicy Bypass -File` for validation and routine wrapper use.
+
+Allowed wrapper commands:
+
+- `status`
+- `inventory`
+- `report-status`
+- `manifest-verify`
+- `bundle-verify`
+
+Explicitly forbidden wrapper commands:
+
+- `report-export`
+- `report-export-manifest`
+- `bundle-export`
+- `bundle-export-dry-run`
+- `safe-reset`
+- `set-diagnostic`
+- `prepare-current-case`
+- `collect-prepare`
+- `case-intake-abandon`
+- `unknown-command`
+- any write-capable / runtime-adjacent command
+
+Forbidden commands must be rejected nonzero and must not trigger any Python write-capable command.
+
+The wrapper does not run CE and does not write report, manifest, bundle, log, config, registry, baseline, session, or intake state.
 
 ## Safe Report Workflow
 
