@@ -347,6 +347,8 @@ Phase 5.2 adds read-only PowerShell wrapper regression tests only. No mutation m
 
 Phase 5.3 plans report/bundle export UX polish only. Export write surface is unchanged, no mutation migration has started, and legacy mutation workflows remain unchanged.
 
+Phase 5.4 adds the report/bundle export UX polish contract. This is contract-only; no mutation migration has started and export write surface is unchanged.
+
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 
 - Define request formats.

@@ -181,6 +181,8 @@ Phase 5.2 status: Option D has been selected and completed as read-only wrapper 
 
 Phase 5.3 status: Option E has been selected for report/bundle export UX polish planning. This is planning-only and does not expand write surface, modify Python source, modify wrapper behavior, add commands, or execute write-capable commands.
 
+Phase 5.4 status: report/bundle export UX polish contract has been added. This remains docs-only and does not expand write surface, modify Python source, modify wrapper behavior, add commands, or execute report/bundle export commands.
+
 ## Stop Conditions
 
 Stop before starting a Phase 5 task if:

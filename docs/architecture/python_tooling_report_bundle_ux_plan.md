@@ -172,3 +172,5 @@ Optional later phase:
 ```text
 Phase 5.5: narrow CLI/help text implementation
 ```
+
+Phase 5.4 note: `docs/architecture/python_tooling_report_bundle_ux_contract.md` defines the UX polish contract. Implementation remains deferred, and future implementation must follow that contract.

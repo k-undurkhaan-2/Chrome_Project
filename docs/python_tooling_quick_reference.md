@@ -101,6 +101,8 @@ These commands:
 
 Report/bundle UX polish planning exists in `docs/architecture/python_tooling_report_bundle_ux_plan.md`. Current daily workflow is unchanged. `report export` and `report bundle export` remain write-capable direct Python commands only.
 
+Report/bundle UX contract exists in `docs/architecture/python_tooling_report_bundle_ux_contract.md`. Current daily workflow is unchanged. Export commands remain write-capable direct Python commands only.
+
 ## Common Status Meanings
 
 ### `SAFE`

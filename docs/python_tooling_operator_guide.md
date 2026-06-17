@@ -155,6 +155,8 @@ Use the detailed workflow in `docs/python_tooling_phase3_usage_guide.md`.
 
 Report/bundle export UX polish planning exists in `docs/architecture/python_tooling_report_bundle_ux_plan.md`. Current report/bundle commands remain unchanged, and the read-only wrapper still does not support write-capable export commands.
 
+Report/bundle export UX contract exists in `docs/architecture/python_tooling_report_bundle_ux_contract.md`. Current command behavior is unchanged, and there is still no wrapper support for write-capable export commands.
+
 Short form:
 
 ```powershell

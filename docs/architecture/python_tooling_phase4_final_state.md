@@ -152,6 +152,8 @@ Phase 5.2 note: the read-only wrapper now has dedicated boundary tests in `tests
 
 Phase 5.3 note: `docs/architecture/python_tooling_report_bundle_ux_plan.md` plans report/bundle export UX polish only. The Phase 4 frozen boundary remains unchanged.
 
+Phase 5.4 note: `docs/architecture/python_tooling_report_bundle_ux_contract.md` defines the report/bundle UX contract only. The Phase 4 frozen boundary remains unchanged.
+
 ## Final Safety Statement
 
 Phase 4 leaves Python tooling with stable read-only status/report visibility and a read-only PowerShell convenience wrapper, while preserving all CE/runtime/log/config/session/baseline/intake mutation boundaries.
