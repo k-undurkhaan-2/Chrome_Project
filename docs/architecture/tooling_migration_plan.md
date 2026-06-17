@@ -339,6 +339,8 @@ Phase 4.7 records the read-only wrapper checkpoint and operator documentation wr
 
 Phase 4.8 records the Python tooling final state / handoff summary. The wrapper tooling is complete as a read-only layer, no mutation workflow has been migrated, and any future mutation migration must be handled as separate planning, contract, validation, cleanup, and checkpoint work.
 
+Phase 5.0 adds the Python tooling next-work selector / planning gate. Mutation migration remains deferred, and the next recommended work should start from the selector recommendation rather than directly expanding write-capable behavior.
+
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 
 - Define request formats.

@@ -1,0 +1,188 @@
+# Python Tooling Phase 5 Plan Selector
+
+## Purpose
+
+This document is the Phase 5 entry planning gate / next-work selector for Python tooling.
+
+It does not implement functionality. It only selects the next priority direction and records safety boundaries before any Phase 5 work begins.
+
+## Current Baseline
+
+Current checkpoints:
+
+- `python-tooling-phase3-final-checkpoint-20260616`
+- `python-tooling-powershell-wrapper-readonly-checkpoint-20260616`
+
+Current stable state:
+
+- command inventory: about `49` commands
+- `writes_files_count = 2`
+- `runs_ce_count = 0`
+- write-capable Python commands:
+  - `report export`
+  - `report bundle export`
+- read-only wrapper commands:
+  - `status`
+  - `inventory`
+  - `report-status`
+  - `manifest-verify`
+  - `bundle-verify`
+- no CE/runtime mutation exists in Python tooling
+- no log/config/session/intake/baseline/registry writes have been introduced
+
+## Frozen Phase 4 Boundary
+
+The Phase 4 boundary remains frozen:
+
+- read-only wrapper boundary remains frozen
+- wrapper must not gain write-capable commands without new policy / contract / dry-run / smoke / checkpoint
+- Phase 5 work must not silently expand write surface
+- CE/runtime mutation remains out of Python tooling unless separately planned
+- legacy PowerShell mutation workflows remain unchanged
+
+## Phase 5 Candidate Options
+
+### Option A: Write-Capable Wrapper Policy Planning
+
+Goal:
+
+- plan whether wrapper may later wrap write-capable commands
+- do not implement
+- require policy / contract / dry-run / smoke / checkpoint
+
+Risk:
+
+- high, because it may expand write surface
+
+Suitable when:
+
+- operator explicitly needs wrapper convenience for `report export` / `report bundle export`
+- dry-run-first, explicit confirmation, and approved roots are ready
+
+### Option B: Runtime Write/Restore Migration Planning
+
+Goal:
+
+- plan Python migration for runtime write / restore
+- do not implement
+- focus on CE-adjacent boundary, rollback, local config, and log safety
+
+Risk:
+
+- high, because it is close to runtime mutation / restore
+
+Suitable when:
+
+- legacy PowerShell mutation workflow needs to be migrated into Python
+- stricter transaction / rollback model is ready
+
+### Option C: Operator Quick Reference / Troubleshooting Consolidation
+
+Goal:
+
+- docs-only
+- consolidate common commands, `ExecutionPolicy`, `SAFE`, `NO_MANIFEST`, `BAD_PATH`, wrapper usage, and direct Python usage
+- do not modify code
+
+Risk:
+
+- low
+
+Suitable when:
+
+- usability should be improved before new feature development
+- operator mistakes should be reduced
+
+### Option D: Read-Only Wrapper Test Hardening
+
+Goal:
+
+- add more systematic read-only boundary tests for wrapper
+- may touch tests only
+- do not change wrapper behavior
+
+Risk:
+
+- low to medium
+
+Suitable when:
+
+- wrapper will be maintained further
+- regression protection should be strengthened before expanding features
+
+### Option E: Report/Bundle Export UX Polish
+
+Goal:
+
+- improve report export / bundle export prompts, error messages, or preview clarity
+- may touch Python source
+- must not expand write surface
+
+Risk:
+
+- medium
+
+Suitable when:
+
+- report/bundle functionality is usable but operator UX needs polish
+
+## Evaluation Matrix
+
+| Option | Implementation scope | Write-surface risk | CE/runtime risk | Likely files touched | Validation required | Checkpoint/tag needed? | Recommended priority |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| A: Write-capable wrapper policy planning | docs only | high future risk | low now | `docs/architecture/*`, operator docs | diff check, status check | checkpoint doc yes; tag only after milestone | 4 |
+| B: Runtime write/restore migration planning | docs only | high future risk | high future risk | architecture docs | diff check, safety confirmation | checkpoint doc yes; tag only after milestone | 5 |
+| C: Operator quick reference / troubleshooting consolidation | docs only | low | low | operator docs, usage docs | diff check, optional read-only status | no tag required | 1 |
+| D: Read-only wrapper test hardening | tests only, possibly docs | low | low | tests, maybe docs | pytest, wrapper smoke, artifact checks | tag only if boundary checkpoint | 2 |
+| E: Report/bundle export UX polish | Python source, tests, docs | medium | low | `src/armedforces_tool`, tests, docs | pytest, report/bundle smoke, artifact cleanup | checkpoint if behavior changes | 3 |
+
+## Recommendation
+
+Recommended order:
+
+1. Option C: operator quick reference / troubleshooting consolidation
+2. Option D: read-only wrapper test hardening
+3. Option E: report/bundle export UX polish
+4. Option A: write-capable wrapper policy planning
+5. Option B: runtime write/restore migration planning
+
+Rationale:
+
+- Phase 4 was just completed.
+- The safest next step is to consolidate operator docs and reduce misuse.
+- Read-only regression protection should come before expanding write-capable behavior.
+- Do not immediately start write-capable wrapper or runtime mutation work.
+
+## Next Concrete Phase Proposal
+
+Recommended next concrete phase:
+
+```text
+Phase 5.1: operator quick reference / troubleshooting consolidation
+```
+
+Scope:
+
+- docs-only
+- no source changes
+- no CE
+- no write-capable commands
+- no tag
+
+Optional alternative:
+
+```text
+Phase 5.1b: read-only wrapper test hardening
+```
+
+## Stop Conditions
+
+Stop before starting a Phase 5 task if:
+
+- working tree is dirty with unexpected files
+- unexpected source/runtime file changes are present
+- any report/log/config/session/baseline/intake/registry file would be written
+- any CE command would be required
+- any write-capable command would be required
+- task scope mixes docs-only planning with implementation
+- task scope expands wrapper write surface without a separate contract

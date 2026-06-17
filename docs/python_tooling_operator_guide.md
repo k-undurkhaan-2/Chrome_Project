@@ -192,3 +192,9 @@ git status --short
 - `OUTPUT_EXISTS` means bundle output already exists and overwrite is unsupported.
 - `BAD_PATH` means a protected or traversal path was rejected.
 - LF/CRLF warnings from `git diff --check` are acceptable if there is no whitespace error.
+
+## Phase 5 Planning Gate
+
+Before starting the next tooling phase, review `docs/architecture/python_tooling_phase5_plan_selector.md`.
+
+The recommended next docs-first direction is operator quick reference / troubleshooting consolidation. Write-capable wrapper work and runtime mutation migration remain deferred until separate planning and validation exist.

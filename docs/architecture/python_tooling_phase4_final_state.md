@@ -144,6 +144,8 @@ Any write-capable wrapper work requires separate planning, contract, dry-run beh
 
 Do not mix write-capable wrapper work with read-only wrapper maintenance.
 
+Phase 5 selector note: `docs/architecture/python_tooling_phase5_plan_selector.md` now defines the next-work planning gate. Phase 4 remains the frozen baseline, and future work should pass through that selector before implementation begins.
+
 ## Final Safety Statement
 
 Phase 4 leaves Python tooling with stable read-only status/report visibility and a read-only PowerShell convenience wrapper, while preserving all CE/runtime/log/config/session/baseline/intake mutation boundaries.
