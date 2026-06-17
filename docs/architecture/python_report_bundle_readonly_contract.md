@@ -6,6 +6,8 @@ This contract defines the boundary for future Python report bundle read-only pre
 
 Phase 3.20 wrote the contract. Phase 3.21 implements the read-only bundle preview / verify commands. It does not implement bundle export or any write-capable bundle behavior.
 
+Phase 3.22 completed the read-only boundary final smoke. The operator checkpoint tag is `python-report-bundle-readonly-checkpoint-20260616`.
+
 ## Current Baseline
 
 Current Python report tooling state:
@@ -18,6 +20,7 @@ Current Python report tooling state:
 - `runs_ce_count = 0`.
 - no CE or runtime mutation exists in Python tooling.
 - no bundle output exists.
+- Phase 3.22 final smoke passed with no runtime report, manifest, bundle directory, zip archive, `bundle_manifest.json`, or `index.md` created.
 
 ## Read-Only Command Shape
 
@@ -143,7 +146,7 @@ Planned statuses:
 
 Implementation expectations:
 
-- total command count may increase
+- total command count is about `47`
 - `report bundle preview` must be `read_only=true`
 - `report bundle verify` must be `read_only=true`
 - `writes_files=false`
@@ -193,3 +196,16 @@ This contract does not authorize:
 - modifying Lua behavior
 - modifying runtime behavior
 - modifying filtering, ranking, scoring, thresholds, quota, or stable intersection behavior
+
+## Future Bundle Export Gate
+
+Future bundle export still requires:
+
+- a separate write-capable contract
+- a dry-run phase
+- smoke validation
+- cleanup rules for smoke-created artifacts
+- a checkpoint before expanding scope
+- command inventory updates that clearly mark any new write-capable surface
+
+Until that gate is complete, `report bundle preview` and `report bundle verify` remain read-only and `report export` remains the only write-capable Python command.

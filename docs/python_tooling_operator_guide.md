@@ -162,6 +162,41 @@ python -m armedforces_tool report export --type full-status --out reports/python
 
 Supported preview types include `status-overview`, `safety-doctor`, `baseline-compare`, `case-summary`, `registry-summary`, `transaction-summary`, and `full-status`.
 
+## Report bundle read-only workflow
+
+Report bundle commands currently provide preview and verification only:
+
+```powershell
+python -m armedforces_tool report bundle preview
+python -m armedforces_tool report bundle verify
+python -m armedforces_tool report bundle preview --json
+python -m armedforces_tool report bundle verify --json
+```
+
+Current boundary:
+
+- these commands are read-only
+- they read `reports/python_tooling/manifest.jsonl` by default
+- they return `NO_MANIFEST` when the runtime manifest is absent
+- bad `--manifest` paths return `BAD_PATH` or an equivalent rejection
+- they do not create a bundle directory
+- they do not create a zip archive
+- they do not copy report files
+- they do not write `bundle_manifest.json`
+- they do not write `index.md`
+- they do not write the report manifest
+- they do not call `report export`
+- they do not run CE
+
+Current inventory boundary:
+
+- commands: about `47`
+- `writes_files_count = 1`
+- `runs_ce_count = 0`
+- only `report export` is write-capable
+
+Bundle export is not implemented. Bundle preview / verify do not authorize any bundle write. A future bundle export requires a separate write-capable contract, dry-run phase, smoke validation, cleanup rules, and checkpoint.
+
 ## Report Export Boundary
 
 `report export` is currently the only write-capable Python command. Daily status checks should still begin with:

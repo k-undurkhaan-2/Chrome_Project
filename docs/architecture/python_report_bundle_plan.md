@@ -13,12 +13,14 @@ Current Python report tooling state:
 - `report export` is implemented.
 - `report export --record-manifest` is implemented.
 - `report bundle preview` and `report bundle verify` are implemented as read-only commands.
+- Phase 3.22 read-only boundary final smoke passed.
 - first-version manifest path: `reports/python_tooling/manifest.jsonl`.
 - `report export` is the only write-capable Python command.
 - `writes_files_count = 1`.
 - `runs_ce_count = 0`.
 - no CE or runtime mutation exists in Python tooling.
 - no writes to `log/`, config, session, intake, baseline, or registry files are authorized by report tooling.
+- no bundle directory, zip, copied report, `bundle_manifest.json`, or `index.md` is implemented.
 
 ## Why Bundle Needs Separate Planning
 
@@ -42,6 +44,8 @@ Candidate outputs for a future contract:
 - `reports/python_tooling/bundles/<bundle_id>.zip`
 - `reports/python_tooling/bundles/<bundle_id>/bundle_manifest.json`
 - `reports/python_tooling/bundles/<bundle_id>/index.md`
+
+These candidate outputs remain unimplemented after the read-only boundary. They are listed only to define the future write surface that still requires a separate contract.
 
 Explicitly forbidden unless a future contract narrowly allows them:
 
@@ -117,6 +121,8 @@ The contract documents:
 - future test requirements
 
 Read-only bundle preview / verify are implemented. Bundle write/export still requires a separate write-capable contract before any dry-run or real write behavior is implemented.
+
+The read-only boundary final smoke confirmed that preview / verify returned clear status, rejected bad manifest paths, kept command inventory at `writes_files_count = 1` and `runs_ce_count = 0`, and created no runtime report, manifest, or bundle artifacts.
 
 ## Proposed Future Command Shape
 

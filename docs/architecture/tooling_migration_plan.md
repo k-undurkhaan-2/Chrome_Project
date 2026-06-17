@@ -309,6 +309,8 @@ Phase 3.20 adds the read-only preview/verify contract for future Python report b
 
 Phase 3.21 implements Python `report bundle preview` and `report bundle verify` as read-only views over `reports/python_tooling/manifest.jsonl`. The implementation does not create bundle directories, zip archives, copied reports, bundle manifests, indexes, reports, logs, registry files, baselines, session state, intake journals, or local config. No new write surface is added; `report export` remains the only write-capable Python command.
 
+Phase 3.23 records the report bundle read-only boundary after final smoke validation. `report bundle preview` and `report bundle verify` remain read-only, final smoke passed, no new write surface was added, and `report export` remains the only write-capable Python command. Future bundle export must follow the write-capable feature policy with a separate contract, dry-run phase, smoke validation, cleanup rules, and checkpoint before any real bundle write behavior is implemented.
+
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 
 - Define request formats.
