@@ -276,6 +276,8 @@ Scope:
 - must not expand write surface
 - must not change behavior beyond help text / wording
 
+Phase 5.5 status: the narrow CLI help text slice has been implemented for `report export --help` and `report bundle export --help`. Command behavior, path guards, write behavior, manifest behavior, bundle behavior, wrapper behavior, approved roots, and write surface remain unchanged.
+
 ## Stop Conditions
 
 Stop if a future task includes:

@@ -589,13 +589,29 @@ def _add_report_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
     export = report_subparsers.add_parser(
         "export",
         help="Export Markdown reports under approved output roots",
+        description=(
+            "Write-capable Markdown report export.\n\n"
+            "Use --dry-run for a no-write path-safety preview. Without --dry-run, this command writes a .md report "
+            "under an approved output root after path guard checks pass."
+        ),
+        epilog=(
+            "Safety boundary:\n"
+            "  - CE is not run by this command.\n"
+            "  - The read-only PowerShell wrapper does not support report export; direct Python only.\n"
+            "  - Approved output roots: reports/python_tooling/ and docs/reports/python_tooling/.\n"
+            "  - Protected or unapproved paths are rejected with BAD_PATH-style errors.\n"
+            "  - Default overwrite is rejected; --force must be explicit when overwrite is authorized.\n"
+            "  - --record-manifest appends reports/python_tooling/manifest.jsonl only when explicitly used.\n"
+            "  - report export creates reports only; it does not create bundles."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    export.add_argument("--dry-run", action="store_true", help="Validate the export target without writing files.")
+    export.add_argument("--dry-run", action="store_true", help="No-write mode: validate the export target without writing files.")
     export.add_argument(
         "--type",
         choices=REPORT_TYPES,
         default="status-overview",
-        help="Report type to plan for export",
+        help="Report type to export or validate in dry-run mode",
     )
     export.add_argument("--latest", type=int, default=20, help="Number of latest records to inspect")
     export.add_argument(
@@ -604,13 +620,13 @@ def _add_report_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
         default="full",
         help="Validation profile filter",
     )
-    export.add_argument("--output-dir", default=None, help="Approved future output directory")
-    export.add_argument("--out", default=None, help="Approved future .md output path")
-    export.add_argument("--force", action="store_true", help="Allow overwrite when the approved target already exists")
+    export.add_argument("--output-dir", default=None, help="Approved output directory under reports/python_tooling or docs/reports/python_tooling")
+    export.add_argument("--out", default=None, help="Approved .md output path under reports/python_tooling or docs/reports/python_tooling")
+    export.add_argument("--force", action="store_true", help="Explicitly allow overwrite when the approved target already exists")
     export.add_argument(
         "--record-manifest",
         action="store_true",
-        help="Record successful exports in reports/python_tooling/manifest.jsonl; dry-run previews only.",
+        help="Explicitly append successful real exports to reports/python_tooling/manifest.jsonl; dry-run previews manifest intent only.",
     )
     export.add_argument("--json", action="store_true", help="Emit JSON object")
     export.set_defaults(func=_run_report_export)
@@ -650,10 +666,27 @@ def _add_report_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
     bundle_export = bundle_subparsers.add_parser(
         "export",
         help="Export a directory report bundle or preview bundle export without writing files",
+        description=(
+            "Write-capable directory-only report bundle export.\n\n"
+            "Use --dry-run for a no-write bundle plan. Without --dry-run, this command writes a bundle directory "
+            "under reports/python_tooling/bundles after path and manifest checks pass."
+        ),
+        epilog=(
+            "Safety boundary:\n"
+            "  - CE is not run by this command.\n"
+            "  - The read-only PowerShell wrapper does not support report bundle export; direct Python only.\n"
+            "  - Approved output root: reports/python_tooling/bundles/.\n"
+            "  - Protected or unapproved paths are rejected with BAD_PATH-style errors.\n"
+            "  - Real bundle export is directory-only; zip export is unsupported and fail-closed.\n"
+            "  - bundle_manifest.json and index.md are written only inside the new bundle directory during real export.\n"
+            "  - Source reports and reports/python_tooling/manifest.jsonl are read, not mutated.\n"
+            "  - Overwrite and --force are unsupported; choose a new bundle id/path."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    bundle_export.add_argument("--dry-run", action="store_true", help="Preview only and write nothing")
-    bundle_export.add_argument("--zip", action="store_true", help="Plan a future zip bundle output; real zip export is unsupported")
-    bundle_export.add_argument("--out", default=None, help="Future bundle output path under reports/python_tooling/bundles")
+    bundle_export.add_argument("--dry-run", action="store_true", help="No-write mode: preview bundle path and contents only")
+    bundle_export.add_argument("--zip", action="store_true", help="Dry-run planning only; real zip bundle export is unsupported/fail-closed")
+    bundle_export.add_argument("--out", default=None, help="Bundle output directory under reports/python_tooling/bundles")
     bundle_export.add_argument(
         "--manifest",
         default=None,

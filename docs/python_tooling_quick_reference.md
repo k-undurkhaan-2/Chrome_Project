@@ -103,6 +103,15 @@ Report/bundle UX polish planning exists in `docs/architecture/python_tooling_rep
 
 Report/bundle UX contract exists in `docs/architecture/python_tooling_report_bundle_ux_contract.md`. Current daily workflow is unchanged. Export commands remain write-capable direct Python commands only.
 
+Phase 5.5 help text polish is available through:
+
+```powershell
+.venv\Scripts\python.exe -m armedforces_tool report export --help
+.venv\Scripts\python.exe -m armedforces_tool report bundle export --help
+```
+
+These help pages now call out the write-capable boundary, no-write `--dry-run` meaning, approved roots, wrapper exclusion, and CE exclusion. Daily workflow and command behavior are unchanged.
+
 ## Common Status Meanings
 
 ### `SAFE`

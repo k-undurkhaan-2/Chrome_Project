@@ -157,6 +157,15 @@ Report/bundle export UX polish planning exists in `docs/architecture/python_tool
 
 Report/bundle export UX contract exists in `docs/architecture/python_tooling_report_bundle_ux_contract.md`. Current command behavior is unchanged, and there is still no wrapper support for write-capable export commands.
 
+Phase 5.5 help text polish is implemented for:
+
+```powershell
+.venv\Scripts\python.exe -m armedforces_tool report export --help
+.venv\Scripts\python.exe -m armedforces_tool report bundle export --help
+```
+
+Use these help pages before any explicitly scoped export task. They clarify write-capable behavior, no-write dry-run meaning, approved roots, wrapper exclusion, and the fact that CE is not run by these commands. The polish is wording-only; export behavior and write boundaries remain unchanged.
+
 Short form:
 
 ```powershell

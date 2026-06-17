@@ -183,6 +183,8 @@ Phase 5.3 status: Option E has been selected for report/bundle export UX polish 
 
 Phase 5.4 status: report/bundle export UX polish contract has been added. This remains docs-only and does not expand write surface, modify Python source, modify wrapper behavior, add commands, or execute report/bundle export commands.
 
+Phase 5.5 status: Option E was selected for a narrow CLI/help text implementation slice. Only `report export --help` and `report bundle export --help` wording was clarified, with tests for help text and inventory invariants. No command, option, wrapper shortcut, approved root, path guard, or write behavior was added or changed.
+
 ## Stop Conditions
 
 Stop before starting a Phase 5 task if:
