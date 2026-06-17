@@ -133,8 +133,9 @@ Report bundle views are read-only:
 
 - `report bundle preview` reads `reports/python_tooling/manifest.jsonl` and previews a future bundle shape.
 - `report bundle verify` validates bundle readiness from the runtime report manifest and referenced report files.
+- `report bundle export --dry-run` validates a future bundle output path and previews a future directory or zip bundle without writing.
 - These commands do not create bundle directories, zip files, copied reports, `bundle_manifest.json`, or `index.md`.
-- Bundle export is not implemented.
+- Real bundle export is not implemented and fails closed without `--dry-run`.
 
 Manifest recording is available through `report export --record-manifest` for reports written under `reports/python_tooling/`. It writes the report and appends one JSONL record to `reports/python_tooling/manifest.jsonl`.
 
@@ -154,6 +155,8 @@ python -m armedforces_tool report manifest list
 python -m armedforces_tool report manifest verify
 python -m armedforces_tool report bundle preview
 python -m armedforces_tool report bundle verify
+python -m armedforces_tool report bundle export --dry-run --out reports/python_tooling/bundles/bundle_dry_run/
+python -m armedforces_tool report bundle export --dry-run --zip --out reports/python_tooling/bundles/bundle_dry_run.zip
 python -m armedforces_tool report export --dry-run --type full-status --out reports/python_tooling/full_status.md
 python -m armedforces_tool report export --dry-run --type full-status --out reports/python_tooling/full_status.md --record-manifest
 python -m armedforces_tool report export --type full-status --out reports/python_tooling/full_status.md
@@ -164,13 +167,16 @@ Supported preview types include `status-overview`, `safety-doctor`, `baseline-co
 
 ## Report bundle read-only workflow
 
-Report bundle commands currently provide preview and verification only:
+Report bundle commands currently provide preview, verification, and dry-run export planning only:
 
 ```powershell
 python -m armedforces_tool report bundle preview
 python -m armedforces_tool report bundle verify
 python -m armedforces_tool report bundle preview --json
 python -m armedforces_tool report bundle verify --json
+python -m armedforces_tool report bundle export --dry-run --out reports/python_tooling/bundles/bundle_dry_run/
+python -m armedforces_tool report bundle export --dry-run --zip --out reports/python_tooling/bundles/bundle_dry_run.zip
+python -m armedforces_tool report bundle export --dry-run --out reports/python_tooling/bundles/bundle_dry_run/ --json
 ```
 
 Current boundary:
@@ -179,6 +185,7 @@ Current boundary:
 - they read `reports/python_tooling/manifest.jsonl` by default
 - they return `NO_MANIFEST` when the runtime manifest is absent
 - bad `--manifest` paths return `BAD_PATH` or an equivalent rejection
+- dry-run bad `--out` paths return `BAD_PATH` or an equivalent rejection
 - they do not create a bundle directory
 - they do not create a zip archive
 - they do not copy report files
@@ -187,17 +194,18 @@ Current boundary:
 - they do not write the report manifest
 - they do not call `report export`
 - they do not run CE
+- real `report bundle export` without `--dry-run` is not implemented and fails closed
 
 Current inventory boundary:
 
-- commands: about `47`
+- commands: about `48`
 - `writes_files_count = 1`
 - `runs_ce_count = 0`
 - only `report export` is write-capable
 
-Bundle export is not implemented. Bundle preview / verify do not authorize any bundle write. A future bundle export requires a separate write-capable contract, dry-run phase, smoke validation, cleanup rules, and checkpoint.
+Bundle export real write is not implemented. Bundle preview, verify, and dry-run planning do not authorize any bundle write. A future real bundle export requires implementation under the separate write-capable contract, smoke validation, cleanup rules, and checkpoint.
 
-The future bundle export contract is documented in `architecture/python_report_bundle_export_contract.md`. It plans only future behavior. Current inventory remains `writes_files_count = 1`, and `report export` remains the only write-capable Python command.
+The bundle export contract is documented in `architecture/python_report_bundle_export_contract.md`. Dry-run planning is implemented, but real bundle export remains future behavior. Current inventory remains `writes_files_count = 1`, and `report export` remains the only write-capable Python command.
 
 ## Report Export Boundary
 
@@ -364,7 +372,7 @@ That combination must fail closed with `MANIFEST_OUTPUT_ROOT_UNSUPPORTED` or an 
 
 Current command inventory boundary:
 
-- total commands: about `47`
+- total commands: about `48`
 - `writes_files_count = 1`
 - `runs_ce_count = 0`
 - only write-capable Python command: `report export`
@@ -441,7 +449,7 @@ Phase 3 currently includes:
 
 Current command inventory state:
 
-- total commands = `45`
+- total commands = `48`
 - `writes_files_count = 1`
 - `runs_ce_count = 0`
 - only write-capable command = `report export`

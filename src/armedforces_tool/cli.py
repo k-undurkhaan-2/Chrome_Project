@@ -27,7 +27,12 @@ from .registry_status import (
     analyze_registry_show,
     analyze_registry_summary,
 )
-from .report_bundle import analyze_report_bundle, format_report_bundle
+from .report_bundle import (
+    analyze_report_bundle,
+    format_report_bundle,
+    format_report_bundle_export_plan,
+    plan_report_bundle_export,
+)
 from .report_export import format_report_export_dry_run, plan_report_export
 from .report_manifest import analyze_report_manifest, format_report_manifest
 from .report_preview import REPORT_TYPES, ReportPreviewError, preview_report
@@ -641,6 +646,22 @@ def _add_report_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
         parser.add_argument("--limit", type=int, default=None, help="Limit manifest entries considered")
         parser.add_argument("--json", action="store_true", help="Emit JSON object")
         parser.set_defaults(func=_run_report_bundle)
+
+    bundle_export = bundle_subparsers.add_parser(
+        "export",
+        help="Preview future report bundle export without writing files",
+    )
+    bundle_export.add_argument("--dry-run", action="store_true", help="Required; preview only and write nothing")
+    bundle_export.add_argument("--zip", action="store_true", help="Plan a future zip bundle output")
+    bundle_export.add_argument("--out", default=None, help="Future bundle output path under reports/python_tooling/bundles")
+    bundle_export.add_argument(
+        "--manifest",
+        default=None,
+        help="Optional manifest path; only reports/python_tooling/manifest.jsonl is accepted",
+    )
+    bundle_export.add_argument("--limit", type=int, default=None, help="Limit manifest entries considered")
+    bundle_export.add_argument("--json", action="store_true", help="Emit JSON object")
+    bundle_export.set_defaults(func=_run_report_bundle_export)
 
 
 def _add_commands_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -1356,6 +1377,21 @@ def _run_report_bundle(args: argparse.Namespace) -> int:
         print(json.dumps(result.to_dict(), indent=2))
     else:
         print(format_report_bundle(result))
+    return 0 if result.status in {"OK", "NO_MANIFEST", "MISSING_REPORTS", "NOT_READY"} else 1
+
+
+def _run_report_bundle_export(args: argparse.Namespace) -> int:
+    result = plan_report_bundle_export(
+        dry_run=args.dry_run,
+        out=args.out,
+        zip_output=args.zip,
+        manifest=args.manifest,
+        limit=args.limit,
+    )
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(format_report_bundle_export_plan(result))
     return 0 if result.status in {"OK", "NO_MANIFEST", "MISSING_REPORTS", "NOT_READY"} else 1
 
 

@@ -12,6 +12,7 @@ from .safety import DEFAULT_PROJECT_ROOT
 DEFAULT_BUNDLE_MANIFEST_PATH = Path("reports/python_tooling/manifest.jsonl")
 PLANNED_BUNDLE_ROOT = Path("reports/python_tooling/bundles")
 PLANNED_BUNDLE_MANIFEST_NAME = "bundle_manifest.json"
+PLANNED_BUNDLE_INDEX_NAME = "index.md"
 
 
 @dataclass(frozen=True)
@@ -92,6 +93,66 @@ class ReportBundleResult:
         }
 
 
+@dataclass(frozen=True)
+class ReportBundleExportPlanResult:
+    action: str
+    dry_run: bool
+    project_root: str
+    status: str
+    source_manifest_path: str
+    manifest_exists: bool
+    manifest_valid: bool
+    manifest_entry_count: int
+    candidate_report_count: int
+    missing_report_count: int
+    planned_bundle_id: str | None
+    planned_output_path: str | None
+    planned_output_root: str | None
+    planned_bundle_type: str | None
+    would_create_bundle: bool
+    would_write_files: bool
+    planned_files: list[str]
+    planned_bundle_manifest: str | None
+    planned_index: str | None
+    bundle_ready: bool
+    real_export_supported: bool
+    read_only: bool
+    writes_files: bool
+    runs_ce: bool
+    warnings: list[str]
+    errors: list[str]
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "action": self.action,
+            "dry_run": self.dry_run,
+            "project_root": self.project_root,
+            "status": self.status,
+            "source_manifest_path": self.source_manifest_path,
+            "manifest_exists": self.manifest_exists,
+            "manifest_valid": self.manifest_valid,
+            "manifest_entry_count": self.manifest_entry_count,
+            "candidate_report_count": self.candidate_report_count,
+            "missing_report_count": self.missing_report_count,
+            "planned_bundle_id": self.planned_bundle_id,
+            "planned_output_path": self.planned_output_path,
+            "planned_output_root": self.planned_output_root,
+            "planned_bundle_type": self.planned_bundle_type,
+            "would_create_bundle": self.would_create_bundle,
+            "would_write_files": self.would_write_files,
+            "writes_files": self.writes_files,
+            "planned_files": self.planned_files,
+            "planned_bundle_manifest": self.planned_bundle_manifest,
+            "planned_index": self.planned_index,
+            "bundle_ready": self.bundle_ready,
+            "real_export_supported": self.real_export_supported,
+            "read_only": self.read_only,
+            "runs_ce": self.runs_ce,
+            "warnings": self.warnings,
+            "errors": self.errors,
+        }
+
+
 def analyze_report_bundle(
     *,
     action: str,
@@ -157,6 +218,151 @@ def analyze_report_bundle(
     )
 
 
+def plan_report_bundle_export(
+    *,
+    dry_run: bool,
+    out: str | None = None,
+    zip_output: bool = False,
+    manifest: str | None = None,
+    limit: int | None = None,
+    project_root: Path = DEFAULT_PROJECT_ROOT,
+) -> ReportBundleExportPlanResult:
+    project_root_resolved = project_root.resolve()
+    manifest_path, manifest_errors = _resolve_bundle_manifest_path(manifest, project_root_resolved)
+    output_path, output_errors, bundle_type = _resolve_bundle_output_path(out, zip_output, project_root_resolved)
+    planned_bundle_id = _bundle_id_from_output(output_path, bundle_type)
+    planned_bundle_manifest = _planned_bundle_manifest(output_path, bundle_type)
+    planned_index = _planned_index(output_path, bundle_type)
+    planned_output_root = str((project_root_resolved / PLANNED_BUNDLE_ROOT).resolve(strict=False))
+
+    if not dry_run:
+        return _empty_export_result(
+            project_root=project_root_resolved,
+            manifest_path=manifest_path,
+            status="BUNDLE_EXPORT_NOT_IMPLEMENTED",
+            dry_run=False,
+            planned_bundle_id=planned_bundle_id,
+            planned_output_path=str(output_path) if output_path is not None else None,
+            planned_output_root=planned_output_root,
+            planned_bundle_type=bundle_type,
+            planned_bundle_manifest=planned_bundle_manifest,
+            planned_index=planned_index,
+            errors=["Real report bundle export is not implemented. Use --dry-run to preview only."],
+        )
+
+    path_errors = output_errors + manifest_errors
+    if path_errors:
+        return _empty_export_result(
+            project_root=project_root_resolved,
+            manifest_path=manifest_path,
+            status="BAD_PATH",
+            dry_run=True,
+            planned_bundle_id=planned_bundle_id,
+            planned_output_path=str(output_path) if output_path is not None else None,
+            planned_output_root=planned_output_root,
+            planned_bundle_type=bundle_type,
+            planned_bundle_manifest=planned_bundle_manifest,
+            planned_index=planned_index,
+            errors=path_errors,
+        )
+
+    if output_path is None:
+        return _empty_export_result(
+            project_root=project_root_resolved,
+            manifest_path=manifest_path,
+            status="BAD_PATH",
+            dry_run=True,
+            planned_output_root=planned_output_root,
+            errors=["--out is required for report bundle export dry-run"],
+        )
+
+    if manifest_path.suffix.lower() != ".jsonl":
+        return _empty_export_result(
+            project_root=project_root_resolved,
+            manifest_path=manifest_path,
+            status="UNSUPPORTED_FORMAT",
+            dry_run=True,
+            planned_bundle_id=planned_bundle_id,
+            planned_output_path=str(output_path),
+            planned_output_root=planned_output_root,
+            planned_bundle_type=bundle_type,
+            planned_bundle_manifest=planned_bundle_manifest,
+            planned_index=planned_index,
+            errors=["bundle export dry-run only supports manifest.jsonl"],
+        )
+
+    if limit is not None and limit < 0:
+        return _empty_export_result(
+            project_root=project_root_resolved,
+            manifest_path=manifest_path,
+            status="BAD_PATH",
+            dry_run=True,
+            planned_bundle_id=planned_bundle_id,
+            planned_output_path=str(output_path),
+            planned_output_root=planned_output_root,
+            planned_bundle_type=bundle_type,
+            planned_bundle_manifest=planned_bundle_manifest,
+            planned_index=planned_index,
+            errors=["--limit must be zero or greater"],
+        )
+
+    if not manifest_path.exists():
+        return _empty_export_result(
+            project_root=project_root_resolved,
+            manifest_path=manifest_path,
+            status="NO_MANIFEST",
+            dry_run=True,
+            planned_bundle_id=planned_bundle_id,
+            planned_output_path=str(output_path),
+            planned_output_root=planned_output_root,
+            planned_bundle_type=bundle_type,
+            planned_bundle_manifest=planned_bundle_manifest,
+            planned_index=planned_index,
+            warnings=["No runtime report manifest found at reports/python_tooling/manifest.jsonl."],
+        )
+
+    analysis = _analyze_existing_manifest(
+        action="export",
+        manifest_path=manifest_path,
+        project_root=project_root_resolved,
+        limit=limit,
+    )
+    planned_files = _planned_bundle_files(analysis.planned_bundle_files, bundle_type=bundle_type)
+    if planned_bundle_manifest:
+        planned_files.insert(0, _internal_or_path(planned_bundle_manifest, output_path, bundle_type))
+    if planned_index:
+        planned_files.insert(1, _internal_or_path(planned_index, output_path, bundle_type))
+
+    return ReportBundleExportPlanResult(
+        action="export",
+        dry_run=True,
+        project_root=str(project_root_resolved),
+        status=analysis.status,
+        source_manifest_path=str(manifest_path),
+        manifest_exists=analysis.manifest_exists,
+        manifest_valid=analysis.manifest_valid,
+        manifest_entry_count=analysis.manifest_entry_count,
+        candidate_report_count=analysis.candidate_report_count,
+        missing_report_count=analysis.missing_report_count,
+        planned_bundle_id=planned_bundle_id,
+        planned_output_path=str(output_path),
+        planned_output_root=planned_output_root,
+        planned_bundle_type=bundle_type,
+        would_create_bundle=analysis.status == "OK",
+        would_write_files=False,
+        planned_files=planned_files,
+        planned_bundle_manifest=planned_bundle_manifest,
+        planned_index=planned_index,
+        bundle_ready=analysis.status == "OK",
+        real_export_supported=False,
+        read_only=True,
+        writes_files=False,
+        runs_ce=False,
+        warnings=analysis.warnings,
+        errors=analysis.errors,
+    )
+
+
 def format_report_bundle(result: ReportBundleResult) -> str:
     rows = [
         ("action", result.action),
@@ -204,6 +410,54 @@ def format_report_bundle(result: ReportBundleResult) -> str:
             line = entry.get("line_number")
             errors = "; ".join(str(error) for error in entry.get("errors", []))
             lines.append(f"- line {line}: {errors}")
+
+    if result.warnings:
+        lines.append("")
+        lines.append("Warnings")
+        lines.extend(f"- {warning}" for warning in result.warnings)
+
+    if result.errors:
+        lines.append("")
+        lines.append("Errors")
+        lines.extend(f"- {error}" for error in result.errors)
+
+    return "\n".join(lines)
+
+
+def format_report_bundle_export_plan(result: ReportBundleExportPlanResult) -> str:
+    rows = [
+        ("action", result.action),
+        ("dry_run", result.dry_run),
+        ("status", result.status),
+        ("source_manifest_path", result.source_manifest_path),
+        ("manifest_exists", result.manifest_exists),
+        ("manifest_valid", result.manifest_valid),
+        ("manifest_entry_count", result.manifest_entry_count),
+        ("candidate_report_count", result.candidate_report_count),
+        ("missing_report_count", result.missing_report_count),
+        ("planned_bundle_id", result.planned_bundle_id),
+        ("planned_output_path", result.planned_output_path),
+        ("planned_output_root", result.planned_output_root),
+        ("planned_bundle_type", result.planned_bundle_type),
+        ("would_create_bundle", result.would_create_bundle),
+        ("would_write_files", result.would_write_files),
+        ("writes_files", result.writes_files),
+        ("planned_bundle_manifest", result.planned_bundle_manifest),
+        ("planned_index", result.planned_index),
+        ("bundle_ready", result.bundle_ready),
+        ("real_export_supported", result.real_export_supported),
+        ("read_only", result.read_only),
+        ("runs_ce", result.runs_ce),
+    ]
+    width = max(len(label) for label, _ in rows)
+    lines = ["Report Bundle Export Plan", "Field".ljust(width) + "  Value", "-".ljust(width, "-") + "  -----"]
+    for label, value in rows:
+        lines.append(f"{label.ljust(width)}  {_display(value)}")
+
+    if result.planned_files:
+        lines.append("")
+        lines.append("Planned Files")
+        lines.extend(f"- {path}" for path in result.planned_files)
 
     if result.warnings:
         lines.append("")
@@ -411,6 +665,76 @@ def _validate_report_output_path(value: str, project_root: Path) -> list[str]:
     return errors
 
 
+def _resolve_bundle_output_path(
+    value: str | None,
+    zip_output: bool,
+    project_root: Path,
+) -> tuple[Path | None, list[str], str | None]:
+    if not value:
+        return None, ["--out is required for report bundle export dry-run"], "zip" if zip_output else "directory"
+
+    raw = Path(value)
+    target = raw if raw.is_absolute() else project_root / raw
+    target_resolved = target.resolve(strict=False)
+    approved_root = (project_root / PLANNED_BUNDLE_ROOT).resolve(strict=False)
+    errors: list[str] = []
+    bundle_type = "zip" if zip_output else "directory"
+
+    if any(part == ".." for part in raw.parts):
+        errors.append("bundle output path traversal is not allowed")
+    if not _is_relative_to(target_resolved, approved_root) or target_resolved == approved_root:
+        errors.append("bundle output path must be under reports/python_tooling/bundles")
+
+    if zip_output:
+        if target_resolved.suffix.lower() != ".zip":
+            errors.append("zip bundle output must end with .zip")
+    else:
+        if target_resolved.suffix:
+            errors.append("directory bundle output must be a directory path without a file extension")
+
+    return target_resolved, errors, bundle_type
+
+
+def _bundle_id_from_output(output_path: Path | None, bundle_type: str | None) -> str | None:
+    if output_path is None:
+        return None
+    if bundle_type == "zip":
+        return output_path.stem
+    return output_path.name
+
+
+def _planned_bundle_manifest(output_path: Path | None, bundle_type: str | None) -> str | None:
+    if output_path is None:
+        return None
+    if bundle_type == "zip":
+        return PLANNED_BUNDLE_MANIFEST_NAME
+    return str(output_path / PLANNED_BUNDLE_MANIFEST_NAME)
+
+
+def _planned_index(output_path: Path | None, bundle_type: str | None) -> str | None:
+    if output_path is None:
+        return None
+    if bundle_type == "zip":
+        return PLANNED_BUNDLE_INDEX_NAME
+    return str(output_path / PLANNED_BUNDLE_INDEX_NAME)
+
+
+def _planned_bundle_files(source_report_paths: list[str], *, bundle_type: str | None) -> list[str]:
+    report_files = [f"reports/{Path(path).name}" for path in source_report_paths]
+    if bundle_type == "zip":
+        return report_files
+    return report_files
+
+
+def _internal_or_path(value: str, output_path: Path | None, bundle_type: str | None) -> str:
+    if bundle_type == "zip" or output_path is None:
+        return value
+    try:
+        return str(Path(value).relative_to(output_path))
+    except ValueError:
+        return value
+
+
 def _resolve_report_path(value: str, project_root: Path) -> Path:
     raw = Path(value)
     return raw if raw.is_absolute() else project_root / raw
@@ -458,6 +782,52 @@ def _empty_result(
         planned_bundle_manifest=None,
         bundle_ready=False,
         would_write_bundle=False,
+        read_only=True,
+        writes_files=False,
+        runs_ce=False,
+        warnings=warnings or [],
+        errors=errors or [],
+    )
+
+
+def _empty_export_result(
+    *,
+    project_root: Path,
+    manifest_path: Path,
+    status: str,
+    dry_run: bool,
+    planned_bundle_id: str | None = None,
+    planned_output_path: str | None = None,
+    planned_output_root: str | None = None,
+    planned_bundle_type: str | None = None,
+    planned_bundle_manifest: str | None = None,
+    planned_index: str | None = None,
+    manifest_exists: bool = False,
+    warnings: list[str] | None = None,
+    errors: list[str] | None = None,
+) -> ReportBundleExportPlanResult:
+    return ReportBundleExportPlanResult(
+        action="export",
+        dry_run=dry_run,
+        project_root=str(project_root),
+        status=status,
+        source_manifest_path=str(manifest_path),
+        manifest_exists=manifest_exists,
+        manifest_valid=False,
+        manifest_entry_count=0,
+        candidate_report_count=0,
+        missing_report_count=0,
+        planned_bundle_id=planned_bundle_id,
+        planned_output_path=planned_output_path,
+        planned_output_root=planned_output_root,
+        planned_bundle_type=planned_bundle_type,
+        would_create_bundle=False,
+        would_write_files=False,
+        planned_files=[],
+        planned_bundle_manifest=planned_bundle_manifest,
+        planned_index=planned_index,
+        bundle_ready=False,
+        real_export_supported=False,
         read_only=True,
         writes_files=False,
         runs_ce=False,

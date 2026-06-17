@@ -13,6 +13,7 @@ Current Python report tooling state:
 - `report export` is implemented.
 - `report export --record-manifest` is implemented.
 - `report bundle preview` and `report bundle verify` are implemented as read-only commands.
+- `report bundle export --dry-run` is implemented as no-write planning.
 - Phase 3.22 read-only boundary final smoke passed.
 - first-version manifest path: `reports/python_tooling/manifest.jsonl`.
 - `report export` is the only write-capable Python command.
@@ -124,7 +125,7 @@ Read-only bundle preview / verify are implemented. Bundle write/export still req
 
 The read-only boundary final smoke confirmed that preview / verify returned clear status, rejected bad manifest paths, kept command inventory at `writes_files_count = 1` and `runs_ce_count = 0`, and created no runtime report, manifest, or bundle artifacts.
 
-`docs/architecture/python_report_bundle_export_contract.md` now defines the future write boundary for bundle export. It does not implement bundle export, enable a bundle write surface, or change preview / verify behavior.
+`docs/architecture/python_report_bundle_export_contract.md` now defines the future write boundary for bundle export. Dry-run planning is implemented, but real bundle export is still deferred. No bundle write surface is enabled and preview / verify behavior remains unchanged.
 
 ## Proposed Future Command Shape
 
@@ -138,7 +139,7 @@ python -m armedforces_tool report bundle export --out reports/python_tooling/bun
 python -m armedforces_tool report bundle export --zip --out reports/python_tooling/bundles/<bundle_id>.zip
 ```
 
-Only `report bundle preview` and `report bundle verify` are implemented. Bundle export commands remain unimplemented and unauthorized.
+`report bundle preview`, `report bundle verify`, and `report bundle export --dry-run` are implemented. Real bundle export commands remain unimplemented and unauthorized.
 
 ## Safety Model
 
@@ -201,7 +202,7 @@ Recommended order:
 
 This phase does not:
 
-- implement bundle export
+- implement real bundle export
 - write bundle files, directories, or zip archives
 - modify `report export`
 - modify the manifest writer

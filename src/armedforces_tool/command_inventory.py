@@ -693,6 +693,20 @@ COMMANDS: list[CommandDescriptor] = [
         related_commands=["report bundle preview", "report manifest verify"],
     ),
     _descriptor(
+        "report bundle export --dry-run",
+        "report",
+        "Plan a future report bundle export without writing files.",
+        "Validate future directory or zip bundle output paths and preview bundle contents.",
+        related_powershell_command=None,
+        parameters=["--dry-run", "--out", "--zip", "--manifest", "--limit", "--json"],
+        examples=[
+            "python -m armedforces_tool report bundle export --dry-run --out reports/python_tooling/bundles/bundle_dry_run/",
+            "python -m armedforces_tool report bundle export --dry-run --zip --out reports/python_tooling/bundles/bundle_dry_run.zip",
+            "python -m armedforces_tool report bundle export --dry-run --out reports/python_tooling/bundles/bundle_dry_run/ --json",
+        ],
+        related_commands=["report bundle preview", "report bundle verify", "report manifest verify"],
+    ),
+    _descriptor(
         "report export --dry-run",
         "report",
         "Validate a future report export target without writing files.",

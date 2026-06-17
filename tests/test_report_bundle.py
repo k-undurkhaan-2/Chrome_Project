@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from armedforces_tool.command_inventory import list_commands, show_command
-from armedforces_tool.report_bundle import analyze_report_bundle
+from armedforces_tool.report_bundle import analyze_report_bundle, plan_report_bundle_export
 
 
 def _manifest_path(project_root: Path) -> Path:
@@ -187,7 +187,7 @@ def test_bundle_inventory_flags_read_only_and_keeps_export_only_writer() -> None
     result = list_commands(category="report")
     records = {record.command: record for record in result.records}
 
-    for command in ["report bundle preview", "report bundle verify"]:
+    for command in ["report bundle preview", "report bundle verify", "report bundle export --dry-run"]:
         assert command in records
         assert records[command].read_only is True
         assert records[command].writes_files is False
@@ -206,7 +206,165 @@ def test_global_inventory_keeps_only_report_export_write_capable_after_bundle_co
     data = result.to_dict()["summary"]
     write_capable = [record.command for record in result.records if record.writes_files]
 
-    assert data["total_count"] == 47
+    assert data["total_count"] == 48
     assert data["writes_files_count"] == 1
     assert data["runs_ce_count"] == 0
     assert write_capable == ["report export"]
+
+
+def test_bundle_export_dry_run_no_manifest_returns_no_manifest_and_writes_nothing(tmp_path: Path) -> None:
+    result = plan_report_bundle_export(
+        dry_run=True,
+        out="reports/python_tooling/bundles/bundle_dry_run/",
+        project_root=tmp_path,
+    )
+
+    assert result.status == "NO_MANIFEST"
+    assert result.dry_run is True
+    assert result.would_create_bundle is False
+    assert result.would_write_files is False
+    assert result.writes_files is False
+    assert result.planned_bundle_type == "directory"
+    assert result.planned_bundle_id == "bundle_dry_run"
+    assert not (tmp_path / "reports" / "python_tooling" / "bundles").exists()
+
+
+def test_bundle_export_dry_run_directory_output_plans_bundle(tmp_path: Path) -> None:
+    output_path = _write_report(tmp_path)
+    _write_manifest(tmp_path, [_manifest_entry(output_path=output_path)])
+
+    result = plan_report_bundle_export(
+        dry_run=True,
+        out="reports/python_tooling/bundles/bundle_dry_run/",
+        project_root=tmp_path,
+    )
+    data = result.to_dict()
+
+    assert result.status == "OK"
+    assert result.bundle_ready is True
+    assert result.would_create_bundle is True
+    assert result.would_write_files is False
+    assert result.planned_bundle_type == "directory"
+    assert result.planned_bundle_id == "bundle_dry_run"
+    assert result.candidate_report_count == 1
+    assert "bundle_manifest.json" in result.planned_files
+    assert "index.md" in result.planned_files
+    assert "reports/full_status_fixture.md" in result.planned_files
+    assert data["writes_files"] is False
+    assert not (tmp_path / "reports" / "python_tooling" / "bundles").exists()
+
+
+def test_bundle_export_dry_run_zip_output_plans_bundle(tmp_path: Path) -> None:
+    output_path = _write_report(tmp_path)
+    _write_manifest(tmp_path, [_manifest_entry(output_path=output_path)])
+
+    result = plan_report_bundle_export(
+        dry_run=True,
+        zip_output=True,
+        out="reports/python_tooling/bundles/bundle_dry_run.zip",
+        project_root=tmp_path,
+    )
+
+    assert result.status == "OK"
+    assert result.planned_bundle_type == "zip"
+    assert result.planned_bundle_id == "bundle_dry_run"
+    assert result.planned_output_path and result.planned_output_path.endswith("bundle_dry_run.zip")
+    assert result.planned_bundle_manifest == "bundle_manifest.json"
+    assert result.planned_index == "index.md"
+    assert not (tmp_path / "reports" / "python_tooling" / "bundles").exists()
+
+
+def test_bundle_export_dry_run_missing_report_returns_missing_reports(tmp_path: Path) -> None:
+    _write_manifest(tmp_path, [_manifest_entry(output_path="reports/python_tooling/missing.md")])
+
+    result = plan_report_bundle_export(
+        dry_run=True,
+        out="reports/python_tooling/bundles/bundle_dry_run/",
+        project_root=tmp_path,
+    )
+
+    assert result.status == "MISSING_REPORTS"
+    assert result.bundle_ready is False
+    assert result.would_create_bundle is False
+    assert result.missing_report_count == 1
+    assert not (tmp_path / "reports" / "python_tooling" / "bundles").exists()
+
+
+def test_bundle_export_real_without_dry_run_fails_closed(tmp_path: Path) -> None:
+    result = plan_report_bundle_export(
+        dry_run=False,
+        out="reports/python_tooling/bundles/bundle_real_blocked/",
+        project_root=tmp_path,
+    )
+
+    assert result.status == "BUNDLE_EXPORT_NOT_IMPLEMENTED"
+    assert result.dry_run is False
+    assert result.would_create_bundle is False
+    assert result.writes_files is False
+    assert result.errors
+    assert not (tmp_path / "reports").exists()
+
+
+def test_bundle_export_dry_run_bad_output_paths_are_rejected(tmp_path: Path) -> None:
+    for value in [
+        "../bundle.zip",
+        "log/bundle.zip",
+        "src/bundle.zip",
+        "tests/bundle.zip",
+        "docs/codex_tasks/bundle.zip",
+        "docs/reports/python_tooling/bundle.zip",
+        "reports/python_tooling/bundles/bundle.txt",
+        "reports/python_tooling/bundles",
+    ]:
+        result = plan_report_bundle_export(dry_run=True, zip_output=True, out=value, project_root=tmp_path)
+        assert result.status == "BAD_PATH", value
+        assert result.errors, value
+
+
+def test_bundle_export_dry_run_bad_manifest_paths_are_rejected(tmp_path: Path) -> None:
+    for value in [
+        "../log/case_registry.jsonl",
+        "log/case_registry.jsonl",
+        "tests/fixtures/python_report_bundle/valid.jsonl",
+        "docs/reports/python_tooling/manifest.jsonl",
+    ]:
+        result = plan_report_bundle_export(
+            dry_run=True,
+            out="reports/python_tooling/bundles/bundle_dry_run/",
+            manifest=value,
+            project_root=tmp_path,
+        )
+        assert result.status == "BAD_PATH", value
+        assert result.errors, value
+
+
+def test_bundle_export_dry_run_json_shape_contains_required_fields(tmp_path: Path) -> None:
+    result = plan_report_bundle_export(
+        dry_run=True,
+        zip_output=True,
+        out="reports/python_tooling/bundles/bundle_dry_run.zip",
+        project_root=tmp_path,
+    )
+    data = result.to_dict()
+
+    expected = {
+        "status",
+        "source_manifest_path",
+        "planned_bundle_id",
+        "planned_output_path",
+        "planned_output_root",
+        "planned_bundle_type",
+        "would_create_bundle",
+        "would_write_files",
+        "writes_files",
+        "planned_files",
+        "planned_bundle_manifest",
+        "planned_index",
+        "candidate_report_count",
+        "missing_report_count",
+        "manifest_entry_count",
+        "bundle_ready",
+    }
+    assert expected.issubset(data)
+    assert data["writes_files"] is False
+    assert data["would_write_files"] is False

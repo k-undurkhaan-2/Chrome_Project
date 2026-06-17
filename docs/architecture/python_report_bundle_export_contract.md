@@ -4,7 +4,7 @@
 
 This contract defines the controlled write boundary for future Python report bundle export support in `D:\armedforces.io-v2`.
 
-This task only writes the contract. It does not implement bundle export, add a Python command, or add write-capable behavior.
+Phase 3.24 wrote the contract. Phase 3.25 implements dry-run planning only. It does not implement real bundle export or add write-capable behavior.
 
 ## Current Baseline
 
@@ -15,7 +15,8 @@ Current Python report tooling state:
 - `writes_files_count = 1`.
 - `runs_ce_count = 0`.
 - no CE/runtime mutation exists in Python tooling.
-- bundle export is not implemented.
+- bundle export dry-run planning is implemented.
+- real bundle export is not implemented.
 - there is no runtime bundle output.
 
 ## Proposed Write Behavior
@@ -30,7 +31,7 @@ python -m armedforces_tool report bundle export --zip --out reports/python_tooli
 
 Contract rules:
 
-- dry-run must be no-write.
+- dry-run is implemented and must remain no-write.
 - real export must go through a separate implementation phase.
 - bundle export is a new write-capable surface.
 - `report bundle preview` and `report bundle verify` do not authorize export.
@@ -170,7 +171,7 @@ Failure rules:
 
 ## Dry-Run Semantics
 
-Future dry-run must display:
+Implemented dry-run displays:
 
 - `would_create_bundle=true`
 - planned output path
@@ -180,7 +181,7 @@ Future dry-run must display:
 - bundle type
 - write safety status
 
-Future dry-run must not:
+Dry-run must not:
 
 - create directories
 - create zip archives
@@ -230,14 +231,16 @@ Required posture:
 
 ## Command Inventory Impact
 
-Future bundle export would affect command inventory:
+Current dry-run inventory impact:
 
-- bundle export would be a new write-capable command.
-- `writes_files_count` would increase from `1` to `2` if implemented as a new command.
+- `report bundle export --dry-run` is read-only.
+- `writes_files_count` remains `1`.
 - `runs_ce_count` must remain `0`.
 - `report bundle preview` and `report bundle verify` remain read-only.
 - `report export` remains write-capable.
-- command inventory must clearly show bundle export risk level is not `READ_ONLY`.
+- real bundle export, if implemented later as a new command, would be a new write-capable command.
+- `writes_files_count` would increase from `1` to `2` if real bundle export is implemented as a new command.
+- command inventory must clearly show real bundle export risk level is not `READ_ONLY`.
 
 ## Required Tests For Future Implementation
 
@@ -293,7 +296,7 @@ Cleanup rules:
 
 This contract does not authorize:
 
-- implementing bundle export
+- implementing real bundle export
 - creating bundle directories
 - creating zip archives
 - writing `bundle_manifest.json`
