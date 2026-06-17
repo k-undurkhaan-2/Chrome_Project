@@ -4,7 +4,7 @@
 
 This contract defines the controlled write boundary for future Python report bundle export support in `D:\armedforces.io-v2`.
 
-Phase 3.24 wrote the contract. Phase 3.25 implements dry-run planning only. Phase 3.26 final smoke passed for the dry-run boundary. Phase 3.29 implements directory-only real bundle export.
+Phase 3.24 wrote the contract. Phase 3.25 implements dry-run planning only. Phase 3.26 final smoke passed for the dry-run boundary. Phase 3.29 implements directory-only real bundle export. Phase 3.30 final smoke passed for the directory export boundary, and Phase 3.31 records that boundary.
 
 ## Current Baseline
 
@@ -21,6 +21,25 @@ Current Python report tooling state:
 - checkpoint tag: `python-report-bundle-export-dry-run-checkpoint-20260616`.
 - real directory bundle export is implemented.
 - zip bundle export is not implemented.
+
+## Directory Export Boundary Summary
+
+Current validated state:
+
+- directory-only real export implementation is complete
+- Phase 3.30 final smoke passed
+- checkpoint tag: `python-report-bundle-directory-export-checkpoint-20260616`
+- approved real bundle output: `reports/python_tooling/bundles/<bundle_id>/`
+- real directory export creates only bundle-local `bundle_manifest.json`, `index.md`, and copied reports under the bundle directory
+- source manifest `reports/python_tooling/manifest.jsonl` remains read-only during bundle export
+- source reports remain read-only during bundle export
+- zip export remains unsupported / fail-closed
+- `--force` / overwrite remains deferred
+- `docs/reports` bundle output remains unsupported
+- no CE/runtime mutation was added
+- no log/config/session/intake/baseline/registry writes were introduced
+
+Future zip output, overwrite behavior, or `docs/reports` bundle expansion requires a separate contract refinement, tests, smoke validation, cleanup rules, and checkpoint.
 
 ## Write Behavior
 

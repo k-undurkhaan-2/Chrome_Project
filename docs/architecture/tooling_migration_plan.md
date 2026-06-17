@@ -321,6 +321,8 @@ Phase 3.28 refines the future real bundle export contract to a directory-only fi
 
 Phase 3.29 implements directory-only Python report bundle export. `report bundle export --out reports/python_tooling/bundles/<bundle_id>/` can write a guarded directory bundle with copied reports, `bundle_manifest.json`, and `index.md` under the approved bundle root. Zip export and `--force` remain unsupported, dry-run remains no-write, `writes_files_count` is expected to be `2`, write-capable commands are `report export` and `report bundle export`, and `runs_ce_count` remains `0`.
 
+Phase 3.31 documents the report bundle directory export boundary after final smoke validation. Directory export writes only under `reports/python_tooling/bundles/<bundle_id>/`, source reports and `reports/python_tooling/manifest.jsonl` remain read-only during bundle export, `writes_files_count = 2`, `runs_ce_count = 0`, and the write-capable Python commands are `report export` and `report bundle export`. Zip export, `--force` / overwrite, and `docs/reports` bundle output remain deferred. No log/config/session/intake/baseline/registry writes were introduced.
+
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 
 - Define request formats.

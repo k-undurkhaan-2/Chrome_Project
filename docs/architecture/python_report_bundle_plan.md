@@ -26,6 +26,23 @@ Current Python report tooling state:
 - directory bundle export can create a bundle directory, copied report files, `bundle_manifest.json`, and `index.md` under `reports/python_tooling/bundles/<bundle_id>/`.
 - zip bundle export is not implemented.
 
+## Directory Export Boundary State
+
+Directory bundle export is now implemented as the first real bundle export surface.
+
+Validated state:
+
+- Phase 3.30 boundary final smoke passed
+- first version is directory-only
+- approved output root: `reports/python_tooling/bundles/<bundle_id>/`
+- source reports and source manifest remain unchanged by bundle export
+- bundle export dry-run remains no-write
+- zip export remains deferred and fail-closed
+- `--force` / overwrite remains deferred
+- no CE/runtime mutation was added
+- no writes to `log/`, config, session, intake, baseline, or registry files were added
+- current write-capable Python commands: `report export`, `report bundle export`
+
 ## Bundle Export Dry-Run Boundary
 
 Bundle export dry-run planning is implemented for future directory and zip bundle outputs.

@@ -220,6 +220,39 @@ Smoke cleanup rule: remove only bundle directories and smoke source report/manif
 
 The bundle export contract is documented in `architecture/python_report_bundle_export_contract.md`.
 
+## Report bundle directory export workflow
+
+Use this flow only after a runtime report manifest exists under `reports/python_tooling/manifest.jsonl`.
+
+```powershell
+python -m armedforces_tool report bundle export --dry-run --out reports/python_tooling/bundles/<bundle_id>/
+python -m armedforces_tool report bundle export --out reports/python_tooling/bundles/<bundle_id>/
+python -m armedforces_tool report bundle verify
+python -m armedforces_tool report bundle preview
+```
+
+Current directory export boundary:
+
+- real directory export writes only under `reports/python_tooling/bundles/<bundle_id>/`
+- creates `bundle_manifest.json`
+- creates `index.md`
+- copies referenced reports into the bundle-local `reports/` directory
+- does not modify source reports
+- does not modify `reports/python_tooling/manifest.jsonl`
+- does not write `log/`, config, session, intake, baseline, or registry files
+- does not run CE
+- real zip export remains unsupported and fails closed
+- `--force` / overwrite remains unsupported
+- existing output directories are rejected
+- smoke-created bundle artifacts must be cleaned by the operator after validation
+
+Current inventory boundary:
+
+- commands: about `49`
+- `writes_files_count = 2`
+- `runs_ce_count = 0`
+- write-capable commands: `report export`, `report bundle export`
+
 ## Report bundle export dry-run workflow
 
 Use bundle export dry-run to validate a future bundle output path and preview bundle metadata without creating a bundle:
