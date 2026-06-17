@@ -45,6 +45,27 @@ Phase 3.26 final smoke confirmed that directory dry-run, zip dry-run, and JSON d
 
 Real bundle directory or zip export remains deferred. No new write surface has been added; `report export` remains the only write-capable Python command.
 
+## Directory-Only First Real Export Plan
+
+The first real bundle export target is narrowed to directory-only output:
+
+```text
+reports/python_tooling/bundles/<bundle_id>/
+```
+
+This future implementation remains deferred. Current behavior is unchanged:
+
+- `report bundle export --dry-run` remains no-write
+- real bundle directory export is not implemented
+- zip export is not implemented
+- `--zip` remains unsupported / fail-closed for the first real write phase
+- no bundle directory, zip archive, copied report, `bundle_manifest.json`, or `index.md` is created today
+- `report export` remains the only write-capable Python command
+
+The directory-only phase is intentionally smaller than the full bundle plan. It would validate `reports/python_tooling/manifest.jsonl`, copy only referenced reports under `reports/python_tooling/`, write a bundle-local `bundle_manifest.json`, write a bundle-local `index.md`, and leave source reports and source manifest unchanged.
+
+Zip bundle export requires a later contract refinement and separate smoke validation.
+
 ## Why Bundle Needs Separate Planning
 
 A bundle would introduce a new output shape beyond a single Markdown report or append-only report manifest entry.

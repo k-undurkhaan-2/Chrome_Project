@@ -240,6 +240,16 @@ Current inventory boundary:
 - only `report export` is write-capable
 - `report bundle export --dry-run` is read-only
 
+First future real bundle export scope:
+
+- real bundle directory export is not implemented
+- the first future real implementation is planned as directory-only
+- planned future output root: `reports/python_tooling/bundles/<bundle_id>/`
+- zip export remains deferred
+- `--zip` remains unsupported / fail-closed until a separate contract and smoke validation exist
+- current `writes_files_count` remains `1`
+- `report export` remains the only write-capable Python command
+
 ## Report Export Boundary
 
 `report export` is currently the only write-capable Python command. Daily status checks should still begin with:

@@ -169,6 +169,10 @@ The report bundle export contract is documented separately in `docs/architecture
 
 The report manifest write contract does not authorize bundle export. Bundle export may read `reports/python_tooling/manifest.jsonl`, but it must not mutate that manifest unless a future contract explicitly defines additional manifest state behavior.
 
+The first future real bundle export is limited to directory bundle output under `reports/python_tooling/bundles/<bundle_id>/`. It would be a second write-capable Python command and must use temporary output plus an explicit cleanup policy. The first implementation must reject existing output directories, must not implement `--force`, and must clean up only temporary or final bundle directories created by the current smoke or command run.
+
+Zip bundle export is a separate future write surface. It must not be bundled into the first directory-only implementation and requires its own contract refinement, dry-run/smoke validation, cleanup policy, and checkpoint.
+
 ## Required Final Report Fields
 
 Every write-capable feature final report must include:

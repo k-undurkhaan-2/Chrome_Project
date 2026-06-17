@@ -39,6 +39,195 @@ Contract rules:
 - `report bundle preview` and `report bundle verify` do not authorize export.
 - this contract does not change `report export`, manifest writer, or read-only bundle behavior.
 
+## First real export scope: directory bundle only
+
+The first future real write implementation may only allow directory bundle output:
+
+```text
+reports/python_tooling/bundles/<bundle_id>/
+```
+
+The first implementation must explicitly defer or reject:
+
+- zip export
+- `docs/reports` bundle output
+- bundle manifest output outside the approved bundle root
+- source manifest mutation
+- report manifest mutation
+- source report deletion
+- log/config/session/intake/baseline/registry writes
+- writes outside `reports/python_tooling/bundles/<bundle_id>/`
+
+Real directory export remains future write-capable behavior. It is not implemented in the current phase.
+
+### Directory bundle output structure
+
+The first-version directory bundle may only create:
+
+```text
+reports/python_tooling/bundles/<bundle_id>/
+|-- bundle_manifest.json
+|-- index.md
+`-- reports/
+    `-- <copied report files>
+```
+
+Requirements:
+
+- copied reports must come from valid entries in `reports/python_tooling/manifest.jsonl`
+- source reports must be under `reports/python_tooling/`
+- source reports are read-only and must not be modified or deleted
+- source manifest is read-only and must not be modified
+- `bundle_manifest.json` is bundle metadata, not report manifest state
+- `index.md` is a readable generated summary, not a source of truth
+
+### Planned real export command shape
+
+Future directory-only command:
+
+```powershell
+python -m armedforces_tool report bundle export --out reports/python_tooling/bundles/<bundle_id>/
+```
+
+First implementation constraints:
+
+- no `--zip` support
+- `--zip` remains fail-closed / unsupported
+- dry-run behavior remains no-write
+- real directory export is future write-capable behavior
+- after future implementation, command inventory is expected to change:
+  - `writes_files_count` increases from `1` to `2`
+  - `report bundle export` becomes write-capable
+  - `runs_ce_count` remains `0`
+
+### Preconditions before write
+
+Future directory export must validate all preconditions before writing:
+
+- output path is under `reports/python_tooling/bundles/<bundle_id>/`
+- `bundle_id` is safe
+- output directory does not already exist
+- source manifest path is exactly `reports/python_tooling/manifest.jsonl`
+- source manifest is parseable
+- source manifest schema is supported
+- referenced source reports exist
+- referenced source reports are under `reports/python_tooling/`
+- no duplicate `report_id` creates ambiguous bundle entries
+- no traversal or protected paths are present
+
+### Directory write ordering
+
+Future implementation must use this order:
+
+1. validate bundle output path
+2. validate source manifest path
+3. parse manifest
+4. verify referenced report files exist
+5. compute source report hashes
+6. prepare a temporary bundle directory under the approved root
+7. copy report files into temporary bundle `reports/`
+8. write `bundle_manifest.json`
+9. write `index.md`
+10. verify copied file hashes
+11. atomically rename or move the temporary bundle directory to the final bundle directory
+12. run read-only bundle verify if applicable
+
+### Directory failure handling
+
+Future implementation must cover:
+
+- source manifest missing
+- source manifest corrupt
+- referenced report missing
+- source hash mismatch
+- output directory exists
+- temporary directory exists
+- copy failure
+- `bundle_manifest.json` write failure
+- `index.md` write failure
+- final rename failure
+- cleanup failure
+
+Failure requirements:
+
+- fail closed before write where possible
+- if failure occurs after temporary directory creation, clean up only the temporary directory created by the current run
+- never delete a pre-existing final bundle directory
+- never delete source reports
+- never delete the source manifest
+- never report silent success
+
+### Directory cleanup policy
+
+Future smoke cleanup must follow these rules:
+
+- if smoke creates a final bundle directory, it may be deleted
+- if final bundle directory pre-existed, do not run smoke or choose a unique bundle ID
+- delete only the bundle directory created by the current smoke
+- do not delete `reports/python_tooling/`
+- do not delete `reports/python_tooling/manifest.jsonl`
+- do not delete source reports
+- do not delete pre-existing bundle directories
+
+### Force / overwrite policy
+
+The first real directory implementation must not implement `--force`.
+
+Rules:
+
+- if output directory exists, reject
+- `--force` is deferred to a future contract
+- no overwrite by default
+- no cleanup of pre-existing user bundles
+
+### Zip policy
+
+Zip export remains deferred.
+
+Rules:
+
+- `--zip` remains unsupported / fail-closed
+- no zip creation in the first real export implementation
+- zip export requires a separate contract refinement and smoke validation
+
+### Required tests for future directory implementation
+
+Future tests must cover:
+
+- dry-run still writes nothing
+- real directory export writes only under the approved bundle directory
+- no manifest -> no write
+- corrupt manifest -> no write
+- missing referenced report -> no write
+- output directory exists -> reject
+- bad output path rejected
+- traversal rejected
+- protected paths rejected
+- source report outside approved root rejected
+- `bundle_manifest.json` contains required fields
+- `index.md` generated
+- copied report hashes match source reports
+- source manifest unchanged
+- source reports unchanged
+- no zip created
+- command inventory `writes_files_count` increases to `2` only after real implementation
+- `runs_ce_count` remains `0`
+- no log/config/session/intake/baseline/registry writes
+
+### Required smoke for future directory implementation
+
+Future smoke must include:
+
+- pre-smoke git status clean
+- pre-smoke artifact snapshot
+- if `reports/python_tooling/manifest.jsonl` is absent, first create a smoke source report and manifest via approved `report export --record-manifest`, then bundle it, then clean all smoke artifacts
+- if manifest pre-exists, do not mutate it; skip real bundle smoke or use read-only validation
+- real directory bundle export under a unique smoke bundle ID
+- verify bundle contents
+- cleanup only smoke-created bundle directory and smoke source artifacts if created by smoke
+- pytest
+- git diff/status clean
+
 ## Dry-Run Boundary Status
 
 The implemented dry-run path is limited to path validation and export planning.
