@@ -323,6 +323,8 @@ Phase 3.29 implements directory-only Python report bundle export. `report bundle
 
 Phase 3.31 documents the report bundle directory export boundary after final smoke validation. Directory export writes only under `reports/python_tooling/bundles/<bundle_id>/`, source reports and `reports/python_tooling/manifest.jsonl` remain read-only during bundle export, `writes_files_count = 2`, `runs_ce_count = 0`, and the write-capable Python commands are `report export` and `report bundle export`. Zip export, `--force` / overwrite, and `docs/reports` bundle output remain deferred. No log/config/session/intake/baseline/registry writes were introduced.
 
+Phase 3.32 records the current Phase 3 report, manifest, and bundle state in `docs/architecture/python_tooling_phase3_summary.md`. The documented boundary remains `writes_files_count = 2`, `runs_ce_count = 0`, with write-capable commands limited to `report export` and `report bundle export`. No CE/runtime/log/config/session/intake/baseline/registry mutation is introduced by this documentation phase. Future write surfaces still require a separate contract, dry-run behavior where applicable, smoke validation, cleanup rules, and checkpoint.
+
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 
 - Define request formats.

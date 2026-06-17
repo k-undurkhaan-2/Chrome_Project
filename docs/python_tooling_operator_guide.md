@@ -547,6 +547,26 @@ Current command inventory state:
 - `report export --dry-run` remains read-only
 - `report bundle export --dry-run` remains read-only
 
+## Phase 3 Current-State Summary
+
+The current Phase 3 report/manifest/bundle boundary is summarized in `architecture/python_tooling_phase3_summary.md`.
+
+Current state:
+
+- write-capable commands: `report export`, `report bundle export`
+- report manifest commands remain read-only
+- report bundle preview / verify remain read-only
+- report bundle export is directory-only
+- zip export remains deferred and fail-closed
+- `--force` / bundle overwrite remains deferred
+
+Daily checks should start with:
+
+```powershell
+python -m armedforces_tool status overview
+python -m armedforces_tool commands list --category report
+```
+
 Safe report export flow:
 
 ```powershell
