@@ -211,6 +211,8 @@ Deferred features:
 
 A read-only PowerShell thin wrapper is available for the safest daily status checks.
 
+Phase 5 quick reference exists at `docs/python_tooling_quick_reference.md`. Use it for wrapper commands, direct Python commands, and troubleshooting. Phase 3 direct Python commands remain valid.
+
 Phase 4 final state is summarized in `docs/architecture/python_tooling_phase4_final_state.md`. Phase 3 direct Python usage remains valid.
 
 The wrapper is checkpointed at:

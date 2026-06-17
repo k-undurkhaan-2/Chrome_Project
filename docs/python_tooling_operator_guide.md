@@ -8,6 +8,10 @@ For the full Phase 3 usage guide, use:
 
 - `docs/python_tooling_phase3_usage_guide.md`
 
+For daily commands and troubleshooting, start with:
+
+- `docs/python_tooling_quick_reference.md`
+
 For the current Phase 3 architecture summary, use:
 
 - `docs/architecture/python_tooling_phase3_summary.md`
@@ -53,6 +57,8 @@ Unsupported / deferred:
 - PowerShell mutation replacement
 
 ## Daily Safe Checks
+
+For the shortest daily checklist, use `docs/python_tooling_quick_reference.md`.
 
 Use these first:
 

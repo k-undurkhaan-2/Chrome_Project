@@ -341,6 +341,8 @@ Phase 4.8 records the Python tooling final state / handoff summary. The wrapper 
 
 Phase 5.0 adds the Python tooling next-work selector / planning gate. Mutation migration remains deferred, and the next recommended work should start from the selector recommendation rather than directly expanding write-capable behavior.
 
+Phase 5.1 improves operator documentation only through `docs/python_tooling_quick_reference.md`. No mutation migration has started, and legacy mutation workflows remain unchanged.
+
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 
 - Define request formats.

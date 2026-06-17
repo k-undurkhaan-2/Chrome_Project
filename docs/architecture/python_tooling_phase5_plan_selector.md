@@ -169,6 +169,8 @@ Scope:
 - no write-capable commands
 - no tag
 
+Phase 5.1 status: Option C has been selected and started as docs-only quick reference / troubleshooting consolidation in `docs/python_tooling_quick_reference.md`. It does not change source code, wrapper behavior, Python behavior, tests, or write surfaces.
+
 Optional alternative:
 
 ```text
