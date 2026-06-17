@@ -278,6 +278,8 @@ Scope:
 
 Phase 5.5 status: the narrow CLI help text slice has been implemented for `report export --help` and `report bundle export --help`. Command behavior, path guards, write behavior, manifest behavior, bundle behavior, wrapper behavior, approved roots, and write surface remain unchanged.
 
+Phase 5.6 status: `docs/architecture/python_tooling_report_bundle_output_wording_contract.md` defines the future dry-run, real-write, rejection, and wrapper-boundary output wording contract. Implementation remains deferred, and any future output wording implementation must follow that contract without expanding write surface.
+
 ## Stop Conditions
 
 Stop if a future task includes:

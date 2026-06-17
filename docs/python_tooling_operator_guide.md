@@ -166,6 +166,8 @@ Phase 5.5 help text polish is implemented for:
 
 Use these help pages before any explicitly scoped export task. They clarify write-capable behavior, no-write dry-run meaning, approved roots, wrapper exclusion, and the fact that CE is not run by these commands. The polish is wording-only; export behavior and write boundaries remain unchanged.
 
+The output wording contract exists in `docs/architecture/python_tooling_report_bundle_output_wording_contract.md`. It documents future dry-run, real-write, and rejection output requirements, but no output wording implementation is included yet. Current report/bundle command behavior remains unchanged.
+
 Short form:
 
 ```powershell

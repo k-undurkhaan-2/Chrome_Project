@@ -112,6 +112,8 @@ Phase 5.5 help text polish is available through:
 
 These help pages now call out the write-capable boundary, no-write `--dry-run` meaning, approved roots, wrapper exclusion, and CE exclusion. Daily workflow and command behavior are unchanged.
 
+The output wording contract exists in `docs/architecture/python_tooling_report_bundle_output_wording_contract.md`. It defines future dry-run, real-write, and rejection wording requirements only. Current command behavior and daily workflow remain unchanged.
+
 ## Common Status Meanings
 
 ### `SAFE`

@@ -185,6 +185,8 @@ Phase 5.4 status: report/bundle export UX polish contract has been added. This r
 
 Phase 5.5 status: Option E was selected for a narrow CLI/help text implementation slice. Only `report export --help` and `report bundle export --help` wording was clarified, with tests for help text and inventory invariants. No command, option, wrapper shortcut, approved root, path guard, or write behavior was added or changed.
 
+Phase 5.6 status: Option E continues as a docs-only output wording contract. The contract covers future dry-run output, real-write output, rejection output, stable tokens, validation staging, and stop conditions. No write surface was expanded.
+
 ## Stop Conditions
 
 Stop before starting a Phase 5 task if:

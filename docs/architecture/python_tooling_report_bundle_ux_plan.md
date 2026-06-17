@@ -176,3 +176,5 @@ Phase 5.5: narrow CLI/help text implementation
 Phase 5.4 note: `docs/architecture/python_tooling_report_bundle_ux_contract.md` defines the UX polish contract. Implementation remains deferred, and future implementation must follow that contract.
 
 Phase 5.5 note: the first implementation slice completed CLI help text polish for `report export --help` and `report bundle export --help`. It did not add commands, add options, change export behavior, alter path guards, expand wrapper support, or expand the write surface. Future dry-run/output wording polish remains deferred to separately scoped tasks.
+
+Phase 5.6 note: `docs/architecture/python_tooling_report_bundle_output_wording_contract.md` now defines the deferred dry-run, real-write, rejection, and wrapper-boundary output wording contract. No output wording implementation has been made in Phase 5.6.
