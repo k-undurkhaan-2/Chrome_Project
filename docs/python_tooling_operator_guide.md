@@ -75,6 +75,20 @@ Expected stable results:
 - `report manifest verify` may return `NO_MANIFEST` when no runtime manifest exists
 - `report bundle verify` may return `NO_MANIFEST` when no runtime manifest exists
 
+## Read-Only PowerShell Wrapper
+
+The read-only wrapper is available for the same safe daily checks:
+
+```powershell
+.\src\python_tooling_wrapper.ps1 status
+.\src\python_tooling_wrapper.ps1 inventory
+.\src\python_tooling_wrapper.ps1 report-status
+.\src\python_tooling_wrapper.ps1 manifest-verify
+.\src\python_tooling_wrapper.ps1 bundle-verify
+```
+
+The wrapper is a thin bridge to `.venv\Scripts\python.exe -m armedforces_tool ...`. It does not expose report export, manifest recording, bundle export dry-run, real bundle export, CE operations, write / restore operations, or local state mutation.
+
 ## Safe Report Workflow
 
 Use the detailed workflow in `docs/python_tooling_phase3_usage_guide.md`.

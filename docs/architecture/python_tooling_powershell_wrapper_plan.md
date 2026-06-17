@@ -178,3 +178,15 @@ Recommended sequence:
 7. Consider whether any dry-run wrapper belongs in a later phase.
 
 Do not add write-capable wrapper commands until a separate wrapper-specific write contract exists.
+
+## Phase 4.5 Read-Only Implementation
+
+Phase 4.5 adds `src/python_tooling_wrapper.ps1` as the first read-only implementation. It supports only:
+
+- `status`
+- `inventory`
+- `report-status`
+- `manifest-verify`
+- `bundle-verify`
+
+The wrapper still does not expose report export, manifest recording, bundle export dry-run, real bundle export, CE/runtime operations, write / restore workflows, local config mutation, or any log/session/intake/baseline/registry writes.

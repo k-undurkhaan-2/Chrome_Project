@@ -6,6 +6,8 @@ This contract defines the future read-only PowerShell thin wrapper interface, sa
 
 This task only writes the contract. It does not implement the wrapper, add a PowerShell script, add a Python command, change Python behavior, run CE, or write runtime artifacts.
 
+Phase 4.5 implementation status: `src/python_tooling_wrapper.ps1` has been added as the first read-only wrapper implementation under this contract. It supports only `status`, `inventory`, `report-status`, `manifest-verify`, and `bundle-verify`; it does not expose report export, manifest recording, bundle export dry-run, real bundle export, CE/runtime commands, or PowerShell mutation workflows.
+
 ## Current Baseline
 
 Current stable baseline:
@@ -241,10 +243,8 @@ The wrapper must not bypass Python command inventory. If a command is write-capa
 
 ## Explicit Non-Goals
 
-This contract does not authorize:
+This contract and the Phase 4.5 read-only implementation do not authorize:
 
-- implementing the wrapper
-- adding `src/python_tooling_wrapper.ps1`
 - adding any `.ps1` file
 - adding Python commands
 - changing Python behavior

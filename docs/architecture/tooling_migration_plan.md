@@ -333,6 +333,8 @@ Phase 4.3 adds planning for a future read-only PowerShell thin wrapper around se
 
 Phase 4.4 adds the read-only PowerShell wrapper contract. This is documentation-only: no `.ps1` file is added, no implementation is added, no Python command is added, and no behavior changes. The contract keeps first-phase wrapper scope read-only and explicitly defers write-capable wrapper behavior, real report export, manifest recording, bundle export, CE/runtime operations, and PowerShell mutation workflow replacement.
 
+Phase 4.5 implements the first read-only PowerShell thin wrapper at `src/python_tooling_wrapper.ps1`. The wrapper supports only `status`, `inventory`, `report-status`, `manifest-verify`, and `bundle-verify`; it calls existing Python read-only commands and does not expose report export, manifest recording, bundle export dry-run, real bundle export, CE/runtime operations, write / restore workflows, or local state mutation.
+
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 
 - Define request formats.

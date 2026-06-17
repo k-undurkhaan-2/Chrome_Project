@@ -207,13 +207,23 @@ Deferred features:
 - CE/native runtime mutation
 - PowerShell mutation replacement
 
-## Future PowerShell Wrapper
+## Read-Only PowerShell Wrapper
 
-A read-only PowerShell thin wrapper is planned, but it is not implemented yet.
+A read-only PowerShell thin wrapper is available for the safest daily status checks.
 
-The wrapper contract exists in `docs/architecture/python_tooling_powershell_wrapper_contract.md`, but operators should not rely on a wrapper yet.
+Wrapper command examples:
 
-Current operator commands should still call Python directly:
+```powershell
+.\src\python_tooling_wrapper.ps1 status
+.\src\python_tooling_wrapper.ps1 inventory
+.\src\python_tooling_wrapper.ps1 report-status
+.\src\python_tooling_wrapper.ps1 manifest-verify
+.\src\python_tooling_wrapper.ps1 bundle-verify
+```
+
+The wrapper is read-only and exposes only the commands above. It does not wrap report export, manifest recording, bundle export dry-run, real bundle export, CE operations, write / restore operations, local config mutation, or session/intake mutation.
+
+Direct Python usage remains valid:
 
 ```powershell
 .venv\Scripts\python.exe -m armedforces_tool status overview
@@ -221,8 +231,6 @@ Current operator commands should still call Python directly:
 .venv\Scripts\python.exe -m armedforces_tool report manifest verify
 .venv\Scripts\python.exe -m armedforces_tool report bundle verify
 ```
-
-The planned wrapper should start with read-only commands only. Do not rely on a wrapper for report export, manifest recording, bundle export, CE operations, write / restore operations, local config mutation, or any session/intake mutation.
 
 ## Troubleshooting
 
