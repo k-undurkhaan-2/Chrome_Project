@@ -6,6 +6,8 @@ This document defines future output wording requirements for report and bundle e
 
 This is a documentation-only contract. It does not implement behavior changes, modify Python source, modify the PowerShell wrapper, add commands, add options, run CE, or execute report/bundle export commands.
 
+Phase 5.12 note: real-write output wording is now separately contracted in `docs/architecture/python_tooling_real_write_output_contract.md`. Future helper-only real-write output extension is recommended before any real-write path integration.
+
 ## Current Baseline
 
 Current stable boundary:

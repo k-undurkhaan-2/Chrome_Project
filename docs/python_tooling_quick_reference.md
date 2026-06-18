@@ -260,6 +260,17 @@ These tests validate the read-only wrapper boundary only. Daily operator workflo
 | Run CE | not supported by Python tooling | no | yes | no | Not part of Python tooling. |
 | Reset / restore / runtime mutation | legacy PowerShell workflow only | yes | possible | no | Not migrated into Python tooling. |
 
+## Real-Write Output Contract
+
+The real-write output wording contract exists in `docs/architecture/python_tooling_real_write_output_contract.md`.
+
+Current behavior is unchanged:
+
+- real export remains write-capable direct Python only
+- the read-only wrapper still does not support export
+- dry-run wording is already handled separately
+- real-write output wording implementation is deferred
+
 ## Known Non-Goals
 
 This quick reference does not authorize:

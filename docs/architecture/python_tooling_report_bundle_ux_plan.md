@@ -184,3 +184,5 @@ Phase 5.7 note: output wording helpers have been implemented as a safe preparato
 Phase 5.9 note: the dry-run output integration contract follows the helper boundary gate. Implementation remains a future phase and must stay limited to dry-run output unless separately authorized.
 
 Phase 5.10 note: dry-run output wording implementation is completed for `report export --dry-run` and `report bundle export --dry-run`. A possible next safe slice is a dry-run boundary smoke or a real-write output wording contract; real-write output integration remains deferred.
+
+Phase 5.12 note: the real-write output wording contract now follows the dry-run boundary smoke. It is docs-only; real-write output implementation remains future work.

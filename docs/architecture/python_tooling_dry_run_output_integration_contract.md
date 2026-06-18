@@ -6,6 +6,8 @@ This document defines the future contract for integrating report/bundle output w
 
 This phase is documentation-only. It does not execute dry-run commands, implement integration, modify Python source, modify tests, add commands, add options, run CE, or expand write surface.
 
+Phase 5.12 note: `docs/architecture/python_tooling_real_write_output_contract.md` now defines the separate future real-write output wording contract. Dry-run output implementation remains separate and has already been completed; real-write output implementation remains deferred.
+
 ## Current Baseline
 
 Current stable boundary:

@@ -174,6 +174,8 @@ The dry-run output integration contract exists in `docs/architecture/python_tool
 
 Dry-run output wording is now improved for `report export --dry-run` and `report bundle export --dry-run`. Real export behavior is unchanged, and the wrapper remains read-only.
 
+The real-write output wording contract exists in `docs/architecture/python_tooling_real_write_output_contract.md`. No real-write output implementation is active yet; real export behavior is unchanged and the wrapper remains read-only.
+
 Short form:
 
 ```powershell

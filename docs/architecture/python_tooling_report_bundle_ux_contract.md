@@ -286,6 +286,8 @@ Phase 5.9 status: dry-run helper integration is now separately contracted in `do
 
 Phase 5.10 status: dry-run output wording integration is completed for `report export --dry-run` and `report bundle export --dry-run`. Behavior and write surface remain unchanged.
 
+Phase 5.12 status: the real-write output wording contract exists in `docs/architecture/python_tooling_real_write_output_contract.md`. Command behavior remains unchanged, and real-write output implementation is still deferred.
+
 ## Stop Conditions
 
 Stop if a future task includes:

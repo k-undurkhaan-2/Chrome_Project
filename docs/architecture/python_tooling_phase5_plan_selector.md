@@ -193,6 +193,8 @@ Phase 5.9 status: Option E continues as a docs-only dry-run integration contract
 
 Phase 5.10 status: Option E continues with dry-run wording implementation. Only dry-run output paths were integrated with the message helpers; real export behavior, wrapper behavior, commands, options, approved roots, and write surface remain unchanged.
 
+Phase 5.12 status: Option E continues as a docs-only real-write output wording contract. The selected scope documents future real `report export`, `report export --record-manifest`, and real `report bundle export` output requirements without expanding write surface or changing behavior.
+
 ## Stop Conditions
 
 Stop before starting a Phase 5 task if:
