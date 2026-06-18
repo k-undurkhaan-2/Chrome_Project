@@ -184,6 +184,8 @@ The next major work item should start from a new selector/gate document rather t
 
 Real-write validation remains deferred unless a separate task explicitly authorizes real writes, output paths, cleanup, and protected-file checks.
 
+Phase 6 selector note: `docs/architecture/python_tooling_phase6_plan_selector.md` now defines the next-work gate after the output wording checkpoint. The Phase 5 output wording checkpoint remains the frozen baseline, and future real-write validation requires a Phase 6 policy before any manual real writes.
+
 ## Future Work Explicitly Deferred
 
 Deferred work:

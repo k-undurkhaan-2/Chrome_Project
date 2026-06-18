@@ -222,6 +222,8 @@ Phase 5 output wording final state is summarized in `docs/architecture/python_to
 
 This checkpoint does not authorize wrapper export shortcuts and does not authorize manual real-write validation without a separate task.
 
+Phase 6 selector exists in `docs/architecture/python_tooling_phase6_plan_selector.md`. The recommended next direction is real-write validation policy planning, not immediate real writes. The wrapper remains read-only.
+
 ## Git Hygiene
 
 Do not commit:

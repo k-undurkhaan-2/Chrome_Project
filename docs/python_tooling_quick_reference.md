@@ -283,6 +283,8 @@ Current behavior is unchanged:
 - daily operator workflow remains unchanged
 - wrapper remains read-only
 - real exports remain write-capable direct Python only and require explicit scoped authorization
+- Phase 6 selector exists in `docs/architecture/python_tooling_phase6_plan_selector.md`
+- real-write validation is not automatic and requires separate authorization
 
 ## Known Non-Goals
 
