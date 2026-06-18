@@ -269,6 +269,8 @@ Phase 5.20 status: Candidate B implementation completed under helper/unit-only v
 
 Phase 5.22 status: Candidate C now has a dedicated contract in `docs/architecture/python_tooling_real_bundle_export_output_contract.md`. The staged order Candidate A/B/C is fully contracted, and Candidate C implementation remains deferred.
 
+Phase 5.23 status: Candidate C implementation completed under helper/unit-only validation. The staged A/B/C real-write wording integrations are now implemented at the human-readable output level; real-write validation remains separate unless explicitly authorized.
+
 ## Stop Conditions
 
 Stop if a future task includes:

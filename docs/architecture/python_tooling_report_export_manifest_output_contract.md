@@ -241,6 +241,8 @@ Phase 5.20 status: Candidate B integration is implemented for the human-readable
 
 Phase 5.22 status: Candidate C now has a dedicated contract in `docs/architecture/python_tooling_real_bundle_export_output_contract.md`. Candidate A and Candidate B remain complete and boundary-smoked. Bundle integration remains deferred until a separate implementation task.
 
+Phase 5.23 status: Candidate C implementation exists separately for real bundle export human-readable success wording. Candidate A and Candidate B remain complete and boundary-smoked.
+
 ## Stop Conditions
 
 Stop if a future task includes:

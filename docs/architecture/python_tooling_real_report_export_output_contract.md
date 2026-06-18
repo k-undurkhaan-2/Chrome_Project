@@ -230,6 +230,8 @@ Phase 5.19 status: the Candidate B `report export --record-manifest` output cont
 
 Phase 5.20 status: Candidate B implementation now exists separately for manifest export success wording. Candidate A remains complete and boundary-smoked.
 
+Phase 5.23 status: Candidate C implementation exists separately for real bundle export human-readable success wording. Candidate A behavior remains unchanged.
+
 ## Stop Conditions
 
 Stop if a future task includes:

@@ -302,6 +302,8 @@ Phase 5.20 status: manifest output integration was implemented narrowly for huma
 
 Phase 5.22 status: Candidate C contract exists for future real bundle export output integration. Command behavior remains unchanged.
 
+Phase 5.23 status: bundle output integration was implemented narrowly for human-readable success wording. Command behavior remains unchanged.
+
 ## Stop Conditions
 
 Stop if a future task includes:

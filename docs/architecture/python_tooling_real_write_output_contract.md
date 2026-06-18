@@ -299,6 +299,8 @@ Phase 5.20 status: manifest output helper integration exists for the human-reada
 
 Phase 5.22 status: real bundle export output now has a dedicated integration contract in `docs/architecture/python_tooling_real_bundle_export_output_contract.md`. All three real-write wording candidates are now contracted.
 
+Phase 5.23 status: bundle output helper integration exists for real `report bundle export` human-readable success wording. Runtime write surface and bundle artifact behavior remain unchanged.
+
 ## Stop Conditions
 
 Stop if a future task includes:

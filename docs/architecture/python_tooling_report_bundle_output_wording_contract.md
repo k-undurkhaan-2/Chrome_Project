@@ -292,6 +292,8 @@ Phase 5.20 status: Candidate B integration is completed for manifest export succ
 
 Phase 5.22 status: real bundle export output integration is now separately contracted. Zip export and `--force` remain unsupported.
 
+Phase 5.23 status: Candidate C integration completed for real bundle export success wording. Zip export and `--force` remain unsupported.
+
 ## Stop Conditions
 
 Stop if a future task includes:

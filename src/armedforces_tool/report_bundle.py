@@ -11,7 +11,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from .report_manifest import REQUIRED_FIELDS
-from .report_output_messages import bundle_export_dry_run_message
+from .report_output_messages import bundle_export_complete_message, bundle_export_dry_run_message
 from .safety import DEFAULT_PROJECT_ROOT
 
 DEFAULT_BUNDLE_MANIFEST_PATH = Path("reports/python_tooling/manifest.jsonl")
@@ -736,6 +736,21 @@ def format_report_bundle_export_plan(result: ReportBundleExportPlanResult) -> st
             "Field".ljust(width) + "  Value",
             "-".ljust(width, "-") + "  -----",
         ]
+    elif _uses_real_bundle_export_success_message(result):
+        lines = [
+            bundle_export_complete_message(
+                bundle_dir=_display(result.planned_output_path),
+                bundle_manifest_path=_display(result.planned_bundle_manifest),
+                index_path=_display(result.planned_index),
+                approved_root=_display(result.planned_output_root),
+                copied_report_count=result.candidate_report_count,
+                next_verification_command="python -m armedforces_tool report bundle verify",
+            ),
+            "",
+            "Bundle Export Details",
+            "Field".ljust(width) + "  Value",
+            "-".ljust(width, "-") + "  -----",
+        ]
     else:
         lines = ["Report Bundle Export Plan", "Field".ljust(width) + "  Value", "-".ljust(width, "-") + "  -----"]
     for label, value in rows:
@@ -757,6 +772,16 @@ def format_report_bundle_export_plan(result: ReportBundleExportPlanResult) -> st
         lines.extend(f"- {error}" for error in result.errors)
 
     return "\n".join(lines)
+
+
+def _uses_real_bundle_export_success_message(result: ReportBundleExportPlanResult) -> bool:
+    return (
+        not result.dry_run
+        and result.status == "BUNDLE_EXPORT_OK"
+        and result.bundle_written
+        and result.writes_files
+        and result.planned_bundle_type == "directory"
+    )
 
 
 def _analyze_existing_manifest(
