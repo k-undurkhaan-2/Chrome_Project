@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .report_output_messages import report_export_dry_run_message
 from .report_preview import REPORT_TYPES, preview_report
 from .safety import DEFAULT_PROJECT_ROOT
 
@@ -435,7 +436,20 @@ def format_report_export_dry_run(result: ReportExportDryRunResult) -> str:
             ]
         )
     width = max(len(label) for label, _ in rows)
-    lines = [title, "Field".ljust(width) + "  Value", "-".ljust(width, "-") + "  -----"]
+    if result.dry_run:
+        lines = [
+            report_export_dry_run_message(
+                report_path=_display(result.target_path),
+                approved_root=_display(result.approved_output_root),
+                manifest_would_write=bool(result.would_write_manifest),
+            ),
+            "",
+            "Dry-Run Details",
+            "Field".ljust(width) + "  Value",
+            "-".ljust(width, "-") + "  -----",
+        ]
+    else:
+        lines = [title, "Field".ljust(width) + "  Value", "-".ljust(width, "-") + "  -----"]
     for label, value in rows:
         lines.append(f"{label.ljust(width)}  {_display(value)}")
     if result.warnings:

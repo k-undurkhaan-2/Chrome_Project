@@ -284,6 +284,8 @@ Phase 5.7 status: output wording helpers now exist for future integration. Runti
 
 Phase 5.9 status: dry-run helper integration is now separately contracted in `docs/architecture/python_tooling_dry_run_output_integration_contract.md`. Implementation remains deferred.
 
+Phase 5.10 status: dry-run output wording integration is completed for `report export --dry-run` and `report bundle export --dry-run`. Behavior and write surface remain unchanged.
+
 ## Stop Conditions
 
 Stop if a future task includes:

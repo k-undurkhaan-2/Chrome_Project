@@ -118,6 +118,8 @@ Phase 5.7 added output wording helpers for future UX integration. They do not ch
 
 The dry-run output integration contract exists in `docs/architecture/python_tooling_dry_run_output_integration_contract.md`. Current command behavior and daily workflow remain unchanged.
 
+Dry-run output for `report export --dry-run` and `report bundle export --dry-run` now has clearer wording and stable no-write tokens. Daily workflow remains unchanged. Real export remains write-capable and direct-Python only.
+
 ## Common Status Meanings
 
 ### `SAFE`

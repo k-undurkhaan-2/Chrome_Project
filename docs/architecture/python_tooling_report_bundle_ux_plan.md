@@ -182,3 +182,5 @@ Phase 5.6 note: `docs/architecture/python_tooling_report_bundle_output_wording_c
 Phase 5.7 note: output wording helpers have been implemented as a safe preparatory slice. Dry-run and real-write output integration remains deferred, and helper functions are not wired into export execution paths.
 
 Phase 5.9 note: the dry-run output integration contract follows the helper boundary gate. Implementation remains a future phase and must stay limited to dry-run output unless separately authorized.
+
+Phase 5.10 note: dry-run output wording implementation is completed for `report export --dry-run` and `report bundle export --dry-run`. A possible next safe slice is a dry-run boundary smoke or a real-write output wording contract; real-write output integration remains deferred.

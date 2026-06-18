@@ -11,6 +11,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from .report_manifest import REQUIRED_FIELDS
+from .report_output_messages import bundle_export_dry_run_message
 from .safety import DEFAULT_PROJECT_ROOT
 
 DEFAULT_BUNDLE_MANIFEST_PATH = Path("reports/python_tooling/manifest.jsonl")
@@ -722,7 +723,21 @@ def format_report_bundle_export_plan(result: ReportBundleExportPlanResult) -> st
         ("runs_ce", result.runs_ce),
     ]
     width = max(len(label) for label, _ in rows)
-    lines = ["Report Bundle Export Plan", "Field".ljust(width) + "  Value", "-".ljust(width, "-") + "  -----"]
+    if result.dry_run:
+        lines = [
+            bundle_export_dry_run_message(
+                bundle_dir=_display(result.planned_output_path),
+                bundle_manifest_path=_display(result.planned_bundle_manifest),
+                index_path=_display(result.planned_index),
+                approved_root=_display(result.planned_output_root),
+            ),
+            "",
+            "Dry-Run Details",
+            "Field".ljust(width) + "  Value",
+            "-".ljust(width, "-") + "  -----",
+        ]
+    else:
+        lines = ["Report Bundle Export Plan", "Field".ljust(width) + "  Value", "-".ljust(width, "-") + "  -----"]
     for label, value in rows:
         lines.append(f"{label.ljust(width)}  {_display(value)}")
 

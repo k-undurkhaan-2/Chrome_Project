@@ -191,6 +191,8 @@ Phase 5.7 status: Option E continues with a helper-only implementation slice. Th
 
 Phase 5.9 status: Option E continues as a docs-only dry-run integration contract. The contract defines future integration targets, non-goals, artifact safety, test expectations, and stop conditions. No write surface was expanded.
 
+Phase 5.10 status: Option E continues with dry-run wording implementation. Only dry-run output paths were integrated with the message helpers; real export behavior, wrapper behavior, commands, options, approved roots, and write surface remain unchanged.
+
 ## Stop Conditions
 
 Stop before starting a Phase 5 task if:

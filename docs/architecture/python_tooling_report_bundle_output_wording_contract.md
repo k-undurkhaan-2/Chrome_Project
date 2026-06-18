@@ -274,6 +274,8 @@ Phase 5.7 status: a helper-only implementation slice added output wording messag
 
 Phase 5.9 status: `docs/architecture/python_tooling_dry_run_output_integration_contract.md` defines the future contract for integrating helpers into dry-run output only. Future dry-run implementation must follow that contract. Real-write output integration remains deferred.
 
+Phase 5.10 status: dry-run output wording is now integrated for the two dry-run export paths. Real-write output wording remains deferred.
+
 ## Stop Conditions
 
 Stop if a future task includes:

@@ -172,6 +172,8 @@ Phase 5.7 added output wording helpers as implementation preparation. The helper
 
 The dry-run output integration contract exists in `docs/architecture/python_tooling_dry_run_output_integration_contract.md`. Dry-run output integration is not active yet, and real export behavior is unchanged.
 
+Dry-run output wording is now improved for `report export --dry-run` and `report bundle export --dry-run`. Real export behavior is unchanged, and the wrapper remains read-only.
+
 Short form:
 
 ```powershell
