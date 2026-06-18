@@ -114,6 +114,8 @@ These help pages now call out the write-capable boundary, no-write `--dry-run` m
 
 The output wording contract exists in `docs/architecture/python_tooling_report_bundle_output_wording_contract.md`. It defines future dry-run, real-write, and rejection wording requirements only. Current command behavior and daily workflow remain unchanged.
 
+Phase 5.7 added output wording helpers for future UX integration. They do not change current commands, do not run during export yet, and do not alter the daily workflow.
+
 ## Common Status Meanings
 
 ### `SAFE`

@@ -280,6 +280,8 @@ Phase 5.5 status: the narrow CLI help text slice has been implemented for `repor
 
 Phase 5.6 status: `docs/architecture/python_tooling_report_bundle_output_wording_contract.md` defines the future dry-run, real-write, rejection, and wrapper-boundary output wording contract. Implementation remains deferred, and any future output wording implementation must follow that contract without expanding write surface.
 
+Phase 5.7 status: output wording helpers now exist for future integration. Runtime integration remains deferred; helpers are not called by real export or dry-run export paths.
+
 ## Stop Conditions
 
 Stop if a future task includes:

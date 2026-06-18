@@ -270,6 +270,8 @@ Phase 5.7a: dry-run output wording implementation
 
 Use the alternative only if dry-run validation is separately authorized and artifact snapshot checks are included.
 
+Phase 5.7 status: a helper-only implementation slice added output wording message helpers and helper unit tests. The helpers are not wired into report export, report export dry-run, report bundle export, or report bundle export dry-run execution paths. Command behavior, approved roots, path guards, manifest behavior, bundle behavior, wrapper behavior, and write surface remain unchanged.
+
 ## Stop Conditions
 
 Stop if a future task includes:
