@@ -1,4 +1,4 @@
-# Python Tooling Phase 5 Output Wording Final State - 2026-06-16
+# Python Tooling Phase 5 Output Wording Final State - 2026-06-18
 
 ## Purpose
 
@@ -13,6 +13,7 @@ Record the Phase 5.25 docs-only final state summary checkpoint planning artifact
 - No code changed.
 - No behavior changed.
 - No tag created.
+- Correct output wording checkpoint tag date is `python-tooling-output-wording-checkpoint-20260618`.
 
 ## Next Recommendation
 

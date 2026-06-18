@@ -163,8 +163,10 @@ Do not create a checkpoint in this docs-only task.
 Recommended future checkpoint name, if separately authorized after final validation:
 
 ```text
-python-tooling-output-wording-checkpoint-20260616
+python-tooling-output-wording-checkpoint-20260618
 ```
+
+Date correction note: the output wording checkpoint tag should use `20260618`. Earlier `20260616` references came from stale reused prompt context. No tag is created by this docs-only correction.
 
 Before creating that tag, require:
 
