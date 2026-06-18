@@ -6,7 +6,11 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .report_output_messages import report_export_complete_message, report_export_dry_run_message
+from .report_output_messages import (
+    report_export_complete_message,
+    report_export_dry_run_message,
+    report_export_manifest_complete_message,
+)
 from .report_preview import REPORT_TYPES, preview_report
 from .safety import DEFAULT_PROJECT_ROOT
 
@@ -448,6 +452,19 @@ def format_report_export_dry_run(result: ReportExportDryRunResult) -> str:
             "Field".ljust(width) + "  Value",
             "-".ljust(width, "-") + "  -----",
         ]
+    elif _uses_report_export_manifest_success_message(result):
+        lines = [
+            report_export_manifest_complete_message(
+                report_path=_display(result.target_path),
+                manifest_path=_display(result.manifest_path),
+                approved_root=_display(result.approved_output_root),
+                next_verification_command="python -m armedforces_tool report manifest verify",
+            ),
+            "",
+            "Manifest Export Details",
+            "Field".ljust(width) + "  Value",
+            "-".ljust(width, "-") + "  -----",
+        ]
     elif _uses_real_report_export_success_message(result):
         lines = [
             report_export_complete_message(
@@ -496,6 +513,17 @@ def _uses_real_report_export_success_message(result: ReportExportDryRunResult) -
         and not result.record_manifest
         and result.conclusion == "REPORT_EXPORT_OK"
         and result.wrote_file
+    )
+
+
+def _uses_report_export_manifest_success_message(result: ReportExportDryRunResult) -> bool:
+    return (
+        not result.dry_run
+        and result.record_manifest
+        and result.conclusion == "REPORT_EXPORT_OK"
+        and result.wrote_file
+        and result.manifest_written
+        and bool(result.manifest_path)
     )
 
 

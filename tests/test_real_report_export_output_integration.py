@@ -71,6 +71,7 @@ def test_record_manifest_success_path_does_not_use_candidate_a_helper() -> None:
 
     assert "Report Export Complete" not in text
     assert "MANIFEST_NOT_WRITTEN" not in text
+    assert "MANIFEST_RECORDED" in text
     assert "record_manifest" in text
     assert "manifest_written" in text
 
@@ -89,6 +90,6 @@ def test_report_export_imports_candidate_a_helper_but_not_manifest_helper() -> N
     source = (REPO_ROOT / "src" / "armedforces_tool" / "report_export.py").read_text(encoding="utf-8")
 
     assert "report_export_complete_message" in source
-    assert "report_export_manifest_complete_message" not in source
     assert "bundle_export_complete_message" not in source
     assert "_uses_real_report_export_success_message" in source
+    assert "not result.record_manifest" in source

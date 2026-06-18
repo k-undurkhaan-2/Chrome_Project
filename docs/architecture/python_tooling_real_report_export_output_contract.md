@@ -228,6 +228,8 @@ Phase 5.17 status: Candidate A integration is implemented for the human-readable
 
 Phase 5.19 status: the Candidate B `report export --record-manifest` output contract exists in `docs/architecture/python_tooling_report_export_manifest_output_contract.md`. Candidate A remains complete and boundary-smoked; `--record-manifest` integration remains deferred until a separate implementation task.
 
+Phase 5.20 status: Candidate B implementation now exists separately for manifest export success wording. Candidate A remains complete and boundary-smoked.
+
 ## Stop Conditions
 
 Stop if a future task includes:

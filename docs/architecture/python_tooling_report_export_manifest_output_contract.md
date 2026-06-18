@@ -237,6 +237,8 @@ Preferred scope:
 - validation policy must be chosen explicitly
 - prefer unit/helper-only validation unless real manifest write is separately authorized
 
+Phase 5.20 status: Candidate B integration is implemented for the human-readable success output of `report export --record-manifest`. The implementation uses helper/unit-only validation for this phase; no `--record-manifest` command was executed. Candidate A remains unchanged, bundle output integration remains deferred, and manifest schema, manifest append behavior, report content, path guards, approved roots, command parsing, JSON output, wrapper behavior, and write surface remain unchanged.
+
 ## Stop Conditions
 
 Stop if a future task includes:

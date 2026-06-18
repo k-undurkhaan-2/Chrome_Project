@@ -298,6 +298,8 @@ Phase 5.17 status: real report export output integration was implemented narrowl
 
 Phase 5.19 status: the Candidate B manifest export output contract exists. Command behavior remains unchanged.
 
+Phase 5.20 status: manifest output integration was implemented narrowly for human-readable success wording. Command behavior remains unchanged.
+
 ## Stop Conditions
 
 Stop if a future task includes:

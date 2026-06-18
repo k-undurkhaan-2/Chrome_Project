@@ -186,6 +186,8 @@ Real report export output wording is improved for the non-`--record-manifest` su
 
 The Candidate B manifest export output contract exists in `docs/architecture/python_tooling_report_export_manifest_output_contract.md`. No manifest output integration is active yet, and the wrapper remains read-only.
 
+Manifest export output wording is improved for the `--record-manifest` success path. The wrapper remains read-only, and bundle output integration remains deferred.
+
 Short form:
 
 ```powershell
