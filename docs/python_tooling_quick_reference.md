@@ -287,6 +287,8 @@ Current behavior is unchanged:
 - real-write validation is not automatic and requires separate authorization
 - real-write validation policy exists in `docs/architecture/python_tooling_real_write_output_validation_policy.md`
 - do not run real-write validation without an explicit candidate contract
+- Candidate A contract exists in `docs/architecture/python_tooling_candidate_a_real_report_export_validation_contract.md`
+- do not run Candidate A real export validation unless a future execution prompt explicitly authorizes it
 
 ## Known Non-Goals
 

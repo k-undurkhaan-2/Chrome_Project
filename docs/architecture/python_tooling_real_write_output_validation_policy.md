@@ -242,6 +242,8 @@ Rationale:
 - Candidate B adds manifest append behavior risk.
 - Candidate C creates a directory bundle and has the largest artifact surface.
 
+Candidate A contract status: `docs/architecture/python_tooling_candidate_a_real_report_export_validation_contract.md` defines the first planned real-write validation contract. Execution remains deferred to a future explicitly write-authorized smoke.
+
 ## Future Phase Structure
 
 Each candidate should use two phases:

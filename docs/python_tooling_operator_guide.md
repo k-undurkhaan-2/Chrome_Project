@@ -226,6 +226,8 @@ Phase 6 selector exists in `docs/architecture/python_tooling_phase6_plan_selecto
 
 The real-write validation policy exists in `docs/architecture/python_tooling_real_write_output_validation_policy.md`. Future Candidate A/B/C validation requires exact paths, before/after snapshots, cleanup rules, evidence capture, and stop conditions. The wrapper remains read-only.
 
+The Candidate A contract exists in `docs/architecture/python_tooling_candidate_a_real_report_export_validation_contract.md`. It defines the smallest real-write validation slice: direct Python `report export` only, no wrapper shortcut, exact output path, snapshots, cleanup rules, and stop conditions.
+
 ## Git Hygiene
 
 Do not commit:

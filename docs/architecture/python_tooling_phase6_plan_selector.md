@@ -224,6 +224,12 @@ Use only if the operator wants a narrower first real-write validation slice.
 
 Real-write validation remains deferred. The next recommended step is Candidate A contract planning only, not execution smoke.
 
+## Phase 6.2A Status
+
+`docs/architecture/python_tooling_candidate_a_real_report_export_validation_contract.md` defines the Candidate A contract.
+
+The next phase may be Candidate A execution smoke only if explicitly authorized. Do not treat this contract as permission to run `report export`.
+
 ## Stop Conditions
 
 Stop before continuing if:
