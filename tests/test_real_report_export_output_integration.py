@@ -55,10 +55,14 @@ def test_real_report_export_success_format_uses_candidate_a_helper_tokens() -> N
     assert "Report Export Complete" in text
     assert "WRITE_COMPLETE" in text
     assert "APPROVED_ROOT" in text
-    assert "MANIFEST_NOT_WRITTEN" in text
-    assert "BUNDLE_NOT_CREATED" in text
     assert "CE_NOT_RUN" in text
     assert "WRAPPER_UNSUPPORTED" in text
+    assert "MANIFEST_NOT_WRITTEN" not in text
+    assert "BUNDLE_NOT_CREATED" not in text
+    assert "NO_FILES_WRITTEN" not in text
+    assert "MANIFEST_RECORDED" not in text
+    assert "BUNDLE_EXPORT_COMPLETE" not in text
+    assert "ZIP_UNSUPPORTED" not in text
     assert "phase5_17_unit.md" in text
     assert "Export Details" in text
     assert "REPORT_EXPORT_OK" in text

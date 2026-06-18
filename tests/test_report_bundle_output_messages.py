@@ -74,13 +74,16 @@ def test_report_export_complete_message_tokens() -> None:
         [
             "WRITE_COMPLETE",
             "APPROVED_ROOT",
-            "MANIFEST_NOT_WRITTEN",
-            "BUNDLE_NOT_CREATED",
             "WRAPPER_UNSUPPORTED",
             "CE_NOT_RUN",
         ],
     )
-    _assert_field_value(text, "manifest_written", "False")
+    assert "MANIFEST_NOT_WRITTEN" not in text
+    assert "BUNDLE_NOT_CREATED" not in text
+    assert "NO_FILES_WRITTEN" not in text
+    assert "MANIFEST_RECORDED" not in text
+    assert "BUNDLE_EXPORT_COMPLETE" not in text
+    assert "ZIP_UNSUPPORTED" not in text
     assert "reports/python_tooling/full_status.md" in text
     assert "python -m armedforces_tool report preview --type full-status" in text
     _assert_no_unsafe_suggestions(text)

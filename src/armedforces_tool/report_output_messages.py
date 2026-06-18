@@ -73,8 +73,6 @@ def report_export_complete_message(
     next_verification_command: str | None = None,
 ) -> str:
     notes = [
-        "Manifest is not written unless record-manifest behavior is explicitly enabled.",
-        "No bundle was created by report export.",
         "The read-only PowerShell wrapper does not support report export.",
     ]
     if next_verification_command:
@@ -85,9 +83,6 @@ def report_export_complete_message(
             ("status", "WRITE_COMPLETE"),
             ("report_path", report_path),
             ("approved_root", f"APPROVED_ROOT {approved_root}"),
-            ("manifest_written", manifest_written),
-            ("manifest_status", "MANIFEST_RECORDED" if manifest_written else "MANIFEST_NOT_WRITTEN"),
-            ("bundle_status", "BUNDLE_NOT_CREATED"),
             ("ce_status", "CE_NOT_RUN"),
             ("wrapper_status", "WRAPPER_UNSUPPORTED"),
         ],

@@ -11,6 +11,7 @@ Record the Phase 6.2A docs-only Candidate A validation contract.
 - Future command template documented.
 - Snapshot, evidence, cleanup, and stop-condition requirements documented.
 - Post-validation interpretation documented.
+- Phase 6.3A-R1 records that Candidate A report export success output should not include unrelated negative manifest/bundle tokens.
 - No real writes executed.
 - No code changed.
 - No behavior changed.

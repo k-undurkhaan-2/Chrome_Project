@@ -141,8 +141,11 @@ The future Candidate A execution smoke must report:
 - whether `WRAPPER_UNSUPPORTED` or equivalent direct-Python boundary wording appeared if expected by current output wording contract
 - whether `APPROVED_ROOT` appeared as expected
 - confirm `NO_FILES_WRITTEN` does not appear in real-write success output
+- confirm `MANIFEST_NOT_WRITTEN` does not appear in real-write success output
 - confirm `MANIFEST_RECORDED` does not appear
 - confirm `BUNDLE_EXPORT_COMPLETE` does not appear
+- confirm `BUNDLE_NOT_CREATED` does not appear
+- confirm `ZIP_UNSUPPORTED` does not appear
 - output file path
 - output file hash
 - limited content excerpt or metadata from the created report file, if safe
@@ -229,6 +232,10 @@ Phase 6.3A: Candidate A real report export validation smoke
 That future phase must be explicitly write-authorized and must follow this contract.
 
 Do not run Phase 6.3A in this task.
+
+## Phase 6.3A-R1 Wording Fix
+
+Candidate A report export success output must stay report-focused. It should include `REPORT_EXPORT_OK`, `WRITE_COMPLETE`, `APPROVED_ROOT`, `CE_NOT_RUN`, and `WRAPPER_UNSUPPORTED`, but it must not include negative manifest or bundle status tokens such as `MANIFEST_NOT_WRITTEN` or `BUNDLE_NOT_CREATED`.
 
 ## Tag Policy
 
