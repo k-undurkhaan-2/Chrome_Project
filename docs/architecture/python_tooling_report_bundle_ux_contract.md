@@ -292,6 +292,8 @@ Phase 5.13 status: the real-write helper extension exists for future UX integrat
 
 Phase 5.15 status: the real-write integration gate exists. Command behavior remains unchanged and real-write integration is still deferred.
 
+Phase 5.16 status: the Candidate A real report export output contract exists. Command behavior remains unchanged.
+
 ## Stop Conditions
 
 Stop if a future task includes:

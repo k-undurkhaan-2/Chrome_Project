@@ -259,6 +259,8 @@ Scope:
 
 Do not jump directly to implementation unless explicitly authorized.
 
+Phase 5.16 status: `docs/architecture/python_tooling_real_report_export_output_contract.md` now defines the dedicated Candidate A contract. Candidate A remains docs-only, and the next possible phase is Candidate A implementation with an explicit validation policy.
+
 ## Stop Conditions
 
 Stop if a future task includes:

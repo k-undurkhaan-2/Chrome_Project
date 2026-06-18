@@ -282,6 +282,8 @@ Phase 5.13 status: real-write output helpers now exist for future report export,
 
 Phase 5.15 status: real-write integration is now gated by `docs/architecture/python_tooling_real_write_output_integration_gate.md`. The staged order is real report export first, manifest-recording export second, and bundle export last.
 
+Phase 5.16 status: real report export output integration is now separately contracted. Manifest and bundle real-write integrations remain future work.
+
 ## Stop Conditions
 
 Stop if a future task includes:

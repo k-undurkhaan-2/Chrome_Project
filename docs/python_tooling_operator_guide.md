@@ -180,6 +180,8 @@ Phase 5.13 added helper-only real-write output wording functions for future inte
 
 The real-write output integration gate exists in `docs/architecture/python_tooling_real_write_output_integration_gate.md`. No real-write output integration is active yet, and the wrapper remains read-only.
 
+The Candidate A real report export output contract exists in `docs/architecture/python_tooling_real_report_export_output_contract.md`. It does not change current command behavior, and the wrapper remains read-only.
+
 Short form:
 
 ```powershell

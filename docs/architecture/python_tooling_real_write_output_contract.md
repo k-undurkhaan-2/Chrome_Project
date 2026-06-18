@@ -289,6 +289,8 @@ This should remain separate from helper implementation and must explicitly defin
 
 Phase 5.15 status: `docs/architecture/python_tooling_real_write_output_integration_gate.md` now defines the planning gate for any future real-write helper integration. Helper-only extension remains completed, runtime integration remains deferred, and the next recommended phase is a Candidate A contract for real `report export` output integration.
 
+Phase 5.16 status: real report export output now has a dedicated integration contract in `docs/architecture/python_tooling_real_report_export_output_contract.md`. `--record-manifest` and bundle output integration remain deferred.
+
 ## Stop Conditions
 
 Stop if a future task includes:

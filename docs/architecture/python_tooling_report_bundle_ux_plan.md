@@ -190,3 +190,5 @@ Phase 5.12 note: the real-write output wording contract now follows the dry-run 
 Phase 5.13 note: the helper-only real-write output slice is completed. The next possible slice is a real-write integration contract / boundary gate before any helper is wired into real export paths.
 
 Phase 5.15 note: the real-write integration gate follows the helper boundary smoke. Implementation remains future work and must start with a separate Candidate A contract.
+
+Phase 5.16 note: the Candidate A contract follows the real-write output integration gate. Implementation remains future work.
