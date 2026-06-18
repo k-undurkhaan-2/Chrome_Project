@@ -224,6 +224,8 @@ This checkpoint does not authorize wrapper export shortcuts and does not authori
 
 Phase 6 selector exists in `docs/architecture/python_tooling_phase6_plan_selector.md`. The recommended next direction is real-write validation policy planning, not immediate real writes. The wrapper remains read-only.
 
+The real-write validation policy exists in `docs/architecture/python_tooling_real_write_output_validation_policy.md`. Future Candidate A/B/C validation requires exact paths, before/after snapshots, cleanup rules, evidence capture, and stop conditions. The wrapper remains read-only.
+
 ## Git Hygiene
 
 Do not commit:

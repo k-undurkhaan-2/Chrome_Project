@@ -353,6 +353,8 @@ Phase 5 output wording checkpoint is established as `python-tooling-output-wordi
 
 Phase 6.0 adds the post-output-wording next-work selector in `docs/architecture/python_tooling_phase6_plan_selector.md`. Mutation migration remains deferred. The next work should start from the selector recommendation, with real-write output validation policy planning before any manual real writes or wrapper/runtime expansion.
 
+Phase 6.1 adds the real-write output validation policy in `docs/architecture/python_tooling_real_write_output_validation_policy.md`. The policy defines future approved output paths, snapshots, cleanup, evidence, stop conditions, candidate ordering, and phase structure. It does not authorize runtime mutation migration, CE execution, wrapper write-capable support, or real-write validation by itself.
+
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 
 - Define request formats.

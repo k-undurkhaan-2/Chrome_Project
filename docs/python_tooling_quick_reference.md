@@ -285,6 +285,8 @@ Current behavior is unchanged:
 - real exports remain write-capable direct Python only and require explicit scoped authorization
 - Phase 6 selector exists in `docs/architecture/python_tooling_phase6_plan_selector.md`
 - real-write validation is not automatic and requires separate authorization
+- real-write validation policy exists in `docs/architecture/python_tooling_real_write_output_validation_policy.md`
+- do not run real-write validation without an explicit candidate contract
 
 ## Known Non-Goals
 

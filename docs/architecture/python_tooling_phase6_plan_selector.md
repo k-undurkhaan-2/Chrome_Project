@@ -218,6 +218,12 @@ Phase 6.1b: Candidate A real report export validation contract
 
 Use only if the operator wants a narrower first real-write validation slice.
 
+## Phase 6.1 Status
+
+`docs/architecture/python_tooling_real_write_output_validation_policy.md` defines the real-write output validation policy.
+
+Real-write validation remains deferred. The next recommended step is Candidate A contract planning only, not execution smoke.
+
 ## Stop Conditions
 
 Stop before continuing if:
