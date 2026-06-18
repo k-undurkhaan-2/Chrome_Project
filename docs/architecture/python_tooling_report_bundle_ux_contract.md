@@ -288,6 +288,8 @@ Phase 5.10 status: dry-run output wording integration is completed for `report e
 
 Phase 5.12 status: the real-write output wording contract exists in `docs/architecture/python_tooling_real_write_output_contract.md`. Command behavior remains unchanged, and real-write output implementation is still deferred.
 
+Phase 5.13 status: the real-write helper extension exists for future UX integration. Command behavior remains unchanged, and the helpers are not wired into runtime export paths.
+
 ## Stop Conditions
 
 Stop if a future task includes:

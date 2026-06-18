@@ -278,6 +278,8 @@ Phase 5.9 status: `docs/architecture/python_tooling_dry_run_output_integration_c
 
 Phase 5.10 status: dry-run output wording is now integrated for the two dry-run export paths. Real-write output wording remains deferred.
 
+Phase 5.13 status: real-write output helpers now exist for future report export, manifest-recording export, and directory bundle export wording. Runtime integration remains deferred; real export behavior and dry-run behavior remain unchanged.
+
 ## Stop Conditions
 
 Stop if a future task includes:

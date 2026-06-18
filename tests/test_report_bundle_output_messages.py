@@ -66,11 +66,23 @@ def test_report_export_complete_message_tokens() -> None:
     text = report_export_complete_message(
         report_path="reports/python_tooling/full_status.md",
         approved_root="reports/python_tooling",
+        next_verification_command="python -m armedforces_tool report preview --type full-status",
     )
 
-    _assert_tokens(text, ["WRITE_COMPLETE", "APPROVED_ROOT", "CE_NOT_RUN"])
+    _assert_tokens(
+        text,
+        [
+            "WRITE_COMPLETE",
+            "APPROVED_ROOT",
+            "MANIFEST_NOT_WRITTEN",
+            "BUNDLE_NOT_CREATED",
+            "WRAPPER_UNSUPPORTED",
+            "CE_NOT_RUN",
+        ],
+    )
     _assert_field_value(text, "manifest_written", "False")
-    _assert_field_value(text, "bundle_created", "False")
+    assert "reports/python_tooling/full_status.md" in text
+    assert "python -m armedforces_tool report preview --type full-status" in text
     _assert_no_unsafe_suggestions(text)
 
 
@@ -79,12 +91,22 @@ def test_report_export_manifest_complete_message_tokens() -> None:
         report_path="reports/python_tooling/full_status.md",
         manifest_path="reports/python_tooling/manifest.jsonl",
         approved_root="reports/python_tooling",
+        next_verification_command="python -m armedforces_tool report manifest verify",
     )
 
-    _assert_tokens(text, ["WRITE_COMPLETE", "APPROVED_ROOT", "CE_NOT_RUN"])
+    _assert_tokens(
+        text,
+        [
+            "WRITE_COMPLETE",
+            "APPROVED_ROOT",
+            "MANIFEST_RECORDED",
+            "BUNDLE_NOT_CREATED",
+            "WRAPPER_UNSUPPORTED",
+            "CE_NOT_RUN",
+        ],
+    )
     assert "reports/python_tooling/manifest.jsonl" in text
-    _assert_field_value(text, "manifest_record", "appended")
-    _assert_field_value(text, "bundle_created", "False")
+    assert "python -m armedforces_tool report manifest verify" in text
     _assert_no_unsafe_suggestions(text)
 
 
@@ -95,11 +117,25 @@ def test_bundle_export_complete_message_tokens() -> None:
         index_path="reports/python_tooling/bundles/bundle_1/index.md",
         approved_root="reports/python_tooling/bundles",
         copied_report_count=3,
+        next_verification_command="python -m armedforces_tool report bundle verify",
     )
 
-    _assert_tokens(text, ["BUNDLE_EXPORT_COMPLETE", "APPROVED_ROOT", "ZIP_UNSUPPORTED", "CE_NOT_RUN"])
+    _assert_tokens(
+        text,
+        [
+            "BUNDLE_EXPORT_COMPLETE",
+            "APPROVED_ROOT",
+            "SOURCE_UNCHANGED",
+            "ZIP_UNSUPPORTED",
+            "WRAPPER_UNSUPPORTED",
+            "CE_NOT_RUN",
+        ],
+    )
     _assert_field_value(text, "copied_report_count", "3")
-    assert "source reports and manifest unchanged" in text
+    assert "reports/python_tooling/bundles/bundle_1" in text
+    assert "bundle_manifest.json" in text
+    assert "index.md" in text
+    assert "python -m armedforces_tool report bundle verify" in text
     _assert_no_unsafe_suggestions(text)
 
 

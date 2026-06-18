@@ -195,6 +195,8 @@ Phase 5.10 status: Option E continues with dry-run wording implementation. Only 
 
 Phase 5.12 status: Option E continues as a docs-only real-write output wording contract. The selected scope documents future real `report export`, `report export --record-manifest`, and real `report bundle export` output requirements without expanding write surface or changing behavior.
 
+Phase 5.13 status: Option E continues with a helper-only real-write output extension. The helper functions and helper-only tests were updated, but helpers are not wired into real export paths and no write surface was expanded.
+
 ## Stop Conditions
 
 Stop before starting a Phase 5 task if:

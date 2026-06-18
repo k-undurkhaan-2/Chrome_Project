@@ -176,6 +176,8 @@ Dry-run output wording is now improved for `report export --dry-run` and `report
 
 The real-write output wording contract exists in `docs/architecture/python_tooling_real_write_output_contract.md`. No real-write output implementation is active yet; real export behavior is unchanged and the wrapper remains read-only.
 
+Phase 5.13 added helper-only real-write output wording functions for future integration. Current command behavior is unchanged: real export remains direct Python, write-capable, and unavailable through the read-only wrapper.
+
 Short form:
 
 ```powershell

@@ -70,7 +70,15 @@ def report_export_complete_message(
     report_path: str,
     approved_root: str,
     manifest_written: bool = False,
+    next_verification_command: str | None = None,
 ) -> str:
+    notes = [
+        "Manifest is not written unless record-manifest behavior is explicitly enabled.",
+        "No bundle was created by report export.",
+        "The read-only PowerShell wrapper does not support report export.",
+    ]
+    if next_verification_command:
+        notes.append(f"Next safe read-only check: {next_verification_command}")
     return _format_message(
         "Report Export Complete",
         [
@@ -78,13 +86,12 @@ def report_export_complete_message(
             ("report_path", report_path),
             ("approved_root", f"APPROVED_ROOT {approved_root}"),
             ("manifest_written", manifest_written),
-            ("bundle_created", False),
+            ("manifest_status", "MANIFEST_RECORDED" if manifest_written else "MANIFEST_NOT_WRITTEN"),
+            ("bundle_status", "BUNDLE_NOT_CREATED"),
             ("ce_status", "CE_NOT_RUN"),
+            ("wrapper_status", "WRAPPER_UNSUPPORTED"),
         ],
-        [
-            "Manifest is not written unless record-manifest behavior is explicitly enabled.",
-            "No bundle was created by report export.",
-        ],
+        notes,
     )
 
 
@@ -93,19 +100,28 @@ def report_export_manifest_complete_message(
     report_path: str,
     manifest_path: str,
     approved_root: str,
+    next_verification_command: str | None = None,
 ) -> str:
+    notes = [
+        "Manifest record was appended by the explicitly requested record-manifest behavior.",
+        "No bundle was created by report export.",
+        "The read-only PowerShell wrapper does not support report export.",
+    ]
+    if next_verification_command:
+        notes.append(f"Next safe read-only check: {next_verification_command}")
     return _format_message(
         "Report Export Manifest Complete",
         [
             ("status", "WRITE_COMPLETE"),
             ("report_path", report_path),
             ("manifest_path", manifest_path),
-            ("manifest_record", "appended"),
+            ("manifest_record", "MANIFEST_RECORDED"),
             ("approved_root", f"APPROVED_ROOT {approved_root}"),
-            ("bundle_created", False),
+            ("bundle_status", "BUNDLE_NOT_CREATED"),
             ("ce_status", "CE_NOT_RUN"),
+            ("wrapper_status", "WRAPPER_UNSUPPORTED"),
         ],
-        ["No bundle was created by report export."],
+        notes,
     )
 
 
@@ -116,7 +132,15 @@ def bundle_export_complete_message(
     index_path: str,
     approved_root: str,
     copied_report_count: int | None = None,
+    next_verification_command: str | None = None,
 ) -> str:
+    notes = [
+        "Bundle export remains directory-only.",
+        "Source reports and manifest are unchanged by bundle export.",
+        "The read-only PowerShell wrapper does not support report bundle export.",
+    ]
+    if next_verification_command:
+        notes.append(f"Next safe read-only check: {next_verification_command}")
     return _format_message(
         "Report Bundle Export Complete",
         [
@@ -125,12 +149,13 @@ def bundle_export_complete_message(
             ("bundle_manifest", bundle_manifest_path),
             ("index_path", index_path),
             ("copied_report_count", "not_available" if copied_report_count is None else copied_report_count),
-            ("source_mutation", "source reports and manifest unchanged"),
+            ("source_status", "SOURCE_UNCHANGED"),
             ("zip_status", "ZIP_UNSUPPORTED"),
             ("approved_root", f"APPROVED_ROOT {approved_root}"),
             ("ce_status", "CE_NOT_RUN"),
+            ("wrapper_status", "WRAPPER_UNSUPPORTED"),
         ],
-        ["Bundle export remains directory-only."],
+        notes,
     )
 
 

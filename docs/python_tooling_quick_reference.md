@@ -269,7 +269,8 @@ Current behavior is unchanged:
 - real export remains write-capable direct Python only
 - the read-only wrapper still does not support export
 - dry-run wording is already handled separately
-- real-write output wording implementation is deferred
+- real-write output helpers exist for future UX integration
+- real-write runtime integration is deferred
 
 ## Known Non-Goals
 

@@ -277,6 +277,16 @@ Preferred scope:
 
 Actual real-write path integration should remain deferred until after helper-only extension and a separate explicit gate.
 
+Phase 5.13 status: the helper-only real-write output extension is completed. The helper module now includes real-write message helpers for report export, report export with manifest recording, and directory bundle export. These helpers are tested directly and are not wired into real export execution paths. Runtime export behavior, dry-run behavior, command parsing, approved roots, path guards, manifest behavior, bundle behavior, wrapper behavior, and write surface remain unchanged.
+
+Recommended next implementation slice after Phase 5.13:
+
+```text
+Phase 5.14 - real-write output integration contract / boundary gate
+```
+
+This should remain separate from helper implementation and must explicitly define whether any real write validation is authorized.
+
 ## Stop Conditions
 
 Stop if a future task includes:
