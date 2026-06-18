@@ -227,6 +227,8 @@ Recommended future scope:
 
 Phase 5.10 status: dry-run output wording has been integrated for `report export --dry-run` and `report bundle export --dry-run` only. Integration uses the existing output message helpers, keeps JSON output and real-write output unchanged, and does not change command parsing, approved roots, path guards, manifest behavior, bundle behavior, wrapper behavior, or write surface.
 
+Phase 5.25 status: Phase 5 output wording final state summary exists. Candidate A/B/C wording integrations are completed at the human-readable output level, behavior/write surface remains unchanged, and any checkpoint is deferred to a separate validation gate.
+
 ## Stop Conditions
 
 Stop if a future task includes:

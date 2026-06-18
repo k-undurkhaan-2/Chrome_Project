@@ -250,6 +250,8 @@ Preferred scope:
 
 Phase 5.23 status: Candidate C helper integration is implemented for the human-readable success output of real `report bundle export`. Validation used the helper/unit-only policy; no real bundle export command was executed. Candidate A and Candidate B remain unchanged. Bundle directory structure, `bundle_manifest.json`, `index.md`, copied report content, source report/manifest behavior, path guards, approved roots, command parsing, JSON output, wrapper behavior, and write surface remain unchanged.
 
+Phase 5.25 status: Phase 5 output wording final state summary exists. Candidate A/B/C wording integrations are completed at the human-readable output level, behavior/write surface remains unchanged, and any checkpoint is deferred to a separate validation gate.
+
 ## Stop Conditions
 
 Stop if a future task includes:

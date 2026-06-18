@@ -271,6 +271,8 @@ Phase 5.22 status: Candidate C now has a dedicated contract in `docs/architectur
 
 Phase 5.23 status: Candidate C implementation completed under helper/unit-only validation. The staged A/B/C real-write wording integrations are now implemented at the human-readable output level; real-write validation remains separate unless explicitly authorized.
 
+Phase 5.25 status: Phase 5 output wording final state summary exists. Candidate A/B/C wording integrations are completed at the human-readable output level, behavior/write surface remains unchanged, and any checkpoint is deferred to a separate validation gate.
+
 ## Stop Conditions
 
 Stop if a future task includes:

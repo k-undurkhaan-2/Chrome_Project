@@ -278,6 +278,8 @@ Current behavior is unchanged:
 - current manifest export behavior is unchanged
 - real bundle export success wording integration exists
 - current bundle export behavior is unchanged and remains write-capable direct Python only
+- Phase 5 output wording final state is summarized in `docs/architecture/python_tooling_phase5_output_wording_final_state.md`
+- any checkpoint is deferred to a separate validation gate
 
 ## Known Non-Goals
 

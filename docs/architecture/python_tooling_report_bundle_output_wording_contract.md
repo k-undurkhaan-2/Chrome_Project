@@ -294,6 +294,8 @@ Phase 5.22 status: real bundle export output integration is now separately contr
 
 Phase 5.23 status: Candidate C integration completed for real bundle export success wording. Zip export and `--force` remain unsupported.
 
+Phase 5.25 status: Phase 5 output wording final state summary exists. Candidate A/B/C wording integrations are completed at the human-readable output level, behavior/write surface remains unchanged, and any checkpoint is deferred to a separate validation gate.
+
 ## Stop Conditions
 
 Stop if a future task includes:

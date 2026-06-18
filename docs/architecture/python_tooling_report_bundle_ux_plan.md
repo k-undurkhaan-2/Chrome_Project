@@ -202,3 +202,5 @@ Phase 5.20 note: Candidate B implementation is completed. The next possible slic
 Phase 5.22 note: Candidate C contract follows the Candidate B boundary smoke. Implementation remains future work.
 
 Phase 5.23 note: Candidate C implementation is completed. The next possible slice is a boundary smoke or a Phase 5 final summary.
+
+Phase 5.25 note: Phase 5 output wording final state summary exists. Candidate A/B/C wording integrations are completed at the human-readable output level, behavior/write surface remains unchanged, and any checkpoint is deferred to a separate validation gate.

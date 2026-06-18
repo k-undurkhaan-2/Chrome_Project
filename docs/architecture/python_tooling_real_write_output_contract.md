@@ -301,6 +301,8 @@ Phase 5.22 status: real bundle export output now has a dedicated integration con
 
 Phase 5.23 status: bundle output helper integration exists for real `report bundle export` human-readable success wording. Runtime write surface and bundle artifact behavior remain unchanged.
 
+Phase 5.25 status: Phase 5 output wording final state summary exists. Candidate A/B/C wording integrations are completed at the human-readable output level, behavior/write surface remains unchanged, and any checkpoint is deferred to a separate validation gate.
+
 ## Stop Conditions
 
 Stop if a future task includes:

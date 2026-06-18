@@ -304,6 +304,8 @@ Phase 5.22 status: Candidate C contract exists for future real bundle export out
 
 Phase 5.23 status: bundle output integration was implemented narrowly for human-readable success wording. Command behavior remains unchanged.
 
+Phase 5.25 status: Phase 5 output wording final state summary exists. Candidate A/B/C wording integrations are completed at the human-readable output level, behavior/write surface remains unchanged, and any checkpoint is deferred to a separate validation gate.
+
 ## Stop Conditions
 
 Stop if a future task includes:
