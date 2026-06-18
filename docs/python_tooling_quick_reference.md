@@ -297,6 +297,8 @@ Current behavior is unchanged:
 - Phase 6.3B stopped because isolated manifest path support is missing
 - Candidate B real validation is blocked until future `--manifest-out` support exists
 - do not run Candidate B validation against default `reports/python_tooling/manifest.jsonl`
+- Phase 6.5B added `--manifest-out <path>` support for future isolated Candidate B validation
+- do not run Candidate B real validation until a separate boundary smoke / validation prompt explicitly authorizes it
 
 ## Known Non-Goals
 

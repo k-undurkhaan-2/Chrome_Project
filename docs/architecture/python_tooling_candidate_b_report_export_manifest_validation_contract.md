@@ -119,6 +119,8 @@ docs/architecture/python_tooling_candidate_b_isolated_manifest_path_support_cont
 
 Future Candidate B execution must wait for `--manifest-out` or equivalent isolated manifest path support. The production/default manifest path remains disallowed for Candidate B validation unless a future prompt explicitly authorizes that exact mutation.
 
+Phase 6.5B implemented `--manifest-out <path>` support. Candidate B real validation remains pending a separate boundary smoke and explicit write-authorized rerun.
+
 ## Proposed Future Output Paths
 
 Exact proposed future validation paths:

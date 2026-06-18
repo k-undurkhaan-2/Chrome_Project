@@ -65,7 +65,7 @@ def test_manifest_success_format_uses_candidate_b_helper_tokens() -> None:
     assert "WRITE_COMPLETE" in text
     assert "APPROVED_ROOT" in text
     assert "MANIFEST_RECORDED" in text
-    assert "BUNDLE_NOT_CREATED" in text
+    assert "BUNDLE_NOT_CREATED" not in text
     assert "CE_NOT_RUN" in text
     assert "WRAPPER_UNSUPPORTED" in text
     assert "phase5_20_unit.md" in text

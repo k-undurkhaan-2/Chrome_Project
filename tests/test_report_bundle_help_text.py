@@ -48,6 +48,8 @@ def test_report_export_help_explains_write_boundary(tmp_path: Path) -> None:
             "dry-run",
             "no-write",
             "record-manifest",
+            "manifest-out",
+            "requires --record-manifest",
             "manifest.jsonl",
             "approved output roots",
             "protected or unapproved paths",

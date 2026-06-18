@@ -9,7 +9,7 @@ import pytest
 
 from armedforces_tool import report_export
 from armedforces_tool.command_inventory import list_commands
-from armedforces_tool.report_export import plan_report_export
+from armedforces_tool.report_export import format_report_export_dry_run, plan_report_export
 from armedforces_tool.report_manifest import analyze_report_manifest
 
 
@@ -175,6 +175,117 @@ def test_record_manifest_real_export_writes_report_and_manifest(tmp_path: Path) 
     assert verify.status == "OK"
     assert verify.entry_count == 1
     assert verify.missing_report_count == 0
+
+
+def test_record_manifest_with_manifest_out_writes_isolated_manifest_only(tmp_path: Path) -> None:
+    result = plan_report_export(
+        report_type="full-status",
+        dry_run=False,
+        out="reports/python_tooling/full_status_manifest.md",
+        project_root=tmp_path,
+        record_manifest=True,
+        manifest_out="reports/python_tooling/custom_manifest.jsonl",
+    )
+
+    target = tmp_path / "reports" / "python_tooling" / "full_status_manifest.md"
+    custom_manifest = tmp_path / "reports" / "python_tooling" / "custom_manifest.jsonl"
+    default_manifest = tmp_path / "reports" / "python_tooling" / "manifest.jsonl"
+    assert result.conclusion == "REPORT_EXPORT_OK"
+    assert result.wrote_file is True
+    assert result.manifest_written is True
+    assert result.manifest_path == "reports/python_tooling/custom_manifest.jsonl"
+    assert result.writes_files is True
+    assert target.exists()
+    assert custom_manifest.exists()
+    assert not default_manifest.exists()
+
+    text = format_report_export_dry_run(result)
+    assert "REPORT_EXPORT_OK" in text
+    assert "WRITE_COMPLETE" in text
+    assert "MANIFEST_RECORDED" in text
+    assert "APPROVED_ROOT" in text
+    assert "CE_NOT_RUN" in text
+    assert "WRAPPER_UNSUPPORTED" in text
+    assert "NO_FILES_WRITTEN" not in text
+    assert "MANIFEST_NOT_WRITTEN" not in text
+    assert "BUNDLE_EXPORT_COMPLETE" not in text
+    assert "BUNDLE_NOT_CREATED" not in text
+    assert "ZIP_UNSUPPORTED" not in text
+
+    lines = custom_manifest.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 1
+    entry = json.loads(lines[0])
+    assert entry["command"].endswith("--record-manifest --manifest-out reports/python_tooling/custom_manifest.jsonl")
+    assert entry["output_path"] == "reports/python_tooling/full_status_manifest.md"
+
+
+def test_manifest_out_without_record_manifest_rejects_before_write(tmp_path: Path) -> None:
+    result = plan_report_export(
+        report_type="full-status",
+        dry_run=False,
+        out="reports/python_tooling/full_status.md",
+        project_root=tmp_path,
+        manifest_out="reports/python_tooling/custom_manifest.jsonl",
+    )
+
+    assert result.conclusion == "REPORT_EXPORT_REJECTED"
+    assert any("--manifest-out requires --record-manifest" in error for error in result.errors)
+    assert result.wrote_file is False
+    assert result.manifest_written is False
+    assert not (tmp_path / "reports").exists()
+
+
+def test_manifest_out_outside_root_rejects_before_write(tmp_path: Path) -> None:
+    result = plan_report_export(
+        report_type="full-status",
+        dry_run=False,
+        out="reports/python_tooling/full_status.md",
+        project_root=tmp_path,
+        record_manifest=True,
+        manifest_out="outside/custom_manifest.jsonl",
+    )
+
+    assert result.conclusion == "REPORT_EXPORT_REJECTED"
+    assert any("manifest path must be under reports/python_tooling" in error for error in result.errors)
+    assert result.wrote_file is False
+    assert result.manifest_written is False
+    assert not (tmp_path / "reports").exists()
+    assert not (tmp_path / "outside").exists()
+
+
+def test_manifest_out_protected_path_rejects_before_write(tmp_path: Path) -> None:
+    result = plan_report_export(
+        report_type="full-status",
+        dry_run=False,
+        out="reports/python_tooling/full_status.md",
+        project_root=tmp_path,
+        record_manifest=True,
+        manifest_out="log/custom_manifest.jsonl",
+    )
+
+    assert result.conclusion == "REPORT_EXPORT_REJECTED"
+    assert any("manifest path is protected" in error for error in result.errors)
+    assert result.wrote_file is False
+    assert result.manifest_written is False
+    assert not (tmp_path / "reports").exists()
+    assert not (tmp_path / "log").exists()
+
+
+def test_manifest_out_default_manifest_path_rejects_before_write(tmp_path: Path) -> None:
+    result = plan_report_export(
+        report_type="full-status",
+        dry_run=False,
+        out="reports/python_tooling/full_status.md",
+        project_root=tmp_path,
+        record_manifest=True,
+        manifest_out="reports/python_tooling/manifest.jsonl",
+    )
+
+    assert result.conclusion == "REPORT_EXPORT_REJECTED"
+    assert any("must not target the default" in error for error in result.errors)
+    assert result.wrote_file is False
+    assert result.manifest_written is False
+    assert not (tmp_path / "reports").exists()
 
 
 def test_record_manifest_does_not_change_non_record_export_behavior(tmp_path: Path) -> None:
@@ -535,5 +646,7 @@ def test_command_inventory_includes_report_export_modes() -> None:
     assert records["report export"].runs_ce is False
     assert "--record-manifest" in records["report export --dry-run"].parameters
     assert "--record-manifest" in records["report export"].parameters
+    assert "--manifest-out" in records["report export --dry-run"].parameters
+    assert "--manifest-out" in records["report export"].parameters
     assert result.to_dict()["summary"]["writes_files_count"] == 2
     assert result.to_dict()["summary"]["runs_ce_count"] == 0

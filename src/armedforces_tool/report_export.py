@@ -120,11 +120,25 @@ def plan_report_export(
     latest: int = 20,
     profile: str = "full",
     record_manifest: bool = False,
+    manifest_out: str | None = None,
     project_root: Path = DEFAULT_PROJECT_ROOT,
     generated_at: datetime | None = None,
 ) -> ReportExportDryRunResult:
     normalized_report_type = _normalize_report_type(report_type)
     planned_at = generated_at or datetime.now(timezone.utc)
+    if manifest_out and not record_manifest:
+        return _result(
+            report_type=normalized_report_type,
+            dry_run=dry_run,
+            conclusion=_rejected_conclusion(dry_run),
+            path_safety_status="PATH_REJECTED",
+            errors=["--manifest-out requires --record-manifest"],
+            recommendation="Use --record-manifest with --manifest-out, or omit --manifest-out.",
+            planned_manifest_path=manifest_out,
+            would_write_report=False,
+            would_write_manifest=False,
+        )
+
     target, target_errors = _target_from_args(
         report_type=normalized_report_type,
         output_dir=output_dir,
@@ -164,6 +178,8 @@ def plan_report_export(
     target_exists = target.exists()
     would_overwrite = bool(target_exists and force)
     path_safety_status = "PATH_OK"
+    manifest_path: Path | None = None
+    manifest_path_display: str | None = None
     if record_manifest and safety["approved_output_root_relative"] != "reports/python_tooling":
         return _result(
             report_type=normalized_report_type,
@@ -184,6 +200,31 @@ def plan_report_export(
             planned_report_path=str(target),
             planned_manifest_path=REPORT_MANIFEST_PATH.as_posix(),
         )
+    if record_manifest:
+        manifest_path, manifest_path_display, manifest_errors = _manifest_path_from_args(
+            manifest_out=manifest_out,
+            project_root=project_root,
+        )
+        if manifest_errors:
+            return _result(
+                report_type=normalized_report_type,
+                dry_run=dry_run,
+                target_path=str(target),
+                approved_output_root=safety["approved_output_root"],
+                target_exists=target_exists,
+                target_exists_before=target_exists,
+                would_overwrite=would_overwrite,
+                force=force,
+                conclusion=_rejected_conclusion(dry_run),
+                path_safety_status="PATH_REJECTED",
+                errors=manifest_errors,
+                recommendation="Choose a .jsonl manifest path under reports/python_tooling, or omit --manifest-out.",
+                record_manifest=True,
+                would_write_report=False,
+                would_write_manifest=False,
+                planned_report_path=str(target),
+                planned_manifest_path=manifest_path_display,
+            )
 
     if target_exists and not force:
         if dry_run:
@@ -211,9 +252,10 @@ def plan_report_export(
     content_line_count = len(content.splitlines())
 
     if not dry_run:
-        manifest_path = (project_root.resolve() / REPORT_MANIFEST_PATH).resolve(strict=False)
         manifest_entry: dict[str, object | None] | None = None
         if record_manifest:
+            assert manifest_path is not None
+            assert manifest_path_display is not None
             planned_sha256 = hashlib.sha256(content.encode("utf-8")).hexdigest()
             manifest_entry = _real_manifest_entry(
                 report_type=normalized_report_type,
@@ -226,6 +268,7 @@ def plan_report_export(
                 output_dir=output_dir,
                 out=out,
                 force=force,
+                manifest_out=manifest_out,
             )
             preflight_errors = _preflight_manifest_for_append(
                 manifest_path=manifest_path,
@@ -250,7 +293,7 @@ def plan_report_export(
                     would_write_report=False,
                     would_write_manifest=False,
                     planned_report_path=str(target),
-                    planned_manifest_path=REPORT_MANIFEST_PATH.as_posix(),
+                    planned_manifest_path=manifest_path_display,
                     planned_manifest_entry=manifest_entry,
                 )
         try:
@@ -305,7 +348,7 @@ def plan_report_export(
                     bytes_written=bytes_written,
                     record_manifest=True,
                     manifest_written=False,
-                    manifest_path=REPORT_MANIFEST_PATH.as_posix(),
+                    manifest_path=manifest_path_display,
                     manifest_entry=manifest_entry,
                     read_only=False,
                     writes_files=True,
@@ -333,7 +376,7 @@ def plan_report_export(
                     bytes_written=bytes_written,
                     record_manifest=True,
                     manifest_written=True,
-                    manifest_path=REPORT_MANIFEST_PATH.as_posix(),
+                    manifest_path=manifest_path_display,
                     manifest_entry=manifest_entry,
                     read_only=False,
                     writes_files=True,
@@ -360,12 +403,13 @@ def plan_report_export(
             writes_files=True,
             record_manifest=record_manifest,
             manifest_written=bool(record_manifest),
-            manifest_path=REPORT_MANIFEST_PATH.as_posix() if record_manifest else None,
+            manifest_path=manifest_path_display if record_manifest else None,
             manifest_entry=manifest_entry,
         )
 
     planned_manifest_entry = None
     if record_manifest:
+        assert manifest_path_display is not None
         planned_manifest_entry = _planned_manifest_entry(
             report_type=normalized_report_type,
             target=target,
@@ -375,6 +419,7 @@ def plan_report_export(
             content_size_bytes=content_size_bytes,
             output_dir=output_dir,
             out=out,
+            manifest_out=manifest_out,
         )
 
     return _result(
@@ -399,7 +444,7 @@ def plan_report_export(
         would_write_report=True if record_manifest else None,
         would_write_manifest=True if record_manifest else None,
         planned_report_path=str(target) if record_manifest else None,
-        planned_manifest_path=REPORT_MANIFEST_PATH.as_posix() if record_manifest else None,
+        planned_manifest_path=manifest_path_display if record_manifest else None,
         planned_manifest_entry=planned_manifest_entry,
     )
 
@@ -581,6 +626,41 @@ def _validate_target_path(*, target: Path, project_root: Path) -> dict[str, obje
     }
 
 
+def _manifest_path_from_args(*, manifest_out: str | None, project_root: Path) -> tuple[Path, str, list[str]]:
+    if not manifest_out:
+        path = (project_root.resolve() / REPORT_MANIFEST_PATH).resolve(strict=False)
+        return path, REPORT_MANIFEST_PATH.as_posix(), []
+
+    path = _resolve_user_path(manifest_out, project_root)
+    errors = _validate_manifest_path(manifest_path=path, project_root=project_root)
+    return path, _relative_display_path(path, project_root), errors
+
+
+def _validate_manifest_path(*, manifest_path: Path, project_root: Path) -> list[str]:
+    errors: list[str] = []
+    project_root_resolved = project_root.resolve()
+    manifest_resolved = manifest_path.resolve(strict=False)
+    approved_root = (project_root_resolved / Path("reports/python_tooling")).resolve(strict=False)
+    default_manifest = (project_root_resolved / REPORT_MANIFEST_PATH).resolve(strict=False)
+
+    if ".." in manifest_path.parts:
+        errors.append("manifest path traversal is not allowed")
+    if manifest_resolved.suffix.lower() != ".jsonl":
+        errors.append("manifest path must use the .jsonl extension")
+    if not _is_relative_to(manifest_resolved, approved_root):
+        errors.append("manifest path must be under reports/python_tooling")
+    if manifest_resolved == default_manifest:
+        errors.append("--manifest-out must not target the default reports/python_tooling/manifest.jsonl path")
+
+    for protected in PROTECTED_PATHS:
+        protected_resolved = (project_root_resolved / protected).resolve(strict=False)
+        if manifest_resolved == protected_resolved or _is_relative_to(manifest_resolved, protected_resolved):
+            errors.append(f"manifest path is protected: {protected.as_posix()}")
+            break
+
+    return errors
+
+
 def _resolve_user_path(value: str, project_root: Path) -> Path:
     raw = Path(value)
     return raw if raw.is_absolute() else project_root / raw
@@ -672,6 +752,7 @@ def _planned_manifest_entry(
     content_size_bytes: int,
     output_dir: str | None,
     out: str | None,
+    manifest_out: str | None = None,
 ) -> dict[str, object | None]:
     relative_output = _relative_display_path(target, project_root)
     created_at = planned_at.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -679,6 +760,7 @@ def _planned_manifest_entry(
         report_type=report_type,
         output_dir=output_dir,
         out=out,
+        manifest_out=manifest_out,
     )
     report_id_source = f"{relative_output}|{report_type}|{command}"
     report_id = f"planned-{hashlib.sha256(report_id_source.encode('utf-8')).hexdigest()[:16]}"
@@ -712,6 +794,7 @@ def _real_manifest_entry(
     output_dir: str | None,
     out: str | None,
     force: bool,
+    manifest_out: str | None = None,
 ) -> dict[str, object | None]:
     relative_output = _relative_display_path(target, project_root)
     created_at_text = created_at.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -720,6 +803,7 @@ def _real_manifest_entry(
         output_dir=output_dir,
         out=out,
         force=force,
+        manifest_out=manifest_out,
     )
     report_id_source = f"{relative_output}|{created_at_text}|{sha256}"
     report_id = hashlib.sha256(report_id_source.encode("utf-8")).hexdigest()
@@ -738,7 +822,14 @@ def _real_manifest_entry(
     }
 
 
-def _planned_manifest_command(*, report_type: str, output_dir: str | None, out: str | None, force: bool = False) -> str:
+def _planned_manifest_command(
+    *,
+    report_type: str,
+    output_dir: str | None,
+    out: str | None,
+    force: bool = False,
+    manifest_out: str | None = None,
+) -> str:
     parts = ["python -m armedforces_tool report export", f"--type {report_type}"]
     if out:
         parts.append(f"--out {out}")
@@ -747,6 +838,8 @@ def _planned_manifest_command(*, report_type: str, output_dir: str | None, out: 
     if force:
         parts.append("--force")
     parts.append("--record-manifest")
+    if manifest_out:
+        parts.append(f"--manifest-out {manifest_out}")
     return " ".join(parts)
 
 

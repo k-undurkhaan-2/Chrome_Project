@@ -234,6 +234,8 @@ Candidate B covers direct Python `report export --record-manifest` only. It requ
 
 Phase 6.3B stopped correctly because isolated manifest path support is missing. The support contract exists in `docs/architecture/python_tooling_candidate_b_isolated_manifest_path_support_contract.md` and plans future `--manifest-out <path>` support only. Default manifest mutation is not approved for Candidate B validation.
 
+Phase 6.5B implemented `--manifest-out <path>` for `report export --record-manifest`. Candidate B real validation still requires a separate boundary smoke and explicit write-authorized rerun. Do not use the default production manifest path for Candidate B validation.
+
 ## Git Hygiene
 
 Do not commit:

@@ -254,6 +254,8 @@ Candidate B validation status: Phase 6.3B stopped because the existing CLI/sourc
 
 Candidate B remains blocked until isolated manifest path support exists. Production/default `reports/python_tooling/manifest.jsonl` mutation remains disallowed for Candidate B validation.
 
+Candidate B support status: Phase 6.5B implemented `--manifest-out <path>` for `report export --record-manifest`. Candidate B real validation remains deferred until a separate boundary smoke confirms the option and a write-authorized Candidate B rerun is explicitly requested.
+
 ## Future Phase Structure
 
 Each candidate should use two phases:

@@ -740,7 +740,7 @@ COMMANDS: list[CommandDescriptor] = [
         "Validate a future report export target without writing files.",
         "Preview the path safety and metadata for a future Markdown export.",
         related_powershell_command=None,
-        parameters=["--dry-run", "--type", "--output-dir", "--out", "--force", "--latest", "--profile", "--record-manifest", "--json"],
+        parameters=["--dry-run", "--type", "--output-dir", "--out", "--force", "--latest", "--profile", "--record-manifest", "--manifest-out", "--json"],
         examples=[
             "python -m armedforces_tool report export --dry-run --type status-overview --output-dir reports/python_tooling",
             "python -m armedforces_tool report export --dry-run --type full-status --out reports/python_tooling/full_status_test.md --json",
@@ -759,7 +759,7 @@ COMMANDS: list[CommandDescriptor] = [
         related_powershell_command=None,
         typical_use="Export a generated Markdown report after validating the target path.",
         risk_level="WRITE_CAPABLE",
-        parameters=["--type", "--output-dir", "--out", "--force", "--latest", "--profile", "--record-manifest", "--json"],
+        parameters=["--type", "--output-dir", "--out", "--force", "--latest", "--profile", "--record-manifest", "--manifest-out", "--json"],
         examples=[
             "python -m armedforces_tool report export --type full-status --out reports/python_tooling/full_status.md",
             "python -m armedforces_tool report export --type full-status --out reports/python_tooling/full_status.md --record-manifest",

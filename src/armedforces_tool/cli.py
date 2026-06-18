@@ -602,6 +602,7 @@ def _add_report_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
             "  - Protected or unapproved paths are rejected with BAD_PATH-style errors.\n"
             "  - Default overwrite is rejected; --force must be explicit when overwrite is authorized.\n"
             "  - --record-manifest appends reports/python_tooling/manifest.jsonl only when explicitly used.\n"
+            "  - --manifest-out is valid only with --record-manifest and selects an approved manifest path.\n"
             "  - report export creates reports only; it does not create bundles."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -627,6 +628,11 @@ def _add_report_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
         "--record-manifest",
         action="store_true",
         help="Explicitly append successful real exports to reports/python_tooling/manifest.jsonl; dry-run previews manifest intent only.",
+    )
+    export.add_argument(
+        "--manifest-out",
+        default=None,
+        help="Manifest .jsonl output path under reports/python_tooling; requires --record-manifest.",
     )
     export.add_argument("--json", action="store_true", help="Emit JSON object")
     export.set_defaults(func=_run_report_export)
@@ -1387,6 +1393,7 @@ def _run_report_export(args: argparse.Namespace) -> int:
         latest=args.latest,
         profile=args.profile,
         record_manifest=args.record_manifest,
+        manifest_out=args.manifest_out,
     )
     if args.json:
         print(json.dumps(result.to_dict(), indent=2))

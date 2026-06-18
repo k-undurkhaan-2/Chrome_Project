@@ -112,7 +112,6 @@ def report_export_manifest_complete_message(
             ("manifest_path", manifest_path),
             ("manifest_record", "MANIFEST_RECORDED"),
             ("approved_root", f"APPROVED_ROOT {approved_root}"),
-            ("bundle_status", "BUNDLE_NOT_CREATED"),
             ("ce_status", "CE_NOT_RUN"),
             ("wrapper_status", "WRAPPER_UNSUPPORTED"),
         ],

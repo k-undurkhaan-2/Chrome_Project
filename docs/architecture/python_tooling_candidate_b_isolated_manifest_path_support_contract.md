@@ -293,6 +293,22 @@ After implementation and boundary smoke pass, the Candidate B validation smoke c
 
 Only the future smoke may execute that command. This contract task must not execute it.
 
+## Phase 6.5B Implementation Status
+
+Phase 6.5B implemented `--manifest-out <path>` for `report export`.
+
+Implemented behavior:
+
+- `--manifest-out` is available on `report export`
+- `--manifest-out` requires `--record-manifest`
+- `--manifest-out` without `--record-manifest` fails closed before writing report or manifest files
+- `report export --record-manifest` without `--manifest-out` keeps the default `reports/python_tooling/manifest.jsonl` behavior
+- `report export --record-manifest --manifest-out <path>` writes the manifest record to the selected approved manifest path
+- explicit `--manifest-out reports/python_tooling/manifest.jsonl` is rejected so Candidate B validation cannot accidentally target the default manifest
+- command inventory remains at `writes_files_count = 2` and `runs_ce_count = 0`
+
+Phase 6.5B did not manually execute real report export, `--record-manifest`, dry-run export, bundle export, or CE. Future Candidate B real validation still requires a separately authorized smoke.
+
 ## Stop Conditions for Future Implementation
 
 Future implementation must stop if:

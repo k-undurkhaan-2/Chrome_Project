@@ -103,11 +103,11 @@ def test_report_export_manifest_complete_message_tokens() -> None:
             "WRITE_COMPLETE",
             "APPROVED_ROOT",
             "MANIFEST_RECORDED",
-            "BUNDLE_NOT_CREATED",
             "WRAPPER_UNSUPPORTED",
             "CE_NOT_RUN",
         ],
     )
+    assert "BUNDLE_NOT_CREATED" not in text
     assert "reports/python_tooling/manifest.jsonl" in text
     assert "python -m armedforces_tool report manifest verify" in text
     _assert_no_unsafe_suggestions(text)
