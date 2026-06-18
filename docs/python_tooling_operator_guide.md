@@ -228,6 +228,10 @@ The real-write validation policy exists in `docs/architecture/python_tooling_rea
 
 The Candidate A contract exists in `docs/architecture/python_tooling_candidate_a_real_report_export_validation_contract.md`. It defines the smallest real-write validation slice: direct Python `report export` only, no wrapper shortcut, exact output path, snapshots, cleanup rules, and stop conditions.
 
+Candidate A Phase 6.3A-R2 real report export validation smoke has passed. The Candidate B manifest validation contract now exists in `docs/architecture/python_tooling_candidate_b_report_export_manifest_validation_contract.md`.
+
+Candidate B covers direct Python `report export --record-manifest` only. It requires an exact report path, an isolated manifest path, before/after snapshots, evidence capture, cleanup rules, and stop conditions. If the existing CLI/source cannot direct `--record-manifest` to an isolated validation manifest path, a future Candidate B execution smoke must stop before running `--record-manifest`. The wrapper remains read-only and must not be used for Candidate B validation.
+
 ## Git Hygiene
 
 Do not commit:

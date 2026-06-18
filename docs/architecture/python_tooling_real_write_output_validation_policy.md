@@ -246,6 +246,10 @@ Candidate A contract status: `docs/architecture/python_tooling_candidate_a_real_
 
 Candidate A wording update: report export success output is expected to omit unrelated negative manifest/bundle tokens, including `MANIFEST_NOT_WRITTEN` and `BUNDLE_NOT_CREATED`.
 
+Candidate A validation status: Phase 6.3A-R2 PASS has been recorded. Candidate B may be planned next, but Candidate B execution remains deferred.
+
+Candidate B contract status: `docs/architecture/python_tooling_candidate_b_report_export_manifest_validation_contract.md` defines the report export manifest validation slice. Candidate B requires isolated manifest path confirmation before any execution. If the existing CLI/source cannot direct `--record-manifest` to an isolated Candidate B manifest path, the execution smoke must stop before running `--record-manifest`.
+
 ## Future Phase Structure
 
 Each candidate should use two phases:

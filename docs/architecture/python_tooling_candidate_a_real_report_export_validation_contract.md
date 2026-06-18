@@ -237,6 +237,14 @@ Do not run Phase 6.3A in this task.
 
 Candidate A report export success output must stay report-focused. It should include `REPORT_EXPORT_OK`, `WRITE_COMPLETE`, `APPROVED_ROOT`, `CE_NOT_RUN`, and `WRAPPER_UNSUPPORTED`, but it must not include negative manifest or bundle status tokens such as `MANIFEST_NOT_WRITTEN` or `BUNDLE_NOT_CREATED`.
 
+## Phase 6.3A-R2 Validation Status
+
+Phase 6.3A-R2 Candidate A real report export validation smoke: PASS.
+
+The R2 smoke validated one direct Python real `report export` under the declared Candidate A path. It confirmed `REPORT_EXPORT_OK`, `WRITE_COMPLETE`, `APPROVED_ROOT`, `CE_NOT_RUN`, and `WRAPPER_UNSUPPORTED`, confirmed unrelated manifest/bundle tokens were absent, cleaned the task-created artifact, and ended with clean git status.
+
+Candidate B is the next planned validation slice. Its contract is `docs/architecture/python_tooling_candidate_b_report_export_manifest_validation_contract.md`; execution remains deferred to a future explicitly write-authorized smoke.
+
 ## Tag Policy
 
 - no tag is created by Phase 6.2A

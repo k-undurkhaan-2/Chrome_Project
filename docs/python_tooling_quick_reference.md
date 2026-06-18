@@ -289,6 +289,11 @@ Current behavior is unchanged:
 - do not run real-write validation without an explicit candidate contract
 - Candidate A contract exists in `docs/architecture/python_tooling_candidate_a_real_report_export_validation_contract.md`
 - do not run Candidate A real export validation unless a future execution prompt explicitly authorizes it
+- Candidate A Phase 6.3A-R2 real report export validation smoke: PASS
+- Candidate B contract exists in `docs/architecture/python_tooling_candidate_b_report_export_manifest_validation_contract.md`
+- do not run `report export --record-manifest` validation unless a future execution prompt explicitly authorizes it
+- do not mutate production/default `reports/python_tooling/manifest.jsonl` unless the future prompt explicitly authorizes that exact manifest path
+- Candidate B future execution must stop if the existing CLI/source cannot direct `--record-manifest` to an isolated validation manifest path
 
 ## Known Non-Goals
 

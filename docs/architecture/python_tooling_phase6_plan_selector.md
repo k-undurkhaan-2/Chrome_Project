@@ -230,6 +230,18 @@ Real-write validation remains deferred. The next recommended step is Candidate A
 
 The next phase may be Candidate A execution smoke only if explicitly authorized. Do not treat this contract as permission to run `report export`.
 
+## Phase 6.3A-R2 Status
+
+Candidate A real report export validation smoke: PASS.
+
+The R2 smoke validated one direct Python real `report export` under the declared Candidate A validation path, confirmed the expected human-readable success tokens, confirmed unrelated manifest/bundle tokens were absent, cleaned the task-created artifact, and ended with clean git status.
+
+## Phase 6.2B Status
+
+`docs/architecture/python_tooling_candidate_b_report_export_manifest_validation_contract.md` defines the Candidate B report export manifest validation contract.
+
+The next phase may be Candidate B execution smoke only if explicitly authorized and only if an isolated manifest path option is confirmed from the existing CLI/source. If no isolated manifest path support exists, Candidate B execution must stop before running `report export --record-manifest`.
+
 ## Stop Conditions
 
 Stop before continuing if:
