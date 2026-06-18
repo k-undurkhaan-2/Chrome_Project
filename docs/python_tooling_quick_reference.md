@@ -274,6 +274,8 @@ Current behavior is unchanged:
 - real-write output integration remains gated by `docs/architecture/python_tooling_real_write_output_integration_gate.md`
 - real report export success wording integration exists
 - current operator workflow remains unchanged
+- `--record-manifest` output integration is contracted but not active
+- current manifest export behavior is unchanged
 
 ## Known Non-Goals
 

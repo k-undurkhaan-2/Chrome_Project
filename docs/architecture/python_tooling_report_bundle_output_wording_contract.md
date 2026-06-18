@@ -286,6 +286,8 @@ Phase 5.16 status: real report export output integration is now separately contr
 
 Phase 5.17 status: Candidate A integration is completed for real report export success wording. Future manifest and bundle integrations remain gated and deferred.
 
+Phase 5.19 status: report export manifest output integration is now separately contracted. Bundle real-write integration remains future work.
+
 ## Stop Conditions
 
 Stop if a future task includes:

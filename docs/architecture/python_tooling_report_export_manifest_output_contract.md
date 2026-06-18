@@ -1,8 +1,8 @@
-# Python Tooling Real Report Export Output Contract
+# Python Tooling Report Export Manifest Output Contract
 
 ## Purpose
 
-This contract defines how a future implementation may integrate real-write output helpers into the real `report export` path without `--record-manifest`.
+This contract defines how a future implementation may integrate real-write output helpers into the `report export --record-manifest` path.
 
 This phase is documentation-only:
 
@@ -16,12 +16,12 @@ This phase is documentation-only:
 
 Current stable boundary:
 
-- Phase 5.15 real-write output integration gate completed
-- Candidate A selected for a dedicated contract
-- real-write helpers already exist
-- real-write helpers are not wired into real export paths
-- `report export --dry-run` wording is already integrated and verified no-write
-- real `report export` output integration is not active
+- Phase 5.17 Candidate A implementation completed
+- Phase 5.18 Candidate A boundary smoke passed
+- Candidate A is active only for real `report export` without `--record-manifest`
+- Candidate B is not active yet
+- manifest output integration is deferred
+- bundle output integration is deferred
 - command inventory: `49` commands
 - `writes_files_count = 2`
 - `runs_ce_count = 0`
@@ -34,17 +34,17 @@ Current stable boundary:
 - zip export remains unsupported / fail-closed
 - `--force` / overwrite remains unsupported
 
-## Candidate A Integration Target
+## Candidate B Integration Target
 
 The only future integration target for this contract is:
 
 ```text
-real report export
+report export --record-manifest
 ```
 
 Explicitly excluded:
 
-- `report export --record-manifest`
+- real `report export` without `--record-manifest`, already handled by Candidate A
 - `report export --dry-run`
 - `report bundle export`
 - `report bundle export --dry-run`
@@ -54,22 +54,24 @@ Explicitly excluded:
 
 ## Expected Future Output Semantics
 
-Future real `report export` output should include:
+Future `report export --record-manifest` output should include:
 
 - `WRITE_COMPLETE`
 - report output path
+- manifest path
+- `MANIFEST_RECORDED`
 - `APPROVED_ROOT`
-- `MANIFEST_NOT_WRITTEN`
 - `BUNDLE_NOT_CREATED`
 - `CE_NOT_RUN`
 - `WRAPPER_UNSUPPORTED`
-- optional next safe read-only verification command
+- optional next safe manifest verification command
 
 The output should make clear:
 
 - a report file was written
+- the manifest was recorded/appended because `--record-manifest` was used
+- the manifest path is visible
 - the output path was under an approved root
-- no manifest was written because `--record-manifest` was not used
 - no bundle was created
 - CE was not run
 - the read-only wrapper does not support export commands
@@ -80,20 +82,23 @@ The output must not suggest:
 - `--force`
 - zip export
 - unsafe path workaround
-- manifest write unless `--record-manifest` is used
 - bundle creation
 - CE execution
+- source manifest mutation outside the supported manifest record path
 
 ## Integration Constraints
 
 Future implementation must:
 
-- use the existing real report export helper from `report_output_messages.py`
+- use the existing manifest-recorded helper from `report_output_messages.py`
 - not change report file contents
+- not change manifest record format
+- not change manifest append semantics
 - not change output path validation
 - not change approved roots
-- not change manifest write behavior
 - not change command parsing
+- not change dry-run behavior
+- not change bundle behavior
 - not change JSON output unless separately planned
 - not call wrapper
 - not run CE
@@ -106,12 +111,14 @@ Future implementation must:
 
 Prefer a minimal source change:
 
-- locate the current real `report export` success output path
+- locate the current `report export --record-manifest` human-readable success output path
 - replace or supplement only the human-readable success message
 - preserve all side effects exactly as before
+- preserve manifest record schema and append behavior exactly as before
 - preserve JSON behavior exactly as before if JSON output exists
+- preserve Candidate A non-manifest behavior from Phase 5.17
 - preserve dry-run behavior from Phase 5.10
-- keep helper call close to the existing write-complete branch
+- keep helper call close to the existing manifest write-complete branch
 - do not refactor unrelated logic
 
 ## Future Test Contract
@@ -122,28 +129,30 @@ Future implementation tests should include helper-level and command-level valida
 
 - assert `WRITE_COMPLETE`
 - assert report path
+- assert manifest path
+- assert `MANIFEST_RECORDED`
 - assert `APPROVED_ROOT`
-- assert `MANIFEST_NOT_WRITTEN`
 - assert `BUNDLE_NOT_CREATED`
 - assert `CE_NOT_RUN`
 - assert `WRAPPER_UNSUPPORTED`
 - assert no unsafe wording such as wrapper export shortcut / `--force` / zip support
 
-### Real Command Validation
+### Command-Level Validation
 
 Only if separately authorized in the implementation task.
 
-A future real-write validation must:
+A future validation involving `--record-manifest` must:
 
 - use an explicit approved output path with a unique `phase5_*` filename
 - record absence/presence before run
-- run exactly one real `report export` command without `--record-manifest`
+- record manifest path and hash/state before run
+- run exactly one `report export --record-manifest` command
 - verify output wording tokens
 - verify the expected report file exists if real write is authorized
-- verify manifest is not created/appended unless pre-existing state is explicitly recorded
+- verify the manifest record is appended only as expected
 - verify no bundle directory is created
 - verify no CE run
-- verify no log/config/session/baseline/intake/registry writes
+- verify no unrelated log/config/session/baseline/intake/registry writes
 - define cleanup policy explicitly
 - never delete pre-existing user files
 - verify final state according to cleanup policy
@@ -154,28 +163,29 @@ The future implementation task must choose one of these policies.
 
 ### Policy 1: Unit/Helper-Only Validation
 
-Preferred if implementation can be tested without real export:
+Preferred if implementation can be tested without running `--record-manifest`:
 
 - no real export execution
+- no `--record-manifest` execution
 - no dry-run execution
 - no runtime artifacts
 - helper/message tests only
 - full pytest
 - inventory invariants
 
-### Policy 2: Real-Write Validation With Explicit Cleanup
+### Policy 2: Manifest-Write Validation With Explicit Cleanup
 
 Allowed only if separately authorized:
 
-- explicit approved path
-- one real `report export` invocation
-- no `--record-manifest`
+- explicit approved output path
+- exactly one `report export --record-manifest` invocation
 - no bundle export
 - no CE
 - cleanup policy stated before running
 - artifact/hash checks before and after
+- manifest append behavior explicitly verified
 
-## Artifact Safety Plan For Future Real-Write Validation
+## Artifact Safety Plan For Future Manifest-Write Validation
 
 If Policy 2 is used later, future validation must snapshot:
 
@@ -186,6 +196,8 @@ If Policy 2 is used later, future validation must snapshot:
 - `docs/reports/python_tooling`
 - `log/case_registry.jsonl`
 
+If manifest exists before, record enough information to verify only the expected manifest append occurred.
+
 If `log/case_registry.jsonl` exists before, record hash before and after.
 
 No pre-existing user files/directories may be deleted.
@@ -194,11 +206,12 @@ No pre-existing user files/directories may be deleted.
 
 | Area | Behavior-change risk | Write-surface risk | Artifact complexity | Likely future files touched | Recommended validation policy | Allowed in next implementation? |
 | --- | --- | --- | --- | --- | --- | --- |
-| Human-readable success message only | low | medium | single report file if real validation is used | `src/armedforces_tool/report_export.py`, tests | Policy 1 first; Policy 2 only if authorized | yes |
+| Human-readable manifest success message only | low | high | report file plus manifest append if real validation is used | `src/armedforces_tool/report_export.py`, tests | Policy 1 first; Policy 2 only if authorized | yes |
+| Manifest record format | high | high | manifest schema/content | `src/armedforces_tool/report_export.py`, tests | separate manifest schema contract | no |
+| Manifest append semantics | high | high | manifest append behavior | `src/armedforces_tool/report_export.py`, tests | separate manifest behavior contract | no |
+| Report file content | high | medium | report markdown content | report preview/export modules, tests | separate content contract | no |
 | JSON output changes | medium | low | none if unit-tested | `src/armedforces_tool/report_export.py`, tests | separate JSON contract | no |
-| Report file content | high | medium | report file content changes | report preview/export modules, tests | separate content contract | no |
-| Manifest behavior | high | high | manifest append/write | `report_export.py`, tests | Candidate B contract | no |
-| Bundle behavior | high | high | bundle directory/files | `report_bundle.py`, tests | Candidate C contract | no |
+| Bundle behavior | high | high | bundle directory/files | `src/armedforces_tool/report_bundle.py`, tests | Candidate C contract | no |
 | Wrapper behavior | high | high | wrapper command surface | wrapper source/docs | wrapper write-capable contract | no |
 | Approved roots | high | high | output path policy | path guard modules, tests | approved-root contract | no |
 | Path guard | high | high | rejection behavior | path guard/export modules, tests | path guard contract | no |
@@ -210,23 +223,19 @@ No pre-existing user files/directories may be deleted.
 Recommended next phase:
 
 ```text
-Phase 5.17 - real report export output helper integration implementation
+Phase 5.20 - report export manifest output helper integration implementation
 ```
 
 Preferred scope:
 
 - narrow Python source change
-- integrate helper into real `report export` human-readable success output only
-- no `--record-manifest`
+- integrate helper into `report export --record-manifest` human-readable success output only
 - no bundle export
 - no wrapper changes
 - no command/options added
 - no write surface expansion
 - validation policy must be chosen explicitly
-
-Phase 5.17 status: Candidate A integration is implemented for the human-readable success output of real `report export` without `--record-manifest`. The implementation uses helper/unit-only validation for this phase; no real export was executed. `--record-manifest` and bundle output integration remain deferred. Report file content, path guards, approved roots, command parsing, JSON output, manifest behavior, bundle behavior, wrapper behavior, and write surface remain unchanged.
-
-Phase 5.19 status: the Candidate B `report export --record-manifest` output contract exists in `docs/architecture/python_tooling_report_export_manifest_output_contract.md`. Candidate A remains complete and boundary-smoked; `--record-manifest` integration remains deferred until a separate implementation task.
+- prefer unit/helper-only validation unless real manifest write is separately authorized
 
 ## Stop Conditions
 
@@ -240,6 +249,7 @@ Stop if a future task includes:
 - any dry-run export execution
 - any bundle export execution
 - any request to change JSON output without separate plan
+- any request to change manifest schema/append semantics
 - any request to add `--force`
 - any request to add zip export
 - any request to add wrapper export shortcut

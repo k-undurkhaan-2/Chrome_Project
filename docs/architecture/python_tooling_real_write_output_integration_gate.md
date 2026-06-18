@@ -263,6 +263,8 @@ Phase 5.16 status: `docs/architecture/python_tooling_real_report_export_output_c
 
 Phase 5.17 status: Candidate A implementation completed under helper/unit-only validation. Candidate B (`report export --record-manifest`) and Candidate C (`report bundle export`) remain deferred.
 
+Phase 5.19 status: Candidate B now has a dedicated contract in `docs/architecture/python_tooling_report_export_manifest_output_contract.md`. The staged order remains Candidate A, Candidate B, Candidate C; Candidate C remains deferred.
+
 ## Stop Conditions
 
 Stop if a future task includes:

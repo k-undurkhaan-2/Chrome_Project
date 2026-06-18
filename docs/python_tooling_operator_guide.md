@@ -184,6 +184,8 @@ The Candidate A real report export output contract exists in `docs/architecture/
 
 Real report export output wording is improved for the non-`--record-manifest` success path. The wrapper remains read-only, and `--record-manifest` plus bundle output integration remain deferred.
 
+The Candidate B manifest export output contract exists in `docs/architecture/python_tooling_report_export_manifest_output_contract.md`. No manifest output integration is active yet, and the wrapper remains read-only.
+
 Short form:
 
 ```powershell

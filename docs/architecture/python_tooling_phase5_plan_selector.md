@@ -203,6 +203,8 @@ Phase 5.16 status: Option E continues as a docs-only real report export output i
 
 Phase 5.17 status: Option E continues with Candidate A implementation. The change is limited to human-readable real report export success wording and does not expand write surface.
 
+Phase 5.19 status: Option E continues as a docs-only report export manifest output integration contract. The contract covers Candidate B only and does not expand write surface.
+
 ## Stop Conditions
 
 Stop before starting a Phase 5 task if:

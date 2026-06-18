@@ -296,6 +296,8 @@ Phase 5.16 status: the Candidate A real report export output contract exists. Co
 
 Phase 5.17 status: real report export output integration was implemented narrowly for human-readable success wording. Command behavior remains unchanged.
 
+Phase 5.19 status: the Candidate B manifest export output contract exists. Command behavior remains unchanged.
+
 ## Stop Conditions
 
 Stop if a future task includes:
