@@ -234,7 +234,11 @@ Candidate B covers direct Python `report export --record-manifest` only. It requ
 
 Phase 6.3B stopped correctly because isolated manifest path support is missing. The support contract exists in `docs/architecture/python_tooling_candidate_b_isolated_manifest_path_support_contract.md` and plans future `--manifest-out <path>` support only. Default manifest mutation is not approved for Candidate B validation.
 
-Phase 6.5B implemented `--manifest-out <path>` for `report export --record-manifest`. Candidate B real validation still requires a separate boundary smoke and explicit write-authorized rerun. Do not use the default production manifest path for Candidate B validation.
+Phase 6.5B implemented `--manifest-out <path>` for `report export --record-manifest`. Candidate B real validation required a separate boundary smoke and explicit write-authorized rerun. Do not use the default production manifest path for any Candidate B validation rerun.
+
+Candidate B Phase 6.3B-R1 real manifest validation smoke has passed. The smoke used direct Python only, wrote the isolated report and manifest under the declared validation path, kept the production/default manifest absent/unchanged, and cleaned the task-created artifacts.
+
+The Candidate C contract exists in `docs/architecture/python_tooling_candidate_c_bundle_export_validation_contract.md`. It defines the bundle validation slice for a future `report bundle export` smoke. The wrapper remains read-only; Candidate C must use direct Python only and must confirm the exact source report path, optional source manifest path, bundle output path, snapshot list, cleanup boundary, and stop conditions before any real bundle export is run.
 
 ## Git Hygiene
 

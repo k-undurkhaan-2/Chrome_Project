@@ -298,7 +298,13 @@ Current behavior is unchanged:
 - Candidate B real validation is blocked until future `--manifest-out` support exists
 - do not run Candidate B validation against default `reports/python_tooling/manifest.jsonl`
 - Phase 6.5B added `--manifest-out <path>` support for future isolated Candidate B validation
-- do not run Candidate B real validation until a separate boundary smoke / validation prompt explicitly authorizes it
+- Candidate B real validation was rerun only after a separate boundary smoke and validation prompt explicitly authorized it
+- Candidate B Phase 6.3B-R1 real manifest validation smoke: PASS
+- do not rerun Candidate B validation unless a future prompt explicitly authorizes the exact isolated paths
+- Candidate C contract exists in `docs/architecture/python_tooling_candidate_c_bundle_export_validation_contract.md`
+- do not run Candidate C bundle validation unless a future execution prompt explicitly authorizes it
+- Candidate C must confirm isolated source/report paths and bundle output path before any `report bundle export`
+- zip export and `--force` remain unsupported
 
 ## Known Non-Goals
 

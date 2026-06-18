@@ -256,6 +256,10 @@ Candidate B remains blocked until isolated manifest path support exists. Product
 
 Candidate B support status: Phase 6.5B implemented `--manifest-out <path>` for `report export --record-manifest`. Candidate B real validation remains deferred until a separate boundary smoke confirms the option and a write-authorized Candidate B rerun is explicitly requested.
 
+Candidate B validation status: Phase 6.3B-R1 PASS has been recorded. The isolated report and manifest validation artifacts were created under the declared Candidate B validation path, verified, and cleaned up. The production/default manifest remained absent/unchanged.
+
+Candidate C contract status: `docs/architecture/python_tooling_candidate_c_bundle_export_validation_contract.md` defines the final and largest Phase 6 real-write validation slice. Candidate C execution remains deferred to a future explicitly write-authorized smoke that confirms isolated source/report paths and bundle output paths before running `report bundle export`.
+
 ## Future Phase Structure
 
 Each candidate should use two phases:
@@ -283,7 +287,7 @@ Phase 6.3C: Candidate C bundle export validation smoke
 Provisional future tag after all real-write validation passes:
 
 ```text
-python-tooling-real-write-output-validation-checkpoint-20260618
+python-tooling-real-write-output-validation-checkpoint-20260619
 ```
 
 This tag name is provisional only.

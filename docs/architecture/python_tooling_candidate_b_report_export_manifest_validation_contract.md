@@ -345,17 +345,31 @@ A future Candidate B FAIL means:
 - report exact failure boundary
 - if a manifest was partially written, report exact path/hash/content excerpt and stop
 
+## Phase 6.3B-R1 Validation Status
+
+Candidate B report export manifest validation smoke: PASS.
+
+The R1 smoke validated one direct Python `report export --record-manifest --manifest-out` command under the declared Candidate B validation path. It confirmed `MANIFEST_RECORDED`, confirmed unrelated bundle and dry-run tokens were absent, kept the production/default `reports/python_tooling/manifest.jsonl` absent/unchanged, cleaned the task-created artifacts, and ended with clean git status.
+
+Candidate C is the next planned validation slice. Its contract is `docs/architecture/python_tooling_candidate_c_bundle_export_validation_contract.md`.
+
 ## Next Phase Recommendation
 
-Recommended next phase after this contract:
+Historical recommended phase after this contract:
 
 ```text
 Phase 6.3B: Candidate B report export manifest validation smoke
 ```
 
-That future phase must be explicitly write-authorized and must follow this contract.
+That phase has now passed as Phase 6.3B-R1.
 
-Do not run Phase 6.3B in this task.
+The next planned validation slice is Candidate C. Its contract is:
+
+```text
+docs/architecture/python_tooling_candidate_c_bundle_export_validation_contract.md
+```
+
+Do not run Candidate C bundle validation from this document.
 
 ## Tag Policy
 

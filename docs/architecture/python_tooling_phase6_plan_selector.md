@@ -260,6 +260,26 @@ No `report export --record-manifest` command was run.
 
 The next recommended phase is isolated manifest path support implementation, not Candidate B execution. Candidate B execution must remain blocked until `--manifest-out` or equivalent isolated path support exists and passes boundary validation.
 
+## Phase 6.5B Status
+
+`--manifest-out <path>` is implemented for `report export --record-manifest`.
+
+## Phase 6.6B Status
+
+The isolated manifest path support boundary smoke passed. `--manifest-out` is exposed in help and inventory metadata, `writes_files_count = 2`, `runs_ce_count = 0`, and targeted/full pytest passed.
+
+## Phase 6.3B-R1 Status
+
+Candidate B report export manifest validation smoke: PASS.
+
+The R1 smoke validated one direct Python `report export --record-manifest --manifest-out` command, verified the isolated report/manifest artifacts, confirmed the production/default manifest stayed absent/unchanged, cleaned the task-created artifacts, and ended with clean git status.
+
+## Phase 6.2C Status
+
+`docs/architecture/python_tooling_candidate_c_bundle_export_validation_contract.md` defines the Candidate C bundle export validation contract.
+
+Candidate A PASS and Candidate B PASS are established. The next phase may be Candidate C execution smoke only if explicitly authorized and only if isolated source report/manifest paths plus the bundle output path are confirmed from the existing CLI/source contract.
+
 ## Stop Conditions
 
 Stop before continuing if:
