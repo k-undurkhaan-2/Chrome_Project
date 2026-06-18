@@ -287,6 +287,8 @@ Phase 5.14 - real-write output integration contract / boundary gate
 
 This should remain separate from helper implementation and must explicitly define whether any real write validation is authorized.
 
+Phase 5.15 status: `docs/architecture/python_tooling_real_write_output_integration_gate.md` now defines the planning gate for any future real-write helper integration. Helper-only extension remains completed, runtime integration remains deferred, and the next recommended phase is a Candidate A contract for real `report export` output integration.
+
 ## Stop Conditions
 
 Stop if a future task includes:

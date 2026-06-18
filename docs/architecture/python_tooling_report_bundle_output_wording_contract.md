@@ -280,6 +280,8 @@ Phase 5.10 status: dry-run output wording is now integrated for the two dry-run 
 
 Phase 5.13 status: real-write output helpers now exist for future report export, manifest-recording export, and directory bundle export wording. Runtime integration remains deferred; real export behavior and dry-run behavior remain unchanged.
 
+Phase 5.15 status: real-write integration is now gated by `docs/architecture/python_tooling_real_write_output_integration_gate.md`. The staged order is real report export first, manifest-recording export second, and bundle export last.
+
 ## Stop Conditions
 
 Stop if a future task includes:

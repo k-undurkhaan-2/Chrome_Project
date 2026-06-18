@@ -188,3 +188,5 @@ Phase 5.10 note: dry-run output wording implementation is completed for `report 
 Phase 5.12 note: the real-write output wording contract now follows the dry-run boundary smoke. It is docs-only; real-write output implementation remains future work.
 
 Phase 5.13 note: the helper-only real-write output slice is completed. The next possible slice is a real-write integration contract / boundary gate before any helper is wired into real export paths.
+
+Phase 5.15 note: the real-write integration gate follows the helper boundary smoke. Implementation remains future work and must start with a separate Candidate A contract.

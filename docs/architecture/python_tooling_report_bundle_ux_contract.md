@@ -290,6 +290,8 @@ Phase 5.12 status: the real-write output wording contract exists in `docs/archit
 
 Phase 5.13 status: the real-write helper extension exists for future UX integration. Command behavior remains unchanged, and the helpers are not wired into runtime export paths.
 
+Phase 5.15 status: the real-write integration gate exists. Command behavior remains unchanged and real-write integration is still deferred.
+
 ## Stop Conditions
 
 Stop if a future task includes:

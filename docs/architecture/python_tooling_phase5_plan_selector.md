@@ -197,6 +197,8 @@ Phase 5.12 status: Option E continues as a docs-only real-write output wording c
 
 Phase 5.13 status: Option E continues with a helper-only real-write output extension. The helper functions and helper-only tests were updated, but helpers are not wired into real export paths and no write surface was expanded.
 
+Phase 5.15 status: Option E continues as a docs-only real-write output integration planning gate. The gate documents candidates, staged order, implementation constraints, validation policy, and stop conditions without expanding write surface.
+
 ## Stop Conditions
 
 Stop before starting a Phase 5 task if:

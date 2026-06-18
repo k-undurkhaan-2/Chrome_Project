@@ -178,6 +178,8 @@ The real-write output wording contract exists in `docs/architecture/python_tooli
 
 Phase 5.13 added helper-only real-write output wording functions for future integration. Current command behavior is unchanged: real export remains direct Python, write-capable, and unavailable through the read-only wrapper.
 
+The real-write output integration gate exists in `docs/architecture/python_tooling_real_write_output_integration_gate.md`. No real-write output integration is active yet, and the wrapper remains read-only.
+
 Short form:
 
 ```powershell
