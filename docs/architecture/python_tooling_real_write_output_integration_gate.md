@@ -267,6 +267,8 @@ Phase 5.19 status: Candidate B now has a dedicated contract in `docs/architectur
 
 Phase 5.20 status: Candidate B implementation completed under helper/unit-only validation. Candidate C remains deferred.
 
+Phase 5.22 status: Candidate C now has a dedicated contract in `docs/architecture/python_tooling_real_bundle_export_output_contract.md`. The staged order Candidate A/B/C is fully contracted, and Candidate C implementation remains deferred.
+
 ## Stop Conditions
 
 Stop if a future task includes:

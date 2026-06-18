@@ -216,6 +216,8 @@ Short form:
 
 Real bundle export is directory-only and writes only under `reports/python_tooling/bundles/<bundle_id>/`.
 
+Candidate C contract exists for future real bundle export output wording integration. No bundle output integration is active yet, and the read-only PowerShell wrapper remains read-only.
+
 ## Git Hygiene
 
 Do not commit:

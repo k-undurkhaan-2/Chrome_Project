@@ -290,6 +290,8 @@ Phase 5.19 status: report export manifest output integration is now separately c
 
 Phase 5.20 status: Candidate B integration is completed for manifest export success wording. Future bundle integration remains gated and deferred.
 
+Phase 5.22 status: real bundle export output integration is now separately contracted. Zip export and `--force` remain unsupported.
+
 ## Stop Conditions
 
 Stop if a future task includes:

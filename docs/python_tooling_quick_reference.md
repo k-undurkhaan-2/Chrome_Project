@@ -276,6 +276,8 @@ Current behavior is unchanged:
 - current operator workflow remains unchanged
 - manifest export success wording integration exists
 - current manifest export behavior is unchanged
+- real bundle export output integration is contracted but not active
+- current bundle export behavior is unchanged and remains write-capable direct Python only
 
 ## Known Non-Goals
 

@@ -297,6 +297,8 @@ Phase 5.19 status: manifest output now has a dedicated integration contract in `
 
 Phase 5.20 status: manifest output helper integration exists for the human-readable success output of `report export --record-manifest`. Bundle integration remains deferred.
 
+Phase 5.22 status: real bundle export output now has a dedicated integration contract in `docs/architecture/python_tooling_real_bundle_export_output_contract.md`. All three real-write wording candidates are now contracted.
+
 ## Stop Conditions
 
 Stop if a future task includes:
