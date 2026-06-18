@@ -192,3 +192,5 @@ Phase 5.13 note: the helper-only real-write output slice is completed. The next 
 Phase 5.15 note: the real-write integration gate follows the helper boundary smoke. Implementation remains future work and must start with a separate Candidate A contract.
 
 Phase 5.16 note: the Candidate A contract follows the real-write output integration gate. Implementation remains future work.
+
+Phase 5.17 note: Candidate A implementation is completed. The next possible slice is a boundary smoke or a Candidate B contract for `report export --record-manifest`.

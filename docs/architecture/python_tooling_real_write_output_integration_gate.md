@@ -261,6 +261,8 @@ Do not jump directly to implementation unless explicitly authorized.
 
 Phase 5.16 status: `docs/architecture/python_tooling_real_report_export_output_contract.md` now defines the dedicated Candidate A contract. Candidate A remains docs-only, and the next possible phase is Candidate A implementation with an explicit validation policy.
 
+Phase 5.17 status: Candidate A implementation completed under helper/unit-only validation. Candidate B (`report export --record-manifest`) and Candidate C (`report bundle export`) remain deferred.
+
 ## Stop Conditions
 
 Stop if a future task includes:

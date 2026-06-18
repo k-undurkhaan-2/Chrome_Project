@@ -182,6 +182,8 @@ The real-write output integration gate exists in `docs/architecture/python_tooli
 
 The Candidate A real report export output contract exists in `docs/architecture/python_tooling_real_report_export_output_contract.md`. It does not change current command behavior, and the wrapper remains read-only.
 
+Real report export output wording is improved for the non-`--record-manifest` success path. The wrapper remains read-only, and `--record-manifest` plus bundle output integration remain deferred.
+
 Short form:
 
 ```powershell

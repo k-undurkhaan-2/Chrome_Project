@@ -284,6 +284,8 @@ Phase 5.15 status: real-write integration is now gated by `docs/architecture/pyt
 
 Phase 5.16 status: real report export output integration is now separately contracted. Manifest and bundle real-write integrations remain future work.
 
+Phase 5.17 status: Candidate A integration is completed for real report export success wording. Future manifest and bundle integrations remain gated and deferred.
+
 ## Stop Conditions
 
 Stop if a future task includes:

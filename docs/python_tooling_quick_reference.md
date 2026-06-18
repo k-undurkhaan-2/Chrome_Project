@@ -272,7 +272,8 @@ Current behavior is unchanged:
 - real-write output helpers exist for future UX integration
 - real-write runtime integration is deferred
 - real-write output integration remains gated by `docs/architecture/python_tooling_real_write_output_integration_gate.md`
-- real report export output integration is contracted but not active
+- real report export success wording integration exists
+- current operator workflow remains unchanged
 
 ## Known Non-Goals
 

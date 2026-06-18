@@ -224,6 +224,8 @@ Preferred scope:
 - no write surface expansion
 - validation policy must be chosen explicitly
 
+Phase 5.17 status: Candidate A integration is implemented for the human-readable success output of real `report export` without `--record-manifest`. The implementation uses helper/unit-only validation for this phase; no real export was executed. `--record-manifest` and bundle output integration remain deferred. Report file content, path guards, approved roots, command parsing, JSON output, manifest behavior, bundle behavior, wrapper behavior, and write surface remain unchanged.
+
 ## Stop Conditions
 
 Stop if a future task includes:
