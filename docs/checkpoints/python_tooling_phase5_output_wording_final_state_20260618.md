@@ -2,19 +2,21 @@
 
 ## Purpose
 
-Record the Phase 5.25 docs-only final state summary checkpoint planning artifact.
+Record the Phase 5 output wording post-checkpoint handoff state.
 
 ## Summary
 
-- Final state summary created.
+- Final checkpoint tag: `python-tooling-output-wording-checkpoint-20260618`.
+- The checkpoint tag exists and was verified against the current `armedforces.io-v2` HEAD after Phase 5.26 final smoke passed.
 - Candidate A/B/C human-readable output wording integrations are summarized.
 - Dry-run wording, helper wording, and help-text wording work are summarized.
 - Frozen safety boundaries are recorded.
-- No code changed.
-- No behavior changed.
-- No tag created.
-- Correct output wording checkpoint tag date is `python-tooling-output-wording-checkpoint-20260618`.
+- Docs correction completed after the checkpoint tag was created.
+- No code changed in this docs-sync task.
+- No behavior changed in this docs-sync task.
+- No tag was created, moved, or retargeted in this docs-sync task.
+- Future real-write validation still requires explicit authorization, output paths, cleanup policy, and protected-file checks.
 
 ## Next Recommendation
 
-Proceed only to a separately scoped Phase 5.26 final checkpoint smoke. That phase should be validation-only and should not execute real writes unless explicitly authorized.
+Use a new selector/gate for the next major work item. Do not treat this checkpoint as authorization for wrapper export shortcuts, CE/runtime migration, or manual real-write validation.

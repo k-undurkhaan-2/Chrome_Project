@@ -349,6 +349,8 @@ Phase 5.3 plans report/bundle export UX polish only. Export write surface is unc
 
 Phase 5.4 adds the report/bundle export UX polish contract. This is contract-only; no mutation migration has started and export write surface is unchanged.
 
+Phase 5 output wording checkpoint is established as `python-tooling-output-wording-checkpoint-20260618`. It covers report/bundle help text wording, output helpers, dry-run wording, and Candidate A/B/C human-readable success wording integrations. No mutation workflow has been migrated; future write-capable/runtime migration remains separate and requires a new contract, validation plan, cleanup policy, and checkpoint.
+
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 
 - Define request formats.

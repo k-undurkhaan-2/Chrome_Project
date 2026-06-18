@@ -2,9 +2,9 @@
 
 ## Purpose
 
-This document records the Phase 5 output wording final state and checkpoint planning summary.
+This document records the Phase 5 output wording final state and post-checkpoint handoff summary.
 
-Use it before any future output-wording checkpoint or before moving into additional write-capable tooling work. This document is summary/planning only. It does not authorize new implementation, new commands, broader write surfaces, CE execution, or runtime artifact creation.
+Use it before moving into additional write-capable tooling work. This document is summary/handoff only. It does not authorize new implementation, new commands, broader write surfaces, CE execution, or runtime artifact creation.
 
 ## Checkpoint Baseline
 
@@ -12,8 +12,11 @@ Current baseline checkpoints:
 
 - `python-tooling-phase3-final-checkpoint-20260616`
 - `python-tooling-powershell-wrapper-readonly-checkpoint-20260616`
+- `python-tooling-output-wording-checkpoint-20260618`
 
-No new checkpoint tag is created by this task.
+The output wording checkpoint tag `python-tooling-output-wording-checkpoint-20260618` exists. It was created after the Phase 5.26 final smoke passed and matched the current `armedforces.io-v2` HEAD at verification time.
+
+The stale `20260616` output wording checkpoint date came from reused prompt context and should not be used for the output wording checkpoint tag.
 
 ## Phase 5 Output Wording Work Completed
 
@@ -154,43 +157,32 @@ Full pytest may include existing dry-run regression tests, but no manual real ex
 
 Any future real-write validation must be separately authorized with explicit output paths and cleanup policy.
 
-## Checkpoint Planning
+## Checkpoint Status
 
-A checkpoint may be appropriate after a dedicated final validation gate.
-
-Do not create a checkpoint in this docs-only task.
-
-Recommended future checkpoint name, if separately authorized after final validation:
+The Phase 5 output wording checkpoint is established:
 
 ```text
 python-tooling-output-wording-checkpoint-20260618
 ```
 
-Date correction note: the output wording checkpoint tag should use `20260618`. Earlier `20260616` references came from stale reused prompt context. No tag is created by this docs-only correction.
+Checkpoint facts:
 
-Before creating that tag, require:
+- the tag was created after the Phase 5.26 output wording final smoke passed
+- the tag matched current `armedforces.io-v2` HEAD at verification time
+- the stale `20260616` output wording checkpoint reference was corrected and should not be used
+- this docs-sync task does not create, move, or retarget any tag
+- this docs-sync task does not change Python, wrapper, PowerShell, Lua, test, runtime, or report behavior
+- real-write validation remains separately authorized work with explicit output paths and cleanup policy
 
-- final status/inventory check
-- full pytest
-- final artifact/hash check
-- source/reference inspection confirming all integrations are scoped
-- clean git status
-- no CE
-- no manual real writes unless explicitly authorized
+Validation limitation remains: Candidate A/B/C used helper/unit validation and boundary inspections. The final smoke did not manually execute real write commands. This checkpoint represents source/tests/docs/boundary-smoke stability, not manual real-write validation.
 
 ## Recommended Next Phase
 
-Recommended next phase:
+Output wording work is ready for handoff.
 
-```text
-Phase 5.26 - output wording final checkpoint smoke
-```
+The next major work item should start from a new selector/gate document rather than extending this checkpoint in place.
 
-This next phase should be validation-only.
-
-It should not modify files.
-It should not execute real writes unless separately authorized.
-It should prepare whether to tag the output wording checkpoint.
+Real-write validation remains deferred unless a separate task explicitly authorizes real writes, output paths, cleanup, and protected-file checks.
 
 ## Future Work Explicitly Deferred
 

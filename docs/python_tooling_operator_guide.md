@@ -218,7 +218,9 @@ Real bundle export is directory-only and writes only under `reports/python_tooli
 
 Bundle export success wording has been improved for the direct Python real bundle export path. The read-only PowerShell wrapper remains read-only, and zip export plus `--force` remain unsupported.
 
-Phase 5 output wording final state is summarized in `docs/architecture/python_tooling_phase5_output_wording_final_state.md`. Candidate A/B/C wording integrations are complete at the human-readable output level, but any checkpoint is deferred to a separate validation gate.
+Phase 5 output wording final state is summarized in `docs/architecture/python_tooling_phase5_output_wording_final_state.md`. The checkpoint `python-tooling-output-wording-checkpoint-20260618` exists and covers help text wording, helper wording, dry-run wording, and Candidate A/B/C human-readable success wording integrations.
+
+This checkpoint does not authorize wrapper export shortcuts and does not authorize manual real-write validation without a separate task.
 
 ## Git Hygiene
 

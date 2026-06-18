@@ -211,7 +211,9 @@ Phase 5.22 status: Option E continues as a docs-only real bundle export output i
 
 Phase 5.23 status: Option E continues with Candidate C implementation. The change is limited to human-readable real bundle export success wording and does not expand write surface.
 
-Phase 5.25 status: Phase 5 output wording final state summary exists in `docs/architecture/python_tooling_phase5_output_wording_final_state.md`. Candidate A/B/C wording integrations are completed at the human-readable output level, behavior/write surface remains unchanged, and any checkpoint is deferred to a separate validation gate.
+Phase 5.25 status: Phase 5 output wording final state summary exists in `docs/architecture/python_tooling_phase5_output_wording_final_state.md`. Candidate A/B/C wording integrations are completed at the human-readable output level, behavior/write surface remains unchanged, and the final checkpoint is now established as `python-tooling-output-wording-checkpoint-20260618`.
+
+Phase 5.27 status: output wording work is ready for handoff after the `python-tooling-output-wording-checkpoint-20260618` checkpoint. The next major work item should use a new selector/gate. Real-write validation remains deferred unless separately authorized with explicit output paths, cleanup policy, and protected-file checks.
 
 ## Stop Conditions
 
