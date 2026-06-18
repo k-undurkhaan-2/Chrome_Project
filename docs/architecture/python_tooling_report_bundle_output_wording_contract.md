@@ -272,6 +272,8 @@ Use the alternative only if dry-run validation is separately authorized and arti
 
 Phase 5.7 status: a helper-only implementation slice added output wording message helpers and helper unit tests. The helpers are not wired into report export, report export dry-run, report bundle export, or report bundle export dry-run execution paths. Command behavior, approved roots, path guards, manifest behavior, bundle behavior, wrapper behavior, and write surface remain unchanged.
 
+Phase 5.9 status: `docs/architecture/python_tooling_dry_run_output_integration_contract.md` defines the future contract for integrating helpers into dry-run output only. Future dry-run implementation must follow that contract. Real-write output integration remains deferred.
+
 ## Stop Conditions
 
 Stop if a future task includes:

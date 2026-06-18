@@ -116,6 +116,8 @@ The output wording contract exists in `docs/architecture/python_tooling_report_b
 
 Phase 5.7 added output wording helpers for future UX integration. They do not change current commands, do not run during export yet, and do not alter the daily workflow.
 
+The dry-run output integration contract exists in `docs/architecture/python_tooling_dry_run_output_integration_contract.md`. Current command behavior and daily workflow remain unchanged.
+
 ## Common Status Meanings
 
 ### `SAFE`

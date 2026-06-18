@@ -189,6 +189,8 @@ Phase 5.6 status: Option E continues as a docs-only output wording contract. The
 
 Phase 5.7 status: Option E continues with a helper-only implementation slice. The message helpers are unit-tested but not connected to report export or bundle export execution paths. No command, option, wrapper shortcut, approved root, path guard, or write behavior was added or changed.
 
+Phase 5.9 status: Option E continues as a docs-only dry-run integration contract. The contract defines future integration targets, non-goals, artifact safety, test expectations, and stop conditions. No write surface was expanded.
+
 ## Stop Conditions
 
 Stop before starting a Phase 5 task if:

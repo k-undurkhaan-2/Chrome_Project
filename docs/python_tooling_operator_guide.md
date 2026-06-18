@@ -170,6 +170,8 @@ The output wording contract exists in `docs/architecture/python_tooling_report_b
 
 Phase 5.7 added output wording helpers as implementation preparation. The helpers are not wired into current report/bundle commands, so current command behavior and write boundaries remain unchanged.
 
+The dry-run output integration contract exists in `docs/architecture/python_tooling_dry_run_output_integration_contract.md`. Dry-run output integration is not active yet, and real export behavior is unchanged.
+
 Short form:
 
 ```powershell

@@ -282,6 +282,8 @@ Phase 5.6 status: `docs/architecture/python_tooling_report_bundle_output_wording
 
 Phase 5.7 status: output wording helpers now exist for future integration. Runtime integration remains deferred; helpers are not called by real export or dry-run export paths.
 
+Phase 5.9 status: dry-run helper integration is now separately contracted in `docs/architecture/python_tooling_dry_run_output_integration_contract.md`. Implementation remains deferred.
+
 ## Stop Conditions
 
 Stop if a future task includes:

@@ -180,3 +180,5 @@ Phase 5.5 note: the first implementation slice completed CLI help text polish fo
 Phase 5.6 note: `docs/architecture/python_tooling_report_bundle_output_wording_contract.md` now defines the deferred dry-run, real-write, rejection, and wrapper-boundary output wording contract. No output wording implementation has been made in Phase 5.6.
 
 Phase 5.7 note: output wording helpers have been implemented as a safe preparatory slice. Dry-run and real-write output integration remains deferred, and helper functions are not wired into export execution paths.
+
+Phase 5.9 note: the dry-run output integration contract follows the helper boundary gate. Implementation remains a future phase and must stay limited to dry-run output unless separately authorized.
