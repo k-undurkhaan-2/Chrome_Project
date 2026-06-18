@@ -242,6 +242,24 @@ The R2 smoke validated one direct Python real `report export` under the declared
 
 The next phase may be Candidate B execution smoke only if explicitly authorized and only if an isolated manifest path option is confirmed from the existing CLI/source. If no isolated manifest path support exists, Candidate B execution must stop before running `report export --record-manifest`.
 
+## Phase 6.3B Status
+
+Candidate B report export manifest validation smoke: STOP.
+
+Stop reason:
+
+```text
+STOP: isolated Candidate B manifest path is not supported by existing CLI contract.
+```
+
+No `report export --record-manifest` command was run.
+
+## Phase 6.4B Status
+
+`docs/architecture/python_tooling_candidate_b_isolated_manifest_path_support_contract.md` defines the future support contract for adding `--manifest-out <path>`.
+
+The next recommended phase is isolated manifest path support implementation, not Candidate B execution. Candidate B execution must remain blocked until `--manifest-out` or equivalent isolated path support exists and passes boundary validation.
+
 ## Stop Conditions
 
 Stop before continuing if:

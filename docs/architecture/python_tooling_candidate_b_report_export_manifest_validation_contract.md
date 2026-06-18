@@ -101,6 +101,24 @@ Do not add or modify CLI options in the execution smoke.
 
 Do not write to production/default `reports/python_tooling/manifest.jsonl` unless the future prompt explicitly authorizes default manifest mutation and defines cleanup/rollback policy for that exact file. The default stance is: do not use the production/default manifest path for Candidate B validation.
 
+## Phase 6.3B STOP and Support Contract
+
+Phase 6.3B Candidate B validation smoke stopped before execution:
+
+```text
+STOP: isolated Candidate B manifest path is not supported by existing CLI contract.
+```
+
+No `report export --record-manifest` command was run, and no runtime report, manifest, or bundle artifact was created.
+
+The support contract for unblocking Candidate B is:
+
+```text
+docs/architecture/python_tooling_candidate_b_isolated_manifest_path_support_contract.md
+```
+
+Future Candidate B execution must wait for `--manifest-out` or equivalent isolated manifest path support. The production/default manifest path remains disallowed for Candidate B validation unless a future prompt explicitly authorizes that exact mutation.
+
 ## Proposed Future Output Paths
 
 Exact proposed future validation paths:

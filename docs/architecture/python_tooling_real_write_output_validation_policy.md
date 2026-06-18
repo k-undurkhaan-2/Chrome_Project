@@ -250,6 +250,10 @@ Candidate A validation status: Phase 6.3A-R2 PASS has been recorded. Candidate B
 
 Candidate B contract status: `docs/architecture/python_tooling_candidate_b_report_export_manifest_validation_contract.md` defines the report export manifest validation slice. Candidate B requires isolated manifest path confirmation before any execution. If the existing CLI/source cannot direct `--record-manifest` to an isolated Candidate B manifest path, the execution smoke must stop before running `--record-manifest`.
 
+Candidate B validation status: Phase 6.3B stopped because the existing CLI/source does not support an isolated manifest path. The support contract is `docs/architecture/python_tooling_candidate_b_isolated_manifest_path_support_contract.md`.
+
+Candidate B remains blocked until isolated manifest path support exists. Production/default `reports/python_tooling/manifest.jsonl` mutation remains disallowed for Candidate B validation.
+
 ## Future Phase Structure
 
 Each candidate should use two phases:

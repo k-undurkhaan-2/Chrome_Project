@@ -294,6 +294,9 @@ Current behavior is unchanged:
 - do not run `report export --record-manifest` validation unless a future execution prompt explicitly authorizes it
 - do not mutate production/default `reports/python_tooling/manifest.jsonl` unless the future prompt explicitly authorizes that exact manifest path
 - Candidate B future execution must stop if the existing CLI/source cannot direct `--record-manifest` to an isolated validation manifest path
+- Phase 6.3B stopped because isolated manifest path support is missing
+- Candidate B real validation is blocked until future `--manifest-out` support exists
+- do not run Candidate B validation against default `reports/python_tooling/manifest.jsonl`
 
 ## Known Non-Goals
 
