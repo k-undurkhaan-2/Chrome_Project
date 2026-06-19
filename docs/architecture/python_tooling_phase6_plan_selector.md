@@ -280,6 +280,24 @@ The R1 smoke validated one direct Python `report export --record-manifest --mani
 
 Candidate A PASS and Candidate B PASS are established. The next phase may be Candidate C execution smoke only if explicitly authorized and only if isolated source report/manifest paths plus the bundle output path are confirmed from the existing CLI/source contract.
 
+## Phase 6.3C Status
+
+Candidate C bundle export validation smoke: STOP.
+
+Stop reason:
+
+```text
+current report bundle export cannot target the required isolated Candidate C paths
+```
+
+No `report bundle export` command was run.
+
+## Phase 6.4C Status
+
+`docs/architecture/python_tooling_candidate_c_isolated_bundle_path_support_contract.md` defines future support for isolated Candidate C source input and bundle output paths.
+
+The next recommended phase is isolated bundle validation path support implementation, not Candidate C execution.
+
 ## Stop Conditions
 
 Stop before continuing if:

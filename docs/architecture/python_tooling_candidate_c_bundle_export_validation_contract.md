@@ -256,6 +256,32 @@ Expected absent:
 
 If current helper output intentionally includes a generic success token such as `WRITE_COMPLETE`, the future smoke must classify it according to the current source contract and report whether it is acceptable or noisy.
 
+## Phase 6.3C Validation Status
+
+Candidate C bundle export validation smoke: STOP.
+
+Stop reason:
+
+```text
+current report bundle export cannot target the required isolated Candidate C paths
+```
+
+Confirmed constraints:
+
+- `--manifest` only accepts `reports/python_tooling/manifest.jsonl`
+- `--out` is constrained to `reports/python_tooling/bundles/`
+- isolated source/input and bundle output paths under `reports/python_tooling/validation/...` are unsupported
+
+No real `report bundle export` command was run and no artifacts were created.
+
+The support contract for unblocking Candidate C is:
+
+```text
+docs/architecture/python_tooling_candidate_c_isolated_bundle_path_support_contract.md
+```
+
+Future Candidate C execution must wait for isolated source/report and bundle output support.
+
 ## Future Cleanup Contract
 
 Preferred cleanup policy:
