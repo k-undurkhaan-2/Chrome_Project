@@ -4,6 +4,14 @@
 
 Phase 6 Candidate A, Candidate B, and Candidate C real-write output validations have passed under controlled isolated paths.
 
+Checkpoint tag:
+
+```text
+python-tooling-real-write-output-validation-checkpoint-20260619
+```
+
+The checkpoint tag is now established. It was not created by the Phase 6.9 docs-only sync.
+
 ## Candidate Results
 
 - Candidate A Phase 6.3A-R2: PASS
@@ -12,7 +20,6 @@ Phase 6 Candidate A, Candidate B, and Candidate C real-write output validations 
 
 ## Boundaries
 
-- No checkpoint tag was created by this docs task.
 - Production/default report, manifest, and bundle workflows are not authorized by these isolated validation smokes.
 - The read-only PowerShell wrapper remains read-only and does not expose export shortcuts.
 - CE was not run by the validation line.
@@ -20,8 +27,4 @@ Phase 6 Candidate A, Candidate B, and Candidate C real-write output validations 
 
 ## Next Step
 
-Run the Phase 6.8 final validation-only checkpoint smoke before creating:
-
-```text
-python-tooling-real-write-output-validation-checkpoint-20260619
-```
+Start the next workstream from a new selector/gate. Recommended next phase: Phase 7.0 post-real-write-validation next-work selector.

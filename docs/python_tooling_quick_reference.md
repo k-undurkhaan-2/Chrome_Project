@@ -306,7 +306,7 @@ Current behavior is unchanged:
 - do not mutate production/default `reports/python_tooling/manifest.jsonl` unless the future prompt explicitly authorizes that exact manifest path
 - Candidate B future execution must stop if the existing CLI/source cannot direct `--record-manifest` to an isolated validation manifest path
 - Phase 6.3B stopped because isolated manifest path support is missing
-- Candidate B real validation is blocked until future `--manifest-out` support exists
+- Candidate B real validation was blocked until `--manifest-out` support existed
 - do not run Candidate B validation against default `reports/python_tooling/manifest.jsonl`
 - Phase 6.5B added `--manifest-out <path>` support for future isolated Candidate B validation
 - Candidate B real validation was rerun only after a separate boundary smoke and validation prompt explicitly authorized it
@@ -322,7 +322,9 @@ Current behavior is unchanged:
 - Candidate A/B/C validation passed under isolated paths only
 - production/default report, manifest, and bundle workflows are not authorized by these validation smokes
 - wrapper remains read-only
-- Phase 6.8 final checkpoint smoke is next
+- Phase 6.8 final checkpoint smoke passed
+- checkpoint tag exists: `python-tooling-real-write-output-validation-checkpoint-20260619`
+- next work should start from a new selector/gate
 - do not run bundle validation against default production paths
 
 ## Known Non-Goals

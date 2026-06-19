@@ -359,6 +359,8 @@ Phase 6.5C implements isolated Candidate C bundle validation path support for `r
 
 Phase 6.7 records the real-write output validation final state in `docs/architecture/python_tooling_real_write_output_validation_final_state.md`. Candidate A/B/C isolated real-write output validations have passed, but production/default report, manifest, and bundle workflows remain separate and unauthorized by that validation line. Runtime mutation migration, wrapper write-capable behavior, CE automation, zip export, `--force`, and approved-root expansion remain deferred.
 
+Phase 6.9 syncs documentation after the checkpoint tag `python-tooling-real-write-output-validation-checkpoint-20260619` was established. The checkpoint records isolated Candidate A/B/C validation only. Production/default report, manifest, and bundle workflows, wrapper write-capable behavior, CE/runtime mutation, zip export, `--force`, and approved-root expansion remain deferred. Future work must start from a new selector/gate.
+
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 
 - Define request formats.

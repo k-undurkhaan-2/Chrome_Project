@@ -253,7 +253,7 @@ The Candidate C contract exists in `docs/architecture/python_tooling_candidate_c
 
 Phase 6.3C stopped because `report bundle export` could not yet target isolated Candidate C source/input and bundle output paths. Phase 6.5C implemented that isolated bundle validation path support: `report bundle export` now accepts `--source-report <path>`, accepts `--source-manifest <path>`, and allows isolated `--out <bundle-dir>` under approved roots when source inputs are supplied. Phase 6.6C-R2 boundary behavior passed, and Phase 6.3C-R1 real bundle validation passed under the declared isolated path. Default production bundle mutation is still not approved by Candidate C validation.
 
-Phase 6 real-write output validation is complete for Candidate A/B/C under isolated paths. The final state is summarized in `docs/architecture/python_tooling_real_write_output_validation_final_state.md`. Production/default export paths remain separate, the wrapper remains read-only, and Phase 6.8 final checkpoint smoke is still required before creating `python-tooling-real-write-output-validation-checkpoint-20260619`.
+Phase 6 real-write output validation is complete for Candidate A/B/C under isolated paths. The final state is summarized in `docs/architecture/python_tooling_real_write_output_validation_final_state.md`. Phase 6.8 final checkpoint smoke passed, and the checkpoint tag `python-tooling-real-write-output-validation-checkpoint-20260619` is established. Production/default export paths remain separate, the wrapper remains read-only, and future work must start from a new selector/gate.
 
 ## Git Hygiene
 

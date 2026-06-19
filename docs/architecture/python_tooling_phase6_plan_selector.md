@@ -322,6 +322,26 @@ Candidate A/B/C real-write output validation is complete at the isolated-path va
 
 The next phase is a final validation-only checkpoint smoke. Future work after that checkpoint must start from a new selector and must not treat isolated validation as authorization for production/default export workflows or wrapper export shortcuts.
 
+## Phase 6.8 Status
+
+Real-write output validation final checkpoint smoke: PASS.
+
+The checkpoint tag is established:
+
+```text
+python-tooling-real-write-output-validation-checkpoint-20260619
+```
+
+Phase 6 is complete at the isolated-validation checkpoint level. Daily operator workflow remains unchanged, the wrapper remains read-only, and production/default export workflows are not authorized by this checkpoint.
+
+## Phase 6.9 Handoff
+
+The next workstream must start from a new selector/gate. Recommended next phase:
+
+```text
+Phase 7.0 - post-real-write-validation next-work selector
+```
+
 ## Stop Conditions
 
 Stop before continuing if:

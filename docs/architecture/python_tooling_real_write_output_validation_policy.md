@@ -271,7 +271,7 @@ Candidate C validation status: Phase 6.3C stopped because the bundle CLI/source 
 
 ## Final Phase 6 Validation State
 
-Candidate A/B/C real-write output validation has passed under controlled isolated paths. The final-state and checkpoint planning document is `docs/architecture/python_tooling_real_write_output_validation_final_state.md`.
+Candidate A/B/C real-write output validation has passed under controlled isolated paths. The final-state and post-checkpoint handoff document is `docs/architecture/python_tooling_real_write_output_validation_final_state.md`.
 
 This validation line does not authorize production/default export workflows, wrapper export shortcuts, CE/runtime mutation, zip export, `--force`, approved-root expansion, or default report/manifest/bundle path mutation.
 
@@ -305,7 +305,13 @@ Provisional future tag after all real-write validation passes:
 python-tooling-real-write-output-validation-checkpoint-20260619
 ```
 
-This tag name is provisional only.
+This checkpoint tag is now established after Phase 6.8 final checkpoint smoke passed:
+
+```text
+python-tooling-real-write-output-validation-checkpoint-20260619
+```
+
+Candidate A/B/C isolated real-write validations passed. Production/default export workflows remain unauthorized by this checkpoint.
 
 ## Out Of Scope
 

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This document records the final Phase 6 real-write output validation state and checkpoint planning for Python tooling report and bundle output wording. It should be reviewed before creating any checkpoint tag or starting the next larger workstream.
+This document records the final Phase 6 real-write output validation state and post-checkpoint handoff for Python tooling report and bundle output wording. It should be reviewed before starting any larger follow-up workstream.
 
 This is a summary document only. It does not authorize new writes, production exports, wrapper export shortcuts, CE automation, or runtime mutation migration.
 
@@ -14,7 +14,10 @@ Existing checkpoint tags:
 python-tooling-phase3-final-checkpoint-20260616
 python-tooling-powershell-wrapper-readonly-checkpoint-20260616
 python-tooling-output-wording-checkpoint-20260618
+python-tooling-real-write-output-validation-checkpoint-20260619
 ```
+
+The Phase 6 checkpoint tag was established after Phase 6.8 final checkpoint smoke passed. No additional source or behavior change was made by the Phase 6.9 post-tag docs sync.
 
 ## Phase 6 Validation Timeline
 
@@ -159,9 +162,10 @@ Boundary evidence:
 
 - Phase 6.6B boundary smoke passed
 - Phase 6.6C-R2 boundary smoke passed
+- Phase 6.8 final checkpoint smoke passed
 - final git status was clean after each smoke
 - protected hashes were unchanged
-- no tag has been created for this validation line yet
+- checkpoint tag `python-tooling-real-write-output-validation-checkpoint-20260619` is established
 
 ## Remaining Limitations
 
@@ -169,55 +173,29 @@ Phase 6 validation has important limits:
 
 - validation used controlled isolated paths only
 - production/default report, manifest, and bundle paths were intentionally not used
-- this does not authorize production export workflows
+- this checkpoint does not authorize production export workflows
 - this does not authorize wrapper export shortcuts
 - this does not authorize CE/runtime mutation
 - this does not authorize zip export
 - this does not authorize `--force`
 - this does not authorize approved-root expansion
 
-## Checkpoint Planning
+## Checkpoint Status
 
-Recommended final Phase 6 checkpoint tag after a final validation gate:
+Established final Phase 6 checkpoint tag:
 
 ```text
 python-tooling-real-write-output-validation-checkpoint-20260619
 ```
 
-Do not create this tag from this docs-only phase.
-
-Before creating the tag, run a final validation-only smoke:
-
-```text
-Phase 6.8 - real-write output validation final checkpoint smoke
-```
-
-The final smoke should:
-
-- not modify files
-- not run real writes
-- run status/inventory
-- run wrapper status/inventory
-- run targeted pytest for report/export/bundle output validation
-- run full pytest
-- verify no runtime artifacts
-- verify protected hashes
-- verify final git status clean
-- confirm the final checkpoint tag does not already exist
+The tag was created outside this docs-only handoff task after Phase 6.8 passed. This document records that current state; it does not create, move, or delete the tag.
 
 ## Recommended Next Phase
 
 Recommended next phase:
 
 ```text
-Phase 6.8 - real-write output validation final checkpoint smoke
-```
-
-If Phase 6.8 passes, the manual operator checkpoint step may be:
-
-```bash
-git tag --no-sign python-tooling-real-write-output-validation-checkpoint-20260619
-git push origin python-tooling-real-write-output-validation-checkpoint-20260619
+Phase 7.0 - post-real-write-validation next-work selector
 ```
 
 ## Future Work After Checkpoint
