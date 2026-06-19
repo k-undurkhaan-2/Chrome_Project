@@ -258,6 +258,28 @@ Alternative if the operator wants a pause:
 Phase 7.1b - post-checkpoint maintenance freeze note
 ```
 
+## Phase 7.1 Policy Status
+
+The Phase 7.1 rejection-path wording policy is defined in:
+
+```text
+docs/architecture/python_tooling_rejection_path_wording_policy.md
+```
+
+It covers fail-closed wording for `BAD_PATH`, protected paths, overwrite refusal, `--force` unsupported, zip unsupported, invalid option combinations, missing source inputs, wrapper unsupported, `CE_NOT_RUN`, and dry-run no-write output.
+
+Recommended next phase:
+
+```text
+Phase 7.2A-contract - invalid option combination wording contract
+```
+
+Priority target:
+
+```text
+--manifest-out without --record-manifest
+```
+
 ## Stop Conditions
 
 Stop Phase 7 selector or follow-up phases if any of these are required:

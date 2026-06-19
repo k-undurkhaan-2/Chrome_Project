@@ -257,6 +257,8 @@ Phase 6 real-write output validation is complete for Candidate A/B/C under isola
 
 Phase 7 selector exists in `docs/architecture/python_tooling_phase7_plan_selector.md`. The recommended next direction is a rejection-path wording policy contract. Wrapper write support, production/default export workflows, and runtime mutation remain deferred unless a future selector, policy, tests, smoke validation, and checkpoint explicitly authorize them.
 
+Phase 7.1 rejection-path wording policy exists in `docs/architecture/python_tooling_rejection_path_wording_policy.md`. It defines future fail-closed wording policy for path guard failures, overwrite refusal, zip unsupported, invalid option combinations, missing source inputs, wrapper unsupported, `CE_NOT_RUN`, and dry-run no-write output. The next recommended slice is an invalid option combination wording contract for `--manifest-out` without `--record-manifest`. This is documentation-only policy and does not change export behavior or wrapper boundaries.
+
 ## Git Hygiene
 
 Do not commit:

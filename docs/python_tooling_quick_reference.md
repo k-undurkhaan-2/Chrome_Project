@@ -327,6 +327,8 @@ Current behavior is unchanged:
 - next work should start from a new selector/gate
 - do not run bundle validation against default production paths
 - Phase 7 selector exists: `docs/architecture/python_tooling_phase7_plan_selector.md`
+- Phase 7.1 rejection-path wording policy exists: `docs/architecture/python_tooling_rejection_path_wording_policy.md`
+- future rejection wording work should start with invalid option combinations, especially `--manifest-out` without `--record-manifest`
 - daily operator workflow remains unchanged
 - production/default writes are not automatically authorized
 - wrapper remains read-only

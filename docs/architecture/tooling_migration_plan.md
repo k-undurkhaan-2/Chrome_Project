@@ -363,6 +363,8 @@ Phase 6.9 syncs documentation after the checkpoint tag `python-tooling-real-writ
 
 Phase 7.0 adds the post-real-write-validation next-work selector in `docs/architecture/python_tooling_phase7_plan_selector.md`. Runtime mutation migration remains deferred, and the next recommended work is a docs-only rejection-path wording policy contract before any implementation. Production/default writes and wrapper write-capable behavior remain separate policy decisions.
 
+Phase 7.1 adds the rejection-path wording policy in `docs/architecture/python_tooling_rejection_path_wording_policy.md`. The policy defines future fail-closed wording categories, token rules, testing expectations, boundaries, and stop conditions for errors such as `BAD_PATH`, protected path rejection, overwrite refusal, zip unsupported, invalid option combinations, missing source inputs, wrapper unsupported, `CE_NOT_RUN`, and dry-run no-write output. No implementation is added; runtime mutation, wrapper write support, production/default writes, zip export, and `--force` remain deferred.
+
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 
 - Define request formats.

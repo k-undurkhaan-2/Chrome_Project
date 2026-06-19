@@ -210,6 +210,14 @@ Phase 7.1 - rejection-path wording policy contract
 
 Production/default workflows, wrapper write-capable behavior, CE/runtime mutation, zip export, `--force`, and approved-root expansion remain out of scope unless a new policy and validation gate explicitly authorizes them.
 
+## Phase 7.1 Rejection-Path Policy
+
+The rejection-path wording policy exists at `docs/architecture/python_tooling_rejection_path_wording_policy.md`.
+
+It is a documentation-only contract for future fail-closed wording. It does not alter the Phase 6 validation result, does not authorize production/default writes, does not add wrapper write support, and does not change CE/runtime boundaries.
+
+The recommended next work is `Phase 7.2A-contract`, focused on invalid option combination wording, starting with `--manifest-out` without `--record-manifest`.
+
 ## Future Work After Checkpoint
 
 Future options after the checkpoint:
