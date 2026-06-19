@@ -261,6 +261,8 @@ Phase 7.1 rejection-path wording policy exists in `docs/architecture/python_tool
 
 Phase 7.2A invalid option combination wording contract exists in `docs/architecture/python_tooling_invalid_option_combination_wording_contract.md`. It defines future fail-closed wording for `report export --manifest-out <path>` without `--record-manifest`: the command should explain that `--manifest-out` requires `--record-manifest`, should fail before writing anything, and should not create a report, custom manifest, default manifest, or runtime artifact. No write-surface expansion is planned.
 
+Phase 7.2A implementation clarifies that rejection path with `INVALID_OPTION_COMBINATION` and `NO_FILES_WRITTEN`. Candidate A/B/C success paths, dry-run behavior, wrapper read-only behavior, CE exclusion, zip unsupported behavior, and `--force` unsupported behavior remain unchanged.
+
 ## Git Hygiene
 
 Do not commit:

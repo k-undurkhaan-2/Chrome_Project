@@ -197,6 +197,28 @@ def zip_unsupported_message() -> str:
     )
 
 
+def invalid_option_combination_message(
+    *,
+    invalid_option: str,
+    requires: str,
+    conclusion: str,
+) -> str:
+    return _format_message(
+        "Invalid Option Combination",
+        [
+            ("status", "INVALID_OPTION_COMBINATION"),
+            ("invalid_option", invalid_option),
+            ("requires", requires),
+            ("write_status", "NO_FILES_WRITTEN"),
+            ("conclusion", conclusion),
+        ],
+        [
+            f"{invalid_option} requires {requires}.",
+            "No report file, custom manifest, or default manifest was written.",
+        ],
+    )
+
+
 def wrapper_unsupported_message(*, command_name: str) -> str:
     return _format_message(
         "Wrapper Command Unsupported",
@@ -214,6 +236,7 @@ __all__ = [
     "bad_path_message",
     "bundle_export_complete_message",
     "bundle_export_dry_run_message",
+    "invalid_option_combination_message",
     "overwrite_rejection_message",
     "report_export_complete_message",
     "report_export_dry_run_message",

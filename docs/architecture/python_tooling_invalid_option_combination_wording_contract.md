@@ -320,6 +320,25 @@ Scope:
 - no wrapper changes
 - no tag by default
 
+## Phase 7.2A Implementation Status
+
+The implementation slice now uses human-readable invalid-combination wording for `--manifest-out` without `--record-manifest`.
+
+Implemented output tokens:
+
+- `INVALID_OPTION_COMBINATION`
+- `NO_FILES_WRITTEN`
+
+The implementation is expected to preserve:
+
+- Candidate A real report export success output
+- Candidate B valid `--record-manifest --manifest-out` success output
+- Candidate C bundle success output
+- dry-run behavior
+- JSON schema / `to_dict()` shape
+- command inventory `writes_files_count = 2`
+- command inventory `runs_ce_count = 0`
+
 ## Tag Policy
 
 No tag is created by this contract.

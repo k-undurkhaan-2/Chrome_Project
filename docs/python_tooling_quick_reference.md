@@ -331,6 +331,7 @@ Current behavior is unchanged:
 - future rejection wording work should start with invalid option combinations, especially `--manifest-out` without `--record-manifest`
 - Phase 7.2A invalid option combination wording contract exists: `docs/architecture/python_tooling_invalid_option_combination_wording_contract.md`
 - do not retry `--manifest-out` without `--record-manifest`; future wording should fail closed before writing report, custom manifest, or default manifest files
+- Phase 7.2A implementation clarifies this rejection with `INVALID_OPTION_COMBINATION` and `NO_FILES_WRITTEN`
 - daily operator workflow remains unchanged
 - production/default writes are not automatically authorized
 - wrapper remains read-only

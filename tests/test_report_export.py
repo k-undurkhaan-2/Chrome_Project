@@ -232,7 +232,30 @@ def test_manifest_out_without_record_manifest_rejects_before_write(tmp_path: Pat
     assert any("--manifest-out requires --record-manifest" in error for error in result.errors)
     assert result.wrote_file is False
     assert result.manifest_written is False
+    assert result.would_write_report is False
+    assert result.would_write_manifest is False
     assert not (tmp_path / "reports").exists()
+    assert not (tmp_path / "reports" / "python_tooling" / "full_status.md").exists()
+    assert not (tmp_path / "reports" / "python_tooling" / "custom_manifest.jsonl").exists()
+    assert not (tmp_path / "reports" / "python_tooling" / "manifest.jsonl").exists()
+
+    text = format_report_export_dry_run(result)
+    assert "Invalid Option Combination" in text
+    assert "INVALID_OPTION_COMBINATION" in text
+    assert "NO_FILES_WRITTEN" in text
+    assert "--manifest-out" in text
+    assert "--record-manifest" in text
+    assert "REPORT_EXPORT_REJECTED" in text
+    for forbidden in [
+        "REPORT_EXPORT_OK",
+        "WRITE_COMPLETE",
+        "MANIFEST_RECORDED",
+        "BUNDLE_EXPORT_COMPLETE",
+        "BUNDLE_EXPORT_OK",
+        "SOURCE_UNCHANGED",
+        "APPROVED_ROOT",
+    ]:
+        assert forbidden not in text
 
 
 def test_manifest_out_outside_root_rejects_before_write(tmp_path: Path) -> None:

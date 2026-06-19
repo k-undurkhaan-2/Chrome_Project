@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .report_output_messages import (
+    invalid_option_combination_message,
     report_export_complete_message,
     report_export_dry_run_message,
     report_export_manifest_complete_message,
@@ -485,7 +486,19 @@ def format_report_export_dry_run(result: ReportExportDryRunResult) -> str:
             ]
         )
     width = max(len(label) for label, _ in rows)
-    if result.dry_run:
+    if _uses_manifest_out_invalid_option_message(result):
+        lines = [
+            invalid_option_combination_message(
+                invalid_option="--manifest-out",
+                requires="--record-manifest",
+                conclusion=result.conclusion,
+            ),
+            "",
+            "Rejection Details",
+            "Field".ljust(width) + "  Value",
+            "-".ljust(width, "-") + "  -----",
+        ]
+    elif result.dry_run:
         lines = [
             report_export_dry_run_message(
                 report_path=_display(result.target_path),
@@ -569,6 +582,14 @@ def _uses_report_export_manifest_success_message(result: ReportExportDryRunResul
         and result.wrote_file
         and result.manifest_written
         and bool(result.manifest_path)
+    )
+
+
+def _uses_manifest_out_invalid_option_message(result: ReportExportDryRunResult) -> bool:
+    return (
+        not result.record_manifest
+        and result.conclusion in {"REPORT_EXPORT_REJECTED", "REPORT_EXPORT_DRY_RUN_REJECTED"}
+        and any("--manifest-out requires --record-manifest" in error for error in result.errors)
     )
 
 

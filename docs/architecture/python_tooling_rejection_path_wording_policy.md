@@ -329,6 +329,12 @@ Recommended next phase:
 Phase 7.2A - invalid option combination wording implementation
 ```
 
+Implementation note:
+
+- Phase 7.2A implementation adds human-readable rejection wording for this invalid option combination.
+- The wording uses `INVALID_OPTION_COMBINATION` and `NO_FILES_WRITTEN`.
+- It does not add a command or option and does not authorize real writes.
+
 ## Checkpoint Policy
 
 No new tag is recommended for this policy-only phase.

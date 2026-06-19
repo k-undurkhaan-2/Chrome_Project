@@ -108,3 +108,15 @@ def test_report_export_imports_candidate_b_helper_without_bundle_helper() -> Non
     assert "_uses_report_export_manifest_success_message" in source
     assert "result.record_manifest" in source
     assert "result.manifest_written" in source
+
+
+def test_manifest_out_invalid_option_helper_is_report_export_only() -> None:
+    source = (REPO_ROOT / "src" / "armedforces_tool" / "report_export.py").read_text(encoding="utf-8")
+    wrapper_source = (REPO_ROOT / "src" / "python_tooling_wrapper.ps1").read_text(encoding="utf-8")
+    bundle_source = (REPO_ROOT / "src" / "armedforces_tool" / "report_bundle.py").read_text(encoding="utf-8")
+
+    assert "invalid_option_combination_message" in source
+    assert "_uses_manifest_out_invalid_option_message" in source
+    assert "--manifest-out requires --record-manifest" in source
+    assert "invalid_option_combination_message" not in wrapper_source
+    assert "invalid_option_combination_message" not in bundle_source
