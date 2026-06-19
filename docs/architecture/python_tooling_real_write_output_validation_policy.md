@@ -249,25 +249,31 @@ Rationale:
 - Candidate B adds manifest append behavior risk.
 - Candidate C creates a directory bundle and has the largest artifact surface.
 
-Candidate A contract status: `docs/architecture/python_tooling_candidate_a_real_report_export_validation_contract.md` defines the first planned real-write validation contract. Execution remains deferred to a future explicitly write-authorized smoke.
+Candidate A contract status: `docs/architecture/python_tooling_candidate_a_real_report_export_validation_contract.md` defined the first planned real-write validation contract. Execution later passed as Phase 6.3A-R2 under the declared isolated path.
 
 Candidate A wording update: report export success output is expected to omit unrelated negative manifest/bundle tokens, including `MANIFEST_NOT_WRITTEN` and `BUNDLE_NOT_CREATED`.
 
-Candidate A validation status: Phase 6.3A-R2 PASS has been recorded. Candidate B may be planned next, but Candidate B execution remains deferred.
+Candidate A validation status: Phase 6.3A-R2 PASS has been recorded.
 
-Candidate B contract status: `docs/architecture/python_tooling_candidate_b_report_export_manifest_validation_contract.md` defines the report export manifest validation slice. Candidate B requires isolated manifest path confirmation before any execution. If the existing CLI/source cannot direct `--record-manifest` to an isolated Candidate B manifest path, the execution smoke must stop before running `--record-manifest`.
+Candidate B contract status: `docs/architecture/python_tooling_candidate_b_report_export_manifest_validation_contract.md` defines the report export manifest validation slice. Candidate B required isolated manifest path confirmation before execution. If the CLI/source cannot direct `--record-manifest` to an isolated Candidate B manifest path in a future rerun, the execution smoke must stop before running `--record-manifest`.
 
 Candidate B validation status: Phase 6.3B stopped because the existing CLI/source does not support an isolated manifest path. The support contract is `docs/architecture/python_tooling_candidate_b_isolated_manifest_path_support_contract.md`.
 
-Candidate B remains blocked until isolated manifest path support exists. Production/default `reports/python_tooling/manifest.jsonl` mutation remains disallowed for Candidate B validation.
+Candidate B was blocked until isolated manifest path support existed. Production/default `reports/python_tooling/manifest.jsonl` mutation remains disallowed for Candidate B validation.
 
-Candidate B support status: Phase 6.5B implemented `--manifest-out <path>` for `report export --record-manifest`. Candidate B real validation remains deferred until a separate boundary smoke confirms the option and a write-authorized Candidate B rerun is explicitly requested.
+Candidate B support status: Phase 6.5B implemented `--manifest-out <path>` for `report export --record-manifest`. Candidate B real validation later passed as Phase 6.3B-R1 after separate boundary smoke and explicit write authorization.
 
 Candidate B validation status: Phase 6.3B-R1 PASS has been recorded. The isolated report and manifest validation artifacts were created under the declared Candidate B validation path, verified, and cleaned up. The production/default manifest remained absent/unchanged.
 
-Candidate C contract status: `docs/architecture/python_tooling_candidate_c_bundle_export_validation_contract.md` defines the final and largest Phase 6 real-write validation slice. Candidate C execution remains deferred to a future explicitly write-authorized smoke that confirms isolated source/report paths and bundle output paths before running `report bundle export`.
+Candidate C contract status: `docs/architecture/python_tooling_candidate_c_bundle_export_validation_contract.md` defines the final and largest Phase 6 real-write validation slice. Candidate C execution later passed as Phase 6.3C-R1 after isolated source/report paths and bundle output paths were confirmed.
 
-Candidate C validation status: Phase 6.3C stopped because the bundle CLI/source could not yet target isolated source/input and bundle output paths. Phase 6.5C implemented `--source-report <path>`, `--source-manifest <path>`, and isolated `--out <bundle-dir>` support for future Candidate C validation. Production/default report, manifest, and bundle mutation remain disallowed for validation, and Candidate C real validation still requires a future explicit write-authorized smoke.
+Candidate C validation status: Phase 6.3C stopped because the bundle CLI/source could not yet target isolated source/input and bundle output paths. Phase 6.5C implemented `--source-report <path>`, `--source-manifest <path>`, and isolated `--out <bundle-dir>` support. Phase 6.6C-R2 boundary validation passed, and Phase 6.3C-R1 real bundle validation passed under the declared isolated path. Production/default report, manifest, and bundle mutation remain disallowed by this validation line.
+
+## Final Phase 6 Validation State
+
+Candidate A/B/C real-write output validation has passed under controlled isolated paths. The final-state and checkpoint planning document is `docs/architecture/python_tooling_real_write_output_validation_final_state.md`.
+
+This validation line does not authorize production/default export workflows, wrapper export shortcuts, CE/runtime mutation, zip export, `--force`, approved-root expansion, or default report/manifest/bundle path mutation.
 
 ## Future Phase Structure
 

@@ -298,6 +298,30 @@ No `report bundle export` command was run.
 
 The next recommended phase is isolated bundle validation path support implementation, not Candidate C execution.
 
+## Phase 6.5C Status
+
+`--source-report <path>`, `--source-manifest <path>`, and isolated validation `--out <bundle-dir>` support are implemented for `report bundle export`.
+
+Default production bundle behavior remains backward-compatible. Zip export and `--force` remain unsupported.
+
+## Phase 6.6C-R2 Status
+
+Isolated bundle path support boundary smoke rerun: PASS.
+
+The rerun confirmed help text, command metadata, source/test coverage for isolated source report and source manifest inputs, source hash preservation, default bundle compatibility, `writes_files_count = 2`, `runs_ce_count = 0`, and wrapper read-only status.
+
+## Phase 6.3C-R1 Status
+
+Candidate C real bundle export validation smoke: PASS.
+
+The R1 smoke validated one direct Python `report bundle export --source-report --source-manifest --out` command under the declared isolated Candidate C validation path. It verified `bundle_manifest.json`, `index.md`, copied report content, unchanged source fixture hashes, expected Candidate C wording, production/default report/manifest/bundle absence, cleanup, and final clean git status.
+
+## Phase 6.7 Status
+
+Candidate A/B/C real-write output validation is complete at the isolated-path validation level.
+
+The next phase is a final validation-only checkpoint smoke. Future work after that checkpoint must start from a new selector and must not treat isolated validation as authorization for production/default export workflows or wrapper export shortcuts.
+
 ## Stop Conditions
 
 Stop before continuing if:

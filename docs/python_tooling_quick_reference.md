@@ -318,7 +318,11 @@ Current behavior is unchanged:
 - zip export and `--force` remain unsupported
 - Candidate C Phase 6.3C stopped before isolated source/bundle validation paths existed
 - Phase 6.5C implemented `--source-report <path>`, `--source-manifest <path>`, and isolated `--out <bundle-dir>` support for future Candidate C validation
-- Candidate C real validation is still pending and requires a future explicit write-authorized smoke
+- Candidate C Phase 6.3C-R1 real bundle validation smoke: PASS
+- Candidate A/B/C validation passed under isolated paths only
+- production/default report, manifest, and bundle workflows are not authorized by these validation smokes
+- wrapper remains read-only
+- Phase 6.8 final checkpoint smoke is next
 - do not run bundle validation against default production paths
 
 ## Known Non-Goals
