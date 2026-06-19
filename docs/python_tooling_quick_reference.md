@@ -329,6 +329,8 @@ Current behavior is unchanged:
 - Phase 7 selector exists: `docs/architecture/python_tooling_phase7_plan_selector.md`
 - Phase 7.1 rejection-path wording policy exists: `docs/architecture/python_tooling_rejection_path_wording_policy.md`
 - future rejection wording work should start with invalid option combinations, especially `--manifest-out` without `--record-manifest`
+- Phase 7.2A invalid option combination wording contract exists: `docs/architecture/python_tooling_invalid_option_combination_wording_contract.md`
+- do not retry `--manifest-out` without `--record-manifest`; future wording should fail closed before writing report, custom manifest, or default manifest files
 - daily operator workflow remains unchanged
 - production/default writes are not automatically authorized
 - wrapper remains read-only

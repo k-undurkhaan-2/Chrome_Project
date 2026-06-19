@@ -259,6 +259,8 @@ Phase 7 selector exists in `docs/architecture/python_tooling_phase7_plan_selecto
 
 Phase 7.1 rejection-path wording policy exists in `docs/architecture/python_tooling_rejection_path_wording_policy.md`. It defines future fail-closed wording policy for path guard failures, overwrite refusal, zip unsupported, invalid option combinations, missing source inputs, wrapper unsupported, `CE_NOT_RUN`, and dry-run no-write output. The next recommended slice is an invalid option combination wording contract for `--manifest-out` without `--record-manifest`. This is documentation-only policy and does not change export behavior or wrapper boundaries.
 
+Phase 7.2A invalid option combination wording contract exists in `docs/architecture/python_tooling_invalid_option_combination_wording_contract.md`. It defines future fail-closed wording for `report export --manifest-out <path>` without `--record-manifest`: the command should explain that `--manifest-out` requires `--record-manifest`, should fail before writing anything, and should not create a report, custom manifest, default manifest, or runtime artifact. No write-surface expansion is planned.
+
 ## Git Hygiene
 
 Do not commit:

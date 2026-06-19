@@ -280,6 +280,22 @@ Priority target:
 --manifest-out without --record-manifest
 ```
 
+## Phase 7.2A Contract Status
+
+The Phase 7.2A invalid option combination wording contract is defined in:
+
+```text
+docs/architecture/python_tooling_invalid_option_combination_wording_contract.md
+```
+
+It targets `report export --manifest-out <path>` without `--record-manifest`. The future behavior must fail closed before writing anything and must not create a report, custom manifest, default manifest, runtime report, runtime manifest, bundle, log, config, registry, baseline, session, or intake file.
+
+Recommended next phase:
+
+```text
+Phase 7.2A - invalid option combination wording implementation
+```
+
 ## Stop Conditions
 
 Stop Phase 7 selector or follow-up phases if any of these are required:

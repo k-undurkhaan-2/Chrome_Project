@@ -309,6 +309,26 @@ Rationale:
 - it should not require real writes
 - it can be tested with command argument parsing and fail-closed assertions
 
+## Phase 7.2A Contract Status
+
+The invalid option combination wording contract exists at:
+
+```text
+docs/architecture/python_tooling_invalid_option_combination_wording_contract.md
+```
+
+The first target remains:
+
+```text
+--manifest-out without --record-manifest
+```
+
+Recommended next phase:
+
+```text
+Phase 7.2A - invalid option combination wording implementation
+```
+
 ## Checkpoint Policy
 
 No new tag is recommended for this policy-only phase.
