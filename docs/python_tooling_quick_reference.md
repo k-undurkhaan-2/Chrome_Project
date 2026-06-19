@@ -316,8 +316,9 @@ Current behavior is unchanged:
 - do not run Candidate C bundle validation unless a future execution prompt explicitly authorizes it
 - Candidate C must confirm isolated source/report paths and bundle output path before any `report bundle export`
 - zip export and `--force` remain unsupported
-- Candidate C Phase 6.3C stopped because isolated source/bundle validation paths are unsupported
-- isolated bundle path support is planned in `docs/architecture/python_tooling_candidate_c_isolated_bundle_path_support_contract.md`
+- Candidate C Phase 6.3C stopped before isolated source/bundle validation paths existed
+- Phase 6.5C implemented `--source-report <path>`, `--source-manifest <path>`, and isolated `--out <bundle-dir>` support for future Candidate C validation
+- Candidate C real validation is still pending and requires a future explicit write-authorized smoke
 - do not run bundle validation against default production paths
 
 ## Known Non-Goals

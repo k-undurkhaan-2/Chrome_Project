@@ -267,7 +267,7 @@ Candidate B validation status: Phase 6.3B-R1 PASS has been recorded. The isolate
 
 Candidate C contract status: `docs/architecture/python_tooling_candidate_c_bundle_export_validation_contract.md` defines the final and largest Phase 6 real-write validation slice. Candidate C execution remains deferred to a future explicitly write-authorized smoke that confirms isolated source/report paths and bundle output paths before running `report bundle export`.
 
-Candidate C validation status: Phase 6.3C stopped because the current bundle CLI/source cannot target isolated source/input and bundle output paths. Production/default report, manifest, and bundle mutation remain disallowed for validation. The support contract is `docs/architecture/python_tooling_candidate_c_isolated_bundle_path_support_contract.md`.
+Candidate C validation status: Phase 6.3C stopped because the bundle CLI/source could not yet target isolated source/input and bundle output paths. Phase 6.5C implemented `--source-report <path>`, `--source-manifest <path>`, and isolated `--out <bundle-dir>` support for future Candidate C validation. Production/default report, manifest, and bundle mutation remain disallowed for validation, and Candidate C real validation still requires a future explicit write-authorized smoke.
 
 ## Future Phase Structure
 

@@ -251,7 +251,7 @@ Candidate B Phase 6.3B-R1 real manifest validation smoke has passed. The smoke u
 
 The Candidate C contract exists in `docs/architecture/python_tooling_candidate_c_bundle_export_validation_contract.md`. It defines the bundle validation slice for a future `report bundle export` smoke. The wrapper remains read-only; Candidate C must use direct Python only and must confirm the exact source report path, optional source manifest path, bundle output path, snapshot list, cleanup boundary, and stop conditions before any real bundle export is run.
 
-Phase 6.3C stopped because current `report bundle export` cannot target isolated Candidate C source/input and bundle output paths. Default production bundle mutation is not approved for validation. The isolated bundle validation path support contract exists in `docs/architecture/python_tooling_candidate_c_isolated_bundle_path_support_contract.md`; it is planning only and does not implement new options.
+Phase 6.3C stopped because `report bundle export` could not yet target isolated Candidate C source/input and bundle output paths. Phase 6.5C implemented that isolated bundle validation path support: `report bundle export` now accepts `--source-report <path>`, accepts `--source-manifest <path>`, and allows isolated `--out <bundle-dir>` under approved roots when source inputs are supplied. Phase 6.6C boundary behavior passed and found only this stale documentation warning. Default production bundle mutation is not approved for Candidate C validation, and Candidate C real validation still requires a future explicit write-authorized smoke.
 
 ## Git Hygiene
 
