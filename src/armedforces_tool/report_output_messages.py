@@ -219,6 +219,41 @@ def invalid_option_combination_message(
     )
 
 
+def source_input_rejection_message(
+    *,
+    status: str,
+    conclusion: str,
+    source_kind: str | None = None,
+    source_option: str | None = None,
+    invalid_option: str | None = None,
+    requires: str | None = None,
+    detail: str,
+) -> str:
+    fields: list[tuple[str, object]] = [("status", status)]
+    if source_kind:
+        fields.append(("source_kind", source_kind))
+    if source_option:
+        fields.append(("source_option", source_option))
+    if invalid_option:
+        fields.append(("invalid_option", invalid_option))
+    if requires:
+        fields.append(("requires", requires))
+    fields.extend(
+        [
+            ("write_status", "NO_FILES_WRITTEN"),
+            ("conclusion", conclusion),
+        ]
+    )
+    return _format_message(
+        "Bundle Export Rejected",
+        fields,
+        [
+            detail,
+            "No bundle directory, bundle_manifest.json, index.md, or copied report was written.",
+        ],
+    )
+
+
 def wrapper_unsupported_message(*, command_name: str) -> str:
     return _format_message(
         "Wrapper Command Unsupported",
@@ -241,6 +276,7 @@ __all__ = [
     "report_export_complete_message",
     "report_export_dry_run_message",
     "report_export_manifest_complete_message",
+    "source_input_rejection_message",
     "wrapper_unsupported_message",
     "zip_unsupported_message",
 ]

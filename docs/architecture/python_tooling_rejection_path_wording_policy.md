@@ -351,6 +351,15 @@ Recommended next phase:
 Phase 7.2B - missing source input wording implementation
 ```
 
+Implementation note:
+
+- Phase 7.2B implementation adds fail-closed human-readable wording for missing or invalid isolated bundle source inputs.
+- Missing inputs use `SOURCE_MISSING` and `NO_FILES_WRITTEN`.
+- Directory/non-file source inputs use `SOURCE_INVALID` and `NO_FILES_WRITTEN`.
+- `--source-manifest` without `--source-report` uses `INVALID_OPTION_COMBINATION` and `NO_FILES_WRITTEN`.
+- Failure output does not use `SOURCE_UNCHANGED` or bundle/report success tokens.
+- Candidate A/B/C success output, dry-run output, wrapper behavior, and CE/runtime boundaries remain unchanged.
+
 ## Checkpoint Policy
 
 No new tag is recommended for this policy-only phase.

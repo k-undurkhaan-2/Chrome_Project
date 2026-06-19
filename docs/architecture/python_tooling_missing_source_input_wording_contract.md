@@ -12,6 +12,20 @@ This contract does not implement source changes, run commands, add commands, add
 
 Future implementation must be narrow, test-backed, and limited to fail-closed wording for missing or invalid isolated bundle source inputs. It must not alter success paths, dry-run behavior, Candidate A/B/C success wording, bundle artifact structure, path guards, wrapper behavior, or CE/runtime behavior.
 
+## Implementation Status
+
+Phase 7.2B implementation is complete.
+
+Implemented behavior:
+
+- missing `--source-report` is reported with `SOURCE_MISSING` and `NO_FILES_WRITTEN`
+- invalid `--source-report` is reported with `SOURCE_INVALID` and `NO_FILES_WRITTEN`
+- missing `--source-manifest` is reported with `SOURCE_MISSING` and `NO_FILES_WRITTEN`
+- invalid `--source-manifest` is reported with `SOURCE_INVALID` and `NO_FILES_WRITTEN`
+- `--source-manifest` without `--source-report` is reported with `INVALID_OPTION_COMBINATION` and `NO_FILES_WRITTEN`
+
+The implementation remains fail-closed before creating bundle artifacts. It does not create a bundle directory, `bundle_manifest.json`, `index.md`, or copied report for these rejection paths. It does not change Candidate A/B/C success output, dry-run output, wrapper behavior, CE/runtime boundaries, zip unsupported behavior, `--force` unsupported behavior, or approved-root/path-guard boundaries.
+
 ## Baseline
 
 Current checkpoint baseline:

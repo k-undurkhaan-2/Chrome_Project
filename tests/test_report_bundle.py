@@ -8,6 +8,16 @@ from armedforces_tool.command_inventory import list_commands, show_command
 from armedforces_tool.report_bundle import analyze_report_bundle, format_report_bundle_export_plan, plan_report_bundle_export
 
 
+SOURCE_INPUT_FAILURE_FORBIDDEN_TOKENS = [
+    "BUNDLE_EXPORT_COMPLETE",
+    "BUNDLE_EXPORT_OK",
+    "SOURCE_UNCHANGED",
+    "REPORT_EXPORT_OK",
+    "WRITE_COMPLETE",
+    "MANIFEST_RECORDED",
+]
+
+
 def _manifest_path(project_root: Path) -> Path:
     return project_root / "reports" / "python_tooling" / "manifest.jsonl"
 
@@ -71,6 +81,13 @@ def _write_isolated_source_manifest(project_root: Path, name: str = "manifest.js
     manifest.parent.mkdir(parents=True, exist_ok=True)
     manifest.write_text(json.dumps({"status": "fixture"}) + "\n", encoding="utf-8")
     return manifest
+
+
+def _assert_source_input_failure_output(text: str, required_tokens: list[str]) -> None:
+    for token in [*required_tokens, "NO_FILES_WRITTEN"]:
+        assert token in text
+    for token in SOURCE_INPUT_FAILURE_FORBIDDEN_TOKENS:
+        assert token not in text
 
 
 def test_bundle_preview_no_manifest_returns_no_manifest_and_writes_nothing(tmp_path: Path) -> None:
@@ -535,15 +552,41 @@ def test_bundle_export_real_missing_source_report_writes_nothing(tmp_path: Path)
         project_root=tmp_path,
     )
 
-    assert result.status == "BAD_PATH"
+    formatted = format_report_bundle_export_plan(result)
+
+    assert result.status == "SOURCE_MISSING"
     assert result.writes_files is False
     assert any("source report path does not exist" in error for error in result.errors)
+    _assert_source_input_failure_output(formatted, ["SOURCE_MISSING", "--source-report"])
     assert not (tmp_path / "reports" / "python_tooling" / "validation").exists()
+    assert not (tmp_path / "reports" / "python_tooling" / "bundles").exists()
+
+
+def test_bundle_export_real_invalid_source_report_writes_nothing(tmp_path: Path) -> None:
+    source_report_dir = tmp_path / "reports" / "python_tooling" / "validation" / "candidate_c" / "source_report_dir.md"
+    source_report_dir.mkdir(parents=True)
+
+    result = plan_report_bundle_export(
+        dry_run=False,
+        source_report=_relative(tmp_path, source_report_dir),
+        out="reports/python_tooling/validation/candidate_c/bundle_invalid_source_report",
+        project_root=tmp_path,
+    )
+
+    formatted = format_report_bundle_export_plan(result)
+
+    assert result.status == "SOURCE_INVALID"
+    assert result.writes_files is False
+    assert any("source report path must be a file" in error for error in result.errors)
+    _assert_source_input_failure_output(formatted, ["SOURCE_INVALID", "--source-report"])
+    assert source_report_dir.is_dir()
+    assert not (tmp_path / "reports" / "python_tooling" / "validation" / "candidate_c" / "bundle_invalid_source_report").exists()
     assert not (tmp_path / "reports" / "python_tooling" / "bundles").exists()
 
 
 def test_bundle_export_real_missing_source_manifest_writes_nothing(tmp_path: Path) -> None:
     source_report = _write_isolated_source_report(tmp_path)
+    source_report_before = _sha256(source_report)
 
     result = plan_report_bundle_export(
         dry_run=False,
@@ -553,10 +596,40 @@ def test_bundle_export_real_missing_source_manifest_writes_nothing(tmp_path: Pat
         project_root=tmp_path,
     )
 
-    assert result.status == "BAD_PATH"
+    formatted = format_report_bundle_export_plan(result)
+
+    assert result.status == "SOURCE_MISSING"
     assert result.writes_files is False
     assert any("source manifest path does not exist" in error for error in result.errors)
+    assert _sha256(source_report) == source_report_before
+    _assert_source_input_failure_output(formatted, ["SOURCE_MISSING", "--source-manifest"])
     assert not (tmp_path / "reports" / "python_tooling" / "validation" / "candidate_c" / "bundle_missing_source_manifest").exists()
+    assert not (tmp_path / "reports" / "python_tooling" / "bundles").exists()
+
+
+def test_bundle_export_real_invalid_source_manifest_writes_nothing(tmp_path: Path) -> None:
+    source_report = _write_isolated_source_report(tmp_path)
+    source_report_before = _sha256(source_report)
+    source_manifest_dir = tmp_path / "reports" / "python_tooling" / "validation" / "candidate_c" / "manifest_dir.jsonl"
+    source_manifest_dir.mkdir(parents=True)
+
+    result = plan_report_bundle_export(
+        dry_run=False,
+        source_report=_relative(tmp_path, source_report),
+        source_manifest=_relative(tmp_path, source_manifest_dir),
+        out="reports/python_tooling/validation/candidate_c/bundle_invalid_source_manifest",
+        project_root=tmp_path,
+    )
+
+    formatted = format_report_bundle_export_plan(result)
+
+    assert result.status == "SOURCE_INVALID"
+    assert result.writes_files is False
+    assert any("source manifest path must be a file" in error for error in result.errors)
+    assert _sha256(source_report) == source_report_before
+    _assert_source_input_failure_output(formatted, ["SOURCE_INVALID", "--source-manifest"])
+    assert source_manifest_dir.is_dir()
+    assert not (tmp_path / "reports" / "python_tooling" / "validation" / "candidate_c" / "bundle_invalid_source_manifest").exists()
     assert not (tmp_path / "reports" / "python_tooling" / "bundles").exists()
 
 
@@ -570,9 +643,12 @@ def test_bundle_export_real_source_manifest_requires_source_report(tmp_path: Pat
         project_root=tmp_path,
     )
 
-    assert result.status == "BAD_PATH"
+    formatted = format_report_bundle_export_plan(result)
+
+    assert result.status == "INVALID_OPTION_COMBINATION"
     assert result.writes_files is False
     assert any("--source-manifest requires --source-report" in error for error in result.errors)
+    _assert_source_input_failure_output(formatted, ["INVALID_OPTION_COMBINATION", "--source-manifest", "--source-report"])
     assert not (tmp_path / "reports" / "python_tooling" / "validation" / "candidate_c" / "bundle_source_manifest_only").exists()
     assert not (tmp_path / "reports" / "python_tooling" / "bundles").exists()
 

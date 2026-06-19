@@ -8,6 +8,7 @@ from armedforces_tool.report_output_messages import (
     report_export_complete_message,
     report_export_dry_run_message,
     report_export_manifest_complete_message,
+    source_input_rejection_message,
     wrapper_unsupported_message,
     zip_unsupported_message,
 )
@@ -180,4 +181,27 @@ def test_wrapper_unsupported_message_tokens() -> None:
     _assert_field_value(text, "wrapper_status", "read-only")
     assert "report bundle export" in text
     assert "direct Python only" in text
+    _assert_no_unsafe_suggestions(text)
+
+
+def test_source_input_rejection_message_tokens() -> None:
+    text = source_input_rejection_message(
+        status="SOURCE_MISSING",
+        source_kind="report",
+        source_option="--source-report",
+        conclusion="BUNDLE_EXPORT_REJECTED",
+        detail="The --source-report path does not exist.",
+    )
+
+    _assert_tokens(text, ["SOURCE_MISSING", "NO_FILES_WRITTEN", "--source-report"])
+    assert "No bundle directory" in text
+    for token in [
+        "BUNDLE_EXPORT_COMPLETE",
+        "BUNDLE_EXPORT_OK",
+        "SOURCE_UNCHANGED",
+        "REPORT_EXPORT_OK",
+        "WRITE_COMPLETE",
+        "MANIFEST_RECORDED",
+    ]:
+        assert token not in text
     _assert_no_unsafe_suggestions(text)

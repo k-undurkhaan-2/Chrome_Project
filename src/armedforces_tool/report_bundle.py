@@ -11,7 +11,11 @@ from pathlib import Path
 from uuid import uuid4
 
 from .report_manifest import REQUIRED_FIELDS
-from .report_output_messages import bundle_export_complete_message, bundle_export_dry_run_message
+from .report_output_messages import (
+    bundle_export_complete_message,
+    bundle_export_dry_run_message,
+    source_input_rejection_message,
+)
 from .safety import DEFAULT_PROJECT_ROOT
 
 DEFAULT_BUNDLE_MANIFEST_PATH = Path("reports/python_tooling/manifest.jsonl")
@@ -265,10 +269,13 @@ def plan_report_bundle_export(
 
     path_errors = output_errors + manifest_errors
     if path_errors:
+        status = "BAD_PATH"
+        if isolated_source_mode and not dry_run and not output_errors:
+            status = _source_input_rejection_status(manifest_errors)
         return _empty_export_result(
             project_root=project_root_resolved,
             manifest_path=manifest_path,
-            status="BAD_PATH",
+            status=status,
             dry_run=dry_run,
             planned_bundle_id=planned_bundle_id,
             planned_output_path=str(output_path) if output_path is not None else None,
@@ -740,7 +747,15 @@ def format_report_bundle_export_plan(result: ReportBundleExportPlanResult) -> st
         ("runs_ce", result.runs_ce),
     ]
     width = max(len(label) for label, _ in rows)
-    if result.dry_run:
+    if _uses_source_input_rejection_message(result):
+        lines = [
+            _source_input_rejection_message(result),
+            "",
+            "Bundle Export Details",
+            "Field".ljust(width) + "  Value",
+            "-".ljust(width, "-") + "  -----",
+        ]
+    elif result.dry_run:
         lines = [
             bundle_export_dry_run_message(
                 bundle_dir=_display(result.planned_output_path),
@@ -798,6 +813,79 @@ def _uses_real_bundle_export_success_message(result: ReportBundleExportPlanResul
         and result.bundle_written
         and result.writes_files
         and result.planned_bundle_type == "directory"
+    )
+
+
+def _uses_source_input_rejection_message(result: ReportBundleExportPlanResult) -> bool:
+    return not result.dry_run and result.status in {
+        "SOURCE_MISSING",
+        "SOURCE_INVALID",
+        "INVALID_OPTION_COMBINATION",
+    }
+
+
+def _source_input_rejection_status(errors: list[str]) -> str:
+    if any("--source-manifest requires --source-report" in error for error in errors):
+        return "INVALID_OPTION_COMBINATION"
+    if any(
+        "source report path does not exist" in error or "source manifest path does not exist" in error
+        for error in errors
+    ):
+        return "SOURCE_MISSING"
+    if any(
+        "source report path must be a file" in error or "source manifest path must be a file" in error
+        for error in errors
+    ):
+        return "SOURCE_INVALID"
+    return "BAD_PATH"
+
+
+def _source_input_rejection_message(result: ReportBundleExportPlanResult) -> str:
+    joined_errors = "\n".join(result.errors)
+    if "--source-manifest requires --source-report" in joined_errors:
+        return source_input_rejection_message(
+            status="INVALID_OPTION_COMBINATION",
+            invalid_option="--source-manifest",
+            requires="--source-report",
+            conclusion="BUNDLE_EXPORT_REJECTED",
+            detail="--source-manifest requires --source-report.",
+        )
+    if "source report path does not exist" in joined_errors:
+        return source_input_rejection_message(
+            status="SOURCE_MISSING",
+            source_kind="report",
+            source_option="--source-report",
+            conclusion="BUNDLE_EXPORT_REJECTED",
+            detail="The --source-report path does not exist.",
+        )
+    if "source manifest path does not exist" in joined_errors:
+        return source_input_rejection_message(
+            status="SOURCE_MISSING",
+            source_kind="manifest",
+            source_option="--source-manifest",
+            conclusion="BUNDLE_EXPORT_REJECTED",
+            detail="The --source-manifest path does not exist.",
+        )
+    if "source report path must be a file" in joined_errors:
+        return source_input_rejection_message(
+            status="SOURCE_INVALID",
+            source_kind="report",
+            source_option="--source-report",
+            conclusion="BUNDLE_EXPORT_REJECTED",
+            detail="The --source-report path is invalid; it must be a file.",
+        )
+    if "source manifest path must be a file" in joined_errors:
+        return source_input_rejection_message(
+            status="SOURCE_INVALID",
+            source_kind="manifest",
+            source_option="--source-manifest",
+            conclusion="BUNDLE_EXPORT_REJECTED",
+            detail="The --source-manifest path is invalid; it must be a file.",
+        )
+    return source_input_rejection_message(
+        status=result.status,
+        conclusion="BUNDLE_EXPORT_REJECTED",
+        detail="Bundle export source input validation failed before writing files.",
     )
 
 
