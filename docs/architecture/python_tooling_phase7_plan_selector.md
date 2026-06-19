@@ -296,6 +296,24 @@ Recommended next phase:
 Phase 7.2A - invalid option combination wording implementation
 ```
 
+Phase 7.2A boundary smoke passed after implementation. The invalid `--manifest-out` without `--record-manifest` path is covered by targeted/full pytest and no-runtime-artifact checks.
+
+## Phase 7.2B Contract Status
+
+The Phase 7.2B missing source input wording contract is defined in:
+
+```text
+docs/architecture/python_tooling_missing_source_input_wording_contract.md
+```
+
+It targets missing or invalid `--source-report` / `--source-manifest` inputs for `report bundle export`, plus `--source-manifest` without `--source-report`.
+
+Recommended next phase:
+
+```text
+Phase 7.2B - missing source input wording implementation
+```
+
 ## Stop Conditions
 
 Stop Phase 7 selector or follow-up phases if any of these are required:

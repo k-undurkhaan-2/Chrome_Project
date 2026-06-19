@@ -263,6 +263,8 @@ Phase 7.2A invalid option combination wording contract exists in `docs/architect
 
 Phase 7.2A implementation clarifies that rejection path with `INVALID_OPTION_COMBINATION` and `NO_FILES_WRITTEN`. Candidate A/B/C success paths, dry-run behavior, wrapper read-only behavior, CE exclusion, zip unsupported behavior, and `--force` unsupported behavior remain unchanged.
 
+Phase 7.2B missing source input wording contract exists in `docs/architecture/python_tooling_missing_source_input_wording_contract.md`. It defines future fail-closed wording for missing or invalid `--source-report` and `--source-manifest` inputs in `report bundle export`. Future implementation should clarify missing source report, invalid source report, missing source manifest, invalid source manifest, and `--source-manifest` without `--source-report` without expanding the write surface.
+
 ## Git Hygiene
 
 Do not commit:

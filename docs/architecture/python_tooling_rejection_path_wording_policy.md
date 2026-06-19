@@ -335,6 +335,22 @@ Implementation note:
 - The wording uses `INVALID_OPTION_COMBINATION` and `NO_FILES_WRITTEN`.
 - It does not add a command or option and does not authorize real writes.
 
+## Phase 7.2B Contract Status
+
+The missing source input wording contract exists at:
+
+```text
+docs/architecture/python_tooling_missing_source_input_wording_contract.md
+```
+
+It covers missing or invalid `--source-report` / `--source-manifest` inputs for isolated bundle export. It also covers `--source-manifest` without `--source-report` as an invalid option combination.
+
+Recommended next phase:
+
+```text
+Phase 7.2B - missing source input wording implementation
+```
+
 ## Checkpoint Policy
 
 No new tag is recommended for this policy-only phase.

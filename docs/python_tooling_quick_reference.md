@@ -332,6 +332,8 @@ Current behavior is unchanged:
 - Phase 7.2A invalid option combination wording contract exists: `docs/architecture/python_tooling_invalid_option_combination_wording_contract.md`
 - do not retry `--manifest-out` without `--record-manifest`; future wording should fail closed before writing report, custom manifest, or default manifest files
 - Phase 7.2A implementation clarifies this rejection with `INVALID_OPTION_COMBINATION` and `NO_FILES_WRITTEN`
+- Phase 7.2B missing source input wording contract exists: `docs/architecture/python_tooling_missing_source_input_wording_contract.md`
+- do not retry bundle validation with missing `--source-report` or `--source-manifest` paths; future wording should fail closed before creating bundle artifacts
 - daily operator workflow remains unchanged
 - production/default writes are not automatically authorized
 - wrapper remains read-only
