@@ -326,6 +326,10 @@ Current behavior is unchanged:
 - checkpoint tag exists: `python-tooling-real-write-output-validation-checkpoint-20260619`
 - next work should start from a new selector/gate
 - do not run bundle validation against default production paths
+- Phase 7 selector exists: `docs/architecture/python_tooling_phase7_plan_selector.md`
+- daily operator workflow remains unchanged
+- production/default writes are not automatically authorized
+- wrapper remains read-only
 
 ## Known Non-Goals
 

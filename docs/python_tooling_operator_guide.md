@@ -255,6 +255,8 @@ Phase 6.3C stopped because `report bundle export` could not yet target isolated 
 
 Phase 6 real-write output validation is complete for Candidate A/B/C under isolated paths. The final state is summarized in `docs/architecture/python_tooling_real_write_output_validation_final_state.md`. Phase 6.8 final checkpoint smoke passed, and the checkpoint tag `python-tooling-real-write-output-validation-checkpoint-20260619` is established. Production/default export paths remain separate, the wrapper remains read-only, and future work must start from a new selector/gate.
 
+Phase 7 selector exists in `docs/architecture/python_tooling_phase7_plan_selector.md`. The recommended next direction is a rejection-path wording policy contract. Wrapper write support, production/default export workflows, and runtime mutation remain deferred unless a future selector, policy, tests, smoke validation, and checkpoint explicitly authorize them.
+
 ## Git Hygiene
 
 Do not commit:

@@ -198,6 +198,18 @@ Recommended next phase:
 Phase 7.0 - post-real-write-validation next-work selector
 ```
 
+## Phase 7 Selector
+
+The Phase 7 selector exists at `docs/architecture/python_tooling_phase7_plan_selector.md`.
+
+The Phase 6 checkpoint remains the frozen baseline for this handoff. The recommended next direction is:
+
+```text
+Phase 7.1 - rejection-path wording policy contract
+```
+
+Production/default workflows, wrapper write-capable behavior, CE/runtime mutation, zip export, `--force`, and approved-root expansion remain out of scope unless a new policy and validation gate explicitly authorizes them.
+
 ## Future Work After Checkpoint
 
 Future options after the checkpoint:

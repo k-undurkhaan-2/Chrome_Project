@@ -361,6 +361,8 @@ Phase 6.7 records the real-write output validation final state in `docs/architec
 
 Phase 6.9 syncs documentation after the checkpoint tag `python-tooling-real-write-output-validation-checkpoint-20260619` was established. The checkpoint records isolated Candidate A/B/C validation only. Production/default report, manifest, and bundle workflows, wrapper write-capable behavior, CE/runtime mutation, zip export, `--force`, and approved-root expansion remain deferred. Future work must start from a new selector/gate.
 
+Phase 7.0 adds the post-real-write-validation next-work selector in `docs/architecture/python_tooling_phase7_plan_selector.md`. Runtime mutation migration remains deferred, and the next recommended work is a docs-only rejection-path wording policy contract before any implementation. Production/default writes and wrapper write-capable behavior remain separate policy decisions.
+
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 
 - Define request formats.
