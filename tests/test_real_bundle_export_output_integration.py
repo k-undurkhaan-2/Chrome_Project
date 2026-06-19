@@ -64,7 +64,7 @@ def test_real_bundle_success_format_uses_candidate_c_helper_tokens() -> None:
     assert "copied_report_count" in text
     assert "3" in text
     assert "SOURCE_UNCHANGED" in text
-    assert "ZIP_UNSUPPORTED" in text
+    assert "ZIP_UNSUPPORTED" not in text
     assert "APPROVED_ROOT" in text
     assert "CE_NOT_RUN" in text
     assert "WRAPPER_UNSUPPORTED" in text

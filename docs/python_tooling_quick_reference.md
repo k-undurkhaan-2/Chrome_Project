@@ -103,6 +103,17 @@ Report/bundle UX polish planning exists in `docs/architecture/python_tooling_rep
 
 Report/bundle UX contract exists in `docs/architecture/python_tooling_report_bundle_ux_contract.md`. Current daily workflow is unchanged. Export commands remain write-capable direct Python commands only.
 
+Candidate C isolated bundle validation support is implemented for future explicitly authorized validation tasks:
+
+```powershell
+.venv\Scripts\python.exe -m armedforces_tool report bundle export `
+  --source-report reports/python_tooling/validation/<task>/source/report_output.md `
+  --source-manifest reports/python_tooling/validation/<task>/source/manifest.jsonl `
+  --out reports/python_tooling/validation/<task>/bundle
+```
+
+This remains write-capable direct Python only. Do not run it during read-only checks. Default production bundle behavior under `reports/python_tooling/bundles/` remains supported, and zip / `--force` remain unsupported.
+
 Phase 5.5 help text polish is available through:
 
 ```powershell

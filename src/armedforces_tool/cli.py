@@ -682,22 +682,25 @@ def _add_report_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentP
             "  - CE is not run by this command.\n"
             "  - The read-only PowerShell wrapper does not support report bundle export; direct Python only.\n"
             "  - Approved output root: reports/python_tooling/bundles/.\n"
+            "  - Isolated validation inputs may use --source-report and --source-manifest with --out under reports/python_tooling/.\n"
             "  - Protected or unapproved paths are rejected with BAD_PATH-style errors.\n"
             "  - Real bundle export is directory-only; zip export is unsupported and fail-closed.\n"
             "  - bundle_manifest.json and index.md are written only inside the new bundle directory during real export.\n"
-            "  - Source reports and reports/python_tooling/manifest.jsonl are read, not mutated.\n"
+            "  - Source reports and manifests are read, not mutated.\n"
             "  - Overwrite and --force are unsupported; choose a new bundle id/path."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     bundle_export.add_argument("--dry-run", action="store_true", help="No-write mode: preview bundle path and contents only")
     bundle_export.add_argument("--zip", action="store_true", help="Dry-run planning only; real zip bundle export is unsupported/fail-closed")
-    bundle_export.add_argument("--out", default=None, help="Bundle output directory under reports/python_tooling/bundles")
+    bundle_export.add_argument("--out", default=None, help="Bundle output directory under reports/python_tooling/bundles, or an isolated validation directory under reports/python_tooling when --source-report is used")
     bundle_export.add_argument(
         "--manifest",
         default=None,
         help="Optional manifest path; only reports/python_tooling/manifest.jsonl is accepted",
     )
+    bundle_export.add_argument("--source-report", default=None, help="Isolated source report .md input under reports/python_tooling")
+    bundle_export.add_argument("--source-manifest", default=None, help="Optional isolated source manifest .jsonl input under reports/python_tooling; requires --source-report")
     bundle_export.add_argument("--limit", type=int, default=None, help="Limit manifest entries considered")
     bundle_export.add_argument("--json", action="store_true", help="Emit JSON object")
     bundle_export.set_defaults(func=_run_report_bundle_export)
@@ -1426,6 +1429,8 @@ def _run_report_bundle_export(args: argparse.Namespace) -> int:
         out=args.out,
         zip_output=args.zip,
         manifest=args.manifest,
+        source_report=args.source_report,
+        source_manifest=args.source_manifest,
         limit=args.limit,
     )
     if args.json:

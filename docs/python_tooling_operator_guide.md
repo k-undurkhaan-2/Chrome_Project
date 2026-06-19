@@ -218,6 +218,17 @@ Real bundle export is directory-only and writes only under `reports/python_tooli
 
 Bundle export success wording has been improved for the direct Python real bundle export path. The read-only PowerShell wrapper remains read-only, and zip export plus `--force` remain unsupported.
 
+Phase 6.5C added isolated Candidate C validation inputs for future explicitly authorized validation tasks:
+
+```powershell
+.venv\Scripts\python.exe -m armedforces_tool report bundle export `
+  --source-report reports/python_tooling/validation/<task>/source/report_output.md `
+  --source-manifest reports/python_tooling/validation/<task>/source/manifest.jsonl `
+  --out reports/python_tooling/validation/<task>/bundle
+```
+
+These options do not change daily safe checks. They remain part of the write-capable `report bundle export` command, are not exposed through the read-only wrapper, and must not be run during read-only smoke checks.
+
 Phase 5 output wording final state is summarized in `docs/architecture/python_tooling_phase5_output_wording_final_state.md`. The checkpoint `python-tooling-output-wording-checkpoint-20260618` exists and covers help text wording, helper wording, dry-run wording, and Candidate A/B/C human-readable success wording integrations.
 
 This checkpoint does not authorize wrapper export shortcuts and does not authorize manual real-write validation without a separate task.

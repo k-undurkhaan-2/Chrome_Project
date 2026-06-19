@@ -235,16 +235,33 @@ def plan_report_bundle_export(
     out: str | None = None,
     zip_output: bool = False,
     manifest: str | None = None,
+    source_report: str | None = None,
+    source_manifest: str | None = None,
     limit: int | None = None,
     project_root: Path = DEFAULT_PROJECT_ROOT,
 ) -> ReportBundleExportPlanResult:
     project_root_resolved = project_root.resolve()
-    manifest_path, manifest_errors = _resolve_bundle_manifest_path(manifest, project_root_resolved)
-    output_path, output_errors, bundle_type = _resolve_bundle_output_path(out, zip_output, project_root_resolved)
+    isolated_source_mode = bool(source_report or source_manifest)
+    if isolated_source_mode:
+        manifest_path, manifest_errors, isolated_analysis = _analyze_isolated_source_inputs(
+            source_report=source_report,
+            source_manifest=source_manifest,
+            manifest=manifest,
+            project_root=project_root_resolved,
+        )
+    else:
+        manifest_path, manifest_errors = _resolve_bundle_manifest_path(manifest, project_root_resolved)
+        isolated_analysis = None
+    output_path, output_errors, bundle_type = _resolve_bundle_output_path(
+        out,
+        zip_output,
+        project_root_resolved,
+        isolated_mode=isolated_source_mode,
+    )
     planned_bundle_id = _bundle_id_from_output(output_path, bundle_type)
     planned_bundle_manifest = _planned_bundle_manifest(output_path, bundle_type)
     planned_index = _planned_index(output_path, bundle_type)
-    planned_output_root = str((project_root_resolved / PLANNED_BUNDLE_ROOT).resolve(strict=False))
+    planned_output_root = _planned_output_root(output_path, project_root_resolved, isolated_mode=isolated_source_mode)
 
     path_errors = output_errors + manifest_errors
     if path_errors:
@@ -307,7 +324,7 @@ def plan_report_bundle_export(
             read_only=False,
         )
 
-    if manifest_path.suffix.lower() != ".jsonl":
+    if isolated_analysis is None and manifest_path.suffix.lower() != ".jsonl":
         return _empty_export_result(
             project_root=project_root_resolved,
             manifest_path=manifest_path,
@@ -339,7 +356,7 @@ def plan_report_bundle_export(
             read_only=dry_run,
         )
 
-    if not manifest_path.exists():
+    if isolated_analysis is None and not manifest_path.exists():
         return _empty_export_result(
             project_root=project_root_resolved,
             manifest_path=manifest_path,
@@ -355,7 +372,7 @@ def plan_report_bundle_export(
             read_only=dry_run,
         )
 
-    analysis = _analyze_existing_manifest(
+    analysis = isolated_analysis or _analyze_existing_manifest(
         action="export",
         manifest_path=manifest_path,
         project_root=project_root_resolved,
@@ -475,8 +492,8 @@ def _write_directory_bundle(
     planned_files: list[str],
 ) -> ReportBundleExportPlanResult:
     assert planned_bundle_id is not None
-    approved_root = (project_root / PLANNED_BUNDLE_ROOT).resolve(strict=False)
-    temp_dir = approved_root / f".{output_path.name}.tmp-{uuid4().hex}"
+    output_parent = output_path.parent
+    temp_dir = output_parent / f".{output_path.name}.tmp-{uuid4().hex}"
     temp_reports_dir = temp_dir / "reports"
     source_infos: list[dict[str, object]] = []
     warnings = list(analysis.warnings)
@@ -518,7 +535,7 @@ def _write_directory_bundle(
         )
 
     try:
-        approved_root.mkdir(parents=True, exist_ok=True)
+        output_parent.mkdir(parents=True, exist_ok=True)
         temp_reports_dir.mkdir(parents=True, exist_ok=False)
         included_reports: list[dict[str, object]] = []
         per_file_hashes: dict[str, str] = {}
@@ -942,6 +959,99 @@ def _parse_manifest_line(raw_line: str, *, line_number: int, project_root: Path)
     )
 
 
+def _analyze_isolated_source_inputs(
+    *,
+    source_report: str | None,
+    source_manifest: str | None,
+    manifest: str | None,
+    project_root: Path,
+) -> tuple[Path, list[str], ReportBundleResult | None]:
+    manifest_path = _resolve_user_path(source_manifest, project_root) if source_manifest else project_root / DEFAULT_BUNDLE_MANIFEST_PATH
+    errors: list[str] = []
+
+    if manifest:
+        errors.append("--manifest cannot be used with --source-report or --source-manifest")
+    if source_manifest and not source_report:
+        errors.append("--source-manifest requires --source-report")
+    if not source_report:
+        return manifest_path.resolve(strict=False), errors, None
+
+    source_report_path = _resolve_user_path(source_report, project_root)
+    errors.extend(_validate_source_report_input(source_report, source_report_path, project_root))
+
+    if source_manifest:
+        source_manifest_path = _resolve_user_path(source_manifest, project_root)
+        manifest_path = source_manifest_path
+        errors.extend(_validate_source_manifest_input(source_manifest, source_manifest_path, project_root))
+    else:
+        source_manifest_path = None
+        manifest_path = source_report_path
+
+    if errors:
+        return manifest_path.resolve(strict=False), errors, None
+
+    source_report_resolved = source_report_path.resolve(strict=True)
+    source_report_display = _project_relative_path(source_report_resolved, project_root)
+    file_size = source_report_resolved.stat().st_size
+    sha256 = _sha256_file(source_report_resolved)
+    created_at = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    report_id = f"source-{sha256[:12]}"
+    data: dict[str, object] = {
+        "report_id": report_id,
+        "report_type": "source-report",
+        "created_at": created_at,
+        "output_path": source_report_display,
+        "output_root": "reports/python_tooling",
+        "file_size": file_size,
+        "sha256": sha256,
+        "command": "python -m armedforces_tool report bundle export --source-report",
+        "dry_run": False,
+        "status": "success",
+    }
+    record = BundleManifestEntry(
+        line_number=1,
+        report_id=report_id,
+        report_type="source-report",
+        output_path=source_report_display,
+        valid=True,
+        errors=[],
+        data=data,
+    )
+    manifest_display_path = source_manifest_path.resolve(strict=True) if source_manifest_path else source_report_resolved
+
+    return (
+        manifest_display_path,
+        [],
+        ReportBundleResult(
+            action="export",
+            project_root=str(project_root),
+            status="OK",
+            source_manifest_path=str(manifest_display_path),
+            manifest_exists=bool(source_manifest_path),
+            manifest_valid=True,
+            manifest_entry_count=1,
+            candidate_report_count=1,
+            missing_report_count=0,
+            referenced_reports_checked=1,
+            missing_reports=[],
+            duplicate_report_ids=[],
+            invalid_entries=[],
+            records=[record],
+            planned_bundle_id=None,
+            planned_bundle_root=None,
+            planned_bundle_files=[source_report_display],
+            planned_bundle_manifest=None,
+            bundle_ready=True,
+            would_write_bundle=False,
+            read_only=True,
+            writes_files=False,
+            runs_ce=False,
+            warnings=[],
+            errors=[],
+        ),
+    )
+
+
 def _resolve_bundle_manifest_path(value: str | None, project_root: Path) -> tuple[Path, list[str]]:
     approved = (project_root / DEFAULT_BUNDLE_MANIFEST_PATH).resolve(strict=False)
     if value is None:
@@ -960,6 +1070,55 @@ def _resolve_bundle_manifest_path(value: str | None, project_root: Path) -> tupl
         errors.append("bundle manifest path must be a .jsonl file")
 
     return target_resolved, errors
+
+
+def _validate_source_report_input(raw_value: str, path: Path, project_root: Path) -> list[str]:
+    errors = _validate_report_output_path(raw_value, project_root)
+    resolved = path.resolve(strict=False)
+    default_report = (project_root / "reports" / "python_tooling" / "full_status.md").resolve(strict=False)
+    if resolved == default_report:
+        errors.append("source report path must not target production/default reports/python_tooling/full_status.md")
+    if not resolved.exists():
+        errors.append("source report path does not exist")
+    elif not resolved.is_file():
+        errors.append("source report path must be a file")
+    return errors
+
+
+def _validate_source_manifest_input(raw_value: str, path: Path, project_root: Path) -> list[str]:
+    errors: list[str] = []
+    raw = Path(raw_value)
+    resolved = path.resolve(strict=False)
+    approved_root = (project_root / "reports" / "python_tooling").resolve(strict=False)
+    default_manifest = (project_root / DEFAULT_BUNDLE_MANIFEST_PATH).resolve(strict=False)
+
+    if any(part == ".." for part in raw.parts):
+        errors.append("source manifest path traversal is not allowed")
+    if not _is_relative_to(resolved, approved_root):
+        errors.append("source manifest path must be under reports/python_tooling")
+    if resolved == default_manifest:
+        errors.append("source manifest path must not target production/default reports/python_tooling/manifest.jsonl")
+    if resolved.suffix.lower() != ".jsonl":
+        errors.append("source manifest path must be a .jsonl file")
+    if not resolved.exists():
+        errors.append("source manifest path does not exist")
+    elif not resolved.is_file():
+        errors.append("source manifest path must be a file")
+    return errors
+
+
+def _resolve_user_path(value: str | None, project_root: Path) -> Path:
+    if not value:
+        return project_root
+    raw = Path(value)
+    return raw if raw.is_absolute() else project_root / raw
+
+
+def _project_relative_path(path: Path, project_root: Path) -> str:
+    try:
+        return path.relative_to(project_root).as_posix()
+    except ValueError:
+        return str(path)
 
 
 def _validate_report_output_path(value: str, project_root: Path) -> list[str]:
@@ -983,6 +1142,8 @@ def _resolve_bundle_output_path(
     value: str | None,
     zip_output: bool,
     project_root: Path,
+    *,
+    isolated_mode: bool = False,
 ) -> tuple[Path | None, list[str], str | None]:
     if not value:
         return None, ["--out is required for report bundle export"], "zip" if zip_output else "directory"
@@ -990,14 +1151,21 @@ def _resolve_bundle_output_path(
     raw = Path(value)
     target = raw if raw.is_absolute() else project_root / raw
     target_resolved = target.resolve(strict=False)
-    approved_root = (project_root / PLANNED_BUNDLE_ROOT).resolve(strict=False)
+    approved_root = (project_root / "reports" / "python_tooling").resolve(strict=False) if isolated_mode else (project_root / PLANNED_BUNDLE_ROOT).resolve(strict=False)
+    production_bundle_root = (project_root / PLANNED_BUNDLE_ROOT).resolve(strict=False)
     errors: list[str] = []
     bundle_type = "zip" if zip_output else "directory"
 
     if any(part == ".." for part in raw.parts):
         errors.append("bundle output path traversal is not allowed")
     if not _is_relative_to(target_resolved, approved_root) or target_resolved == approved_root:
-        errors.append("bundle output path must be under reports/python_tooling/bundles")
+        errors.append(
+            "isolated bundle output path must be under reports/python_tooling"
+            if isolated_mode
+            else "bundle output path must be under reports/python_tooling/bundles"
+        )
+    if isolated_mode and _is_relative_to(target_resolved, production_bundle_root):
+        errors.append("isolated bundle output path must not target reports/python_tooling/bundles")
 
     bundle_id = _bundle_id_from_output(target_resolved, bundle_type)
     if bundle_id and not _is_safe_bundle_id(bundle_id):
@@ -1011,6 +1179,12 @@ def _resolve_bundle_output_path(
             errors.append("directory bundle output must be a directory path without a file extension")
 
     return target_resolved, errors, bundle_type
+
+
+def _planned_output_root(output_path: Path | None, project_root: Path, *, isolated_mode: bool) -> str:
+    if output_path is not None and isolated_mode:
+        return str((project_root / "reports" / "python_tooling").resolve(strict=False))
+    return str((project_root / PLANNED_BUNDLE_ROOT).resolve(strict=False))
 
 
 def _bundle_id_from_output(output_path: Path | None, bundle_type: str | None) -> str | None:

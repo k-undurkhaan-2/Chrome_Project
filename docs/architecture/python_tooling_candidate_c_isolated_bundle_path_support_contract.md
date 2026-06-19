@@ -2,9 +2,9 @@
 
 ## Purpose
 
-This contract defines future implementation support for isolated Candidate C bundle validation.
+This contract defines isolated Candidate C bundle validation path support.
 
-It does not implement the support, does not execute `report bundle export`, and does not authorize a real bundle validation smoke by itself. Future implementation requires a separate source/test phase. Future real Candidate C validation still requires a later write-authorized smoke.
+Phase 6.5C implements the source/test support described here. This document does not execute `report bundle export` and does not authorize a real bundle validation smoke by itself. Future real Candidate C validation still requires a later write-authorized smoke.
 
 The purpose is to validate Candidate C without mutating production/default report, manifest, or bundle paths.
 
@@ -32,7 +32,7 @@ Prefer minimal and explicit support.
 
 Keep existing `--out` as the bundle output option.
 
-Future implementation should allow `--out` to target an approved isolated bundle directory under the approved root, not only the hard-coded `reports/python_tooling/bundles/` root.
+The implementation allows `--out` to target an approved isolated bundle directory under the approved root when source inputs are supplied, not only the hard-coded `reports/python_tooling/bundles/` root.
 
 This is not an approved-root expansion if the validation path is already under the existing approved root. It is a removal of the extra hard-coded production subdirectory restriction for bundle validation.
 
@@ -52,7 +52,20 @@ Rationale:
 - these names avoid changing the meaning of existing `--manifest` if it is currently bound to the default production manifest
 - they avoid confusion with `report export --manifest-out`, which is a write target, not a read source
 
-Do not add aliases unless a future implementation phase explicitly justifies them.
+No aliases were added.
+
+## Phase 6.5C Implementation Status
+
+Phase 6.5C implemented the narrow support required to unblock a future Candidate C validation smoke:
+
+- `report bundle export --source-report <path>`
+- `report bundle export --source-manifest <path>`
+- isolated bundle `--out <bundle-dir>` under `reports/python_tooling/` when source inputs are supplied
+- source-report-only isolated bundle creation
+- source-report plus source-manifest isolated bundle creation
+- fail-closed checks for missing source inputs, source-manifest without source-report, production bundle root targets, existing output directories, zip output, and unsafe paths
+
+The implementation remains covered by pytest temp-path tests only. Phase 6.5C did not run a real runtime bundle export and did not create runtime validation artifacts.
 
 ### Existing `--manifest`
 
@@ -62,7 +75,7 @@ If current `--manifest` means use/read the production/default manifest, keep tha
 
 For Candidate C validation, prefer `--source-manifest` over reusing `--manifest`.
 
-## Future CLI Behavior
+## Implemented CLI Behavior
 
 ### Case 1: Existing Default Bundle Behavior
 
@@ -138,7 +151,7 @@ If `--out` target already exists:
 
 ## Path Guard and Approved Root Policy
 
-Future implementation must not weaken path guards.
+Implementation must not weaken path guards.
 
 Rules:
 

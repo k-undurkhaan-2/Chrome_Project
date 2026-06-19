@@ -100,6 +100,13 @@ Must not include:
 - overwrite / `--force`
 - modifying source report/manifest files
 
+Phase 6.5C implementation note:
+
+- `report bundle export` now supports `--source-report` and `--source-manifest` for isolated validation inputs.
+- `report bundle export --out` may target an isolated bundle directory under `reports/python_tooling/` when source inputs are supplied.
+- Default production bundle behavior under `reports/python_tooling/bundles/` remains backward-compatible.
+- Future Candidate C real validation should use the isolated validation root and must still be separately authorized.
+
 ## Approved Output Path Policy
 
 Recommended future validation root:

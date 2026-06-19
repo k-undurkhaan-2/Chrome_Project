@@ -129,7 +129,6 @@ def test_bundle_export_complete_message_tokens() -> None:
             "BUNDLE_EXPORT_COMPLETE",
             "APPROVED_ROOT",
             "SOURCE_UNCHANGED",
-            "ZIP_UNSUPPORTED",
             "WRAPPER_UNSUPPORTED",
             "CE_NOT_RUN",
         ],
@@ -139,6 +138,7 @@ def test_bundle_export_complete_message_tokens() -> None:
     assert "bundle_manifest.json" in text
     assert "index.md" in text
     assert "python -m armedforces_tool report bundle verify" in text
+    assert "ZIP_UNSUPPORTED" not in text
     _assert_no_unsafe_suggestions(text)
 
 

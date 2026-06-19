@@ -40,8 +40,9 @@ Future Candidate C prerequisites:
 - wrapper remains read-only
 - direct Python invocation only
 - no CE
-- exact source report path/input option must be confirmed from existing CLI/source
-- exact bundle output path option must be confirmed from existing CLI/source
+- exact source report path/input option must be confirmed from existing CLI/source; current implemented option is `--source-report`
+- exact source manifest path/input option must be confirmed from existing CLI/source when used; current implemented option is `--source-manifest`
+- exact bundle output path option must be confirmed from existing CLI/source; current implemented option is `--out`
 - target bundle directory must not exist
 - source fixture path must not exist unless the future execution task explicitly creates it and owns cleanup
 - no zip
@@ -110,6 +111,16 @@ If the command cannot target an isolated source report/manifest input or would r
 
 Do not add or modify CLI options in the future smoke.
 
+Phase 6.5C added the required isolated input support:
+
+```text
+--source-report <path>
+--source-manifest <path>
+--out <isolated-bundle-dir>
+```
+
+The future Candidate C smoke should still confirm these options from help/source inspection before running a real export.
+
 ## Proposed Future Validation Paths
 
 Proposed future source and output paths:
@@ -142,14 +153,14 @@ Placeholder template:
 $env:PYTHONPATH="D:\armedforces.io-v2\src"
 
 .venv\Scripts\python.exe -m armedforces_tool report bundle export `
-  <existing-source-report-option> reports/python_tooling/validation/phase6_real_write_output_validation/candidate_c_bundle_export/source/report_output.md `
-  <existing-bundle-output-option> reports/python_tooling/validation/phase6_real_write_output_validation/candidate_c_bundle_export/bundle
+  --source-report reports/python_tooling/validation/phase6_real_write_output_validation/candidate_c_bundle_export/source/report_output.md `
+  --out reports/python_tooling/validation/phase6_real_write_output_validation/candidate_c_bundle_export/bundle
 ```
 
 If a source manifest option is required/supported:
 
 ```powershell
-  <existing-source-manifest-option> reports/python_tooling/validation/phase6_real_write_output_validation/candidate_c_bundle_export/source/manifest.jsonl
+  --source-manifest reports/python_tooling/validation/phase6_real_write_output_validation/candidate_c_bundle_export/source/manifest.jsonl
 ```
 
 The future execution smoke must not use:

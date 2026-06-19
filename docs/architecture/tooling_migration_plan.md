@@ -355,6 +355,8 @@ Phase 6.0 adds the post-output-wording next-work selector in `docs/architecture/
 
 Phase 6.1 adds the real-write output validation policy in `docs/architecture/python_tooling_real_write_output_validation_policy.md`. The policy defines future approved output paths, snapshots, cleanup, evidence, stop conditions, candidate ordering, and phase structure. It does not authorize runtime mutation migration, CE execution, wrapper write-capable support, or real-write validation by itself.
 
+Phase 6.5C implements isolated Candidate C bundle validation path support for `report bundle export`. The command now accepts `--source-report` and `--source-manifest`, and isolated validation `--out` directories under `reports/python_tooling/` are supported when source inputs are supplied. Default production bundle behavior remains backward-compatible, command inventory remains `writes_files_count = 2` and `runs_ce_count = 0`, zip / `--force` remain unsupported, and real Candidate C validation remains a separate explicitly authorized smoke.
+
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 
 - Define request formats.

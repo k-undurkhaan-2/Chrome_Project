@@ -144,7 +144,6 @@ def bundle_export_complete_message(
             ("index_path", index_path),
             ("copied_report_count", "not_available" if copied_report_count is None else copied_report_count),
             ("source_status", "SOURCE_UNCHANGED"),
-            ("zip_status", "ZIP_UNSUPPORTED"),
             ("approved_root", f"APPROVED_ROOT {approved_root}"),
             ("ce_status", "CE_NOT_RUN"),
             ("wrapper_status", "WRAPPER_UNSUPPORTED"),

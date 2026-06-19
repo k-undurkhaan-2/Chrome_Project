@@ -5,7 +5,7 @@ import hashlib
 from pathlib import Path
 
 from armedforces_tool.command_inventory import list_commands, show_command
-from armedforces_tool.report_bundle import analyze_report_bundle, plan_report_bundle_export
+from armedforces_tool.report_bundle import analyze_report_bundle, format_report_bundle_export_plan, plan_report_bundle_export
 
 
 def _manifest_path(project_root: Path) -> Path:
@@ -48,6 +48,28 @@ def _write_manifest(project_root: Path, entries: list[dict[str, object]] | None 
         return manifest
     text = "\n".join(json.dumps(entry) for entry in entries or [])
     manifest.write_text(text + ("\n" if text else ""), encoding="utf-8")
+    return manifest
+
+
+def _relative(project_root: Path, path: Path) -> str:
+    return path.relative_to(project_root).as_posix()
+
+
+def _write_isolated_source_report(
+    project_root: Path,
+    name: str = "candidate_c_source_report.md",
+    text: str = "# isolated source report\n",
+) -> Path:
+    report = project_root / "reports" / "python_tooling" / "validation" / "candidate_c" / name
+    report.parent.mkdir(parents=True, exist_ok=True)
+    report.write_text(text, encoding="utf-8")
+    return report
+
+
+def _write_isolated_source_manifest(project_root: Path, name: str = "manifest.jsonl") -> Path:
+    manifest = project_root / "reports" / "python_tooling" / "validation" / "candidate_c" / name
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    manifest.write_text(json.dumps({"status": "fixture"}) + "\n", encoding="utf-8")
     return manifest
 
 
@@ -356,6 +378,86 @@ def test_bundle_export_real_directory_writes_bundle_and_preserves_sources(tmp_pa
     assert "`bundle_manifest.json` is the source of truth" in index.read_text(encoding="utf-8")
 
 
+def test_bundle_export_real_isolated_source_report_writes_bundle_and_preserves_source(tmp_path: Path) -> None:
+    source_report = _write_isolated_source_report(tmp_path, text="# isolated candidate c\nbody\n")
+    report_before = source_report.read_bytes()
+
+    result = plan_report_bundle_export(
+        dry_run=False,
+        source_report=_relative(tmp_path, source_report),
+        out="reports/python_tooling/validation/candidate_c/bundle_source_report",
+        project_root=tmp_path,
+    )
+
+    bundle_root = tmp_path / "reports" / "python_tooling" / "validation" / "candidate_c" / "bundle_source_report"
+    copied_report = bundle_root / "reports" / source_report.name
+    bundle_manifest = bundle_root / "bundle_manifest.json"
+    index = bundle_root / "index.md"
+
+    assert result.status == "BUNDLE_EXPORT_OK"
+    assert result.bundle_written is True
+    assert result.writes_files is True
+    assert result.planned_output_root == str((tmp_path / "reports" / "python_tooling").resolve(strict=False))
+    assert bundle_root.is_dir()
+    assert bundle_manifest.is_file()
+    assert index.is_file()
+    assert copied_report.read_bytes() == report_before
+    assert source_report.read_bytes() == report_before
+    assert not (tmp_path / "reports" / "python_tooling" / "full_status.md").exists()
+    assert not _manifest_path(tmp_path).exists()
+    assert not (tmp_path / "reports" / "python_tooling" / "bundles").exists()
+
+    manifest_data = json.loads(bundle_manifest.read_text(encoding="utf-8"))
+    assert manifest_data["schema_version"] == 1
+    assert manifest_data["bundle_id"] == "bundle_source_report"
+    assert manifest_data["bundle_type"] == "directory"
+    assert manifest_data["included_reports"][0]["source_path"] == _relative(tmp_path, source_report)
+    assert manifest_data["included_reports"][0]["bundle_path"] == f"reports/{source_report.name}"
+    assert manifest_data["per_file_hashes"][f"reports/{source_report.name}"] == _sha256(copied_report)
+
+    formatted = format_report_bundle_export_plan(result)
+    for token in ["BUNDLE_EXPORT_COMPLETE", "SOURCE_UNCHANGED", "APPROVED_ROOT", "CE_NOT_RUN", "WRAPPER_UNSUPPORTED", "BUNDLE_EXPORT_OK"]:
+        assert token in formatted
+    for token in ["NO_FILES_WRITTEN", "REPORT_EXPORT_OK", "MANIFEST_RECORDED", "MANIFEST_NOT_WRITTEN", "BUNDLE_NOT_CREATED", "ZIP_UNSUPPORTED"]:
+        assert token not in formatted
+
+
+def test_bundle_export_real_isolated_source_report_and_manifest_preserves_inputs(tmp_path: Path) -> None:
+    source_report = _write_isolated_source_report(tmp_path, "candidate_c_with_manifest.md", "# source with manifest\n")
+    source_manifest = _write_isolated_source_manifest(tmp_path)
+    report_before = source_report.read_bytes()
+    manifest_before = source_manifest.read_bytes()
+
+    result = plan_report_bundle_export(
+        dry_run=False,
+        source_report=_relative(tmp_path, source_report),
+        source_manifest=_relative(tmp_path, source_manifest),
+        out="reports/python_tooling/validation/candidate_c/bundle_source_manifest",
+        project_root=tmp_path,
+    )
+
+    bundle_root = tmp_path / "reports" / "python_tooling" / "validation" / "candidate_c" / "bundle_source_manifest"
+    copied_report = bundle_root / "reports" / source_report.name
+    bundle_manifest = bundle_root / "bundle_manifest.json"
+    index = bundle_root / "index.md"
+
+    assert result.status == "BUNDLE_EXPORT_OK"
+    assert result.source_manifest_path == str(source_manifest.resolve(strict=True))
+    assert result.manifest_exists is True
+    assert bundle_root.is_dir()
+    assert bundle_manifest.is_file()
+    assert index.is_file()
+    assert copied_report.read_bytes() == report_before
+    assert source_report.read_bytes() == report_before
+    assert source_manifest.read_bytes() == manifest_before
+    assert not _manifest_path(tmp_path).exists()
+    assert not (tmp_path / "reports" / "python_tooling" / "bundles").exists()
+
+    manifest_data = json.loads(bundle_manifest.read_text(encoding="utf-8"))
+    assert manifest_data["source_manifest_path"] == str(source_manifest.resolve(strict=True))
+    assert manifest_data["included_reports"][0]["source_path"] == _relative(tmp_path, source_report)
+
+
 def test_bundle_export_real_zip_is_rejected_without_writing(tmp_path: Path) -> None:
     output_path = _write_report(tmp_path)
     _write_manifest(tmp_path, [_manifest_entry(output_path=output_path)])
@@ -391,6 +493,26 @@ def test_bundle_export_real_existing_output_is_rejected_without_overwrite(tmp_pa
     assert marker.read_text(encoding="utf-8") == "do not overwrite"
 
 
+def test_bundle_export_real_isolated_existing_output_is_rejected_without_overwrite(tmp_path: Path) -> None:
+    source_report = _write_isolated_source_report(tmp_path)
+    existing = tmp_path / "reports" / "python_tooling" / "validation" / "candidate_c" / "bundle_existing"
+    existing.mkdir(parents=True)
+    marker = existing / "keep.txt"
+    marker.write_text("do not overwrite", encoding="utf-8")
+
+    result = plan_report_bundle_export(
+        dry_run=False,
+        source_report=_relative(tmp_path, source_report),
+        out="reports/python_tooling/validation/candidate_c/bundle_existing",
+        project_root=tmp_path,
+    )
+
+    assert result.status == "OUTPUT_EXISTS"
+    assert result.writes_files is False
+    assert marker.read_text(encoding="utf-8") == "do not overwrite"
+    assert not (tmp_path / "reports" / "python_tooling" / "bundles").exists()
+
+
 def test_bundle_export_real_missing_report_writes_nothing(tmp_path: Path) -> None:
     _write_manifest(tmp_path, [_manifest_entry(output_path="reports/python_tooling/missing.md")])
 
@@ -402,6 +524,73 @@ def test_bundle_export_real_missing_report_writes_nothing(tmp_path: Path) -> Non
 
     assert result.status == "MISSING_REPORTS"
     assert result.writes_files is False
+    assert not (tmp_path / "reports" / "python_tooling" / "bundles").exists()
+
+
+def test_bundle_export_real_missing_source_report_writes_nothing(tmp_path: Path) -> None:
+    result = plan_report_bundle_export(
+        dry_run=False,
+        source_report="reports/python_tooling/validation/candidate_c/missing.md",
+        out="reports/python_tooling/validation/candidate_c/bundle_missing_source_report",
+        project_root=tmp_path,
+    )
+
+    assert result.status == "BAD_PATH"
+    assert result.writes_files is False
+    assert any("source report path does not exist" in error for error in result.errors)
+    assert not (tmp_path / "reports" / "python_tooling" / "validation").exists()
+    assert not (tmp_path / "reports" / "python_tooling" / "bundles").exists()
+
+
+def test_bundle_export_real_missing_source_manifest_writes_nothing(tmp_path: Path) -> None:
+    source_report = _write_isolated_source_report(tmp_path)
+
+    result = plan_report_bundle_export(
+        dry_run=False,
+        source_report=_relative(tmp_path, source_report),
+        source_manifest="reports/python_tooling/validation/candidate_c/missing_manifest.jsonl",
+        out="reports/python_tooling/validation/candidate_c/bundle_missing_source_manifest",
+        project_root=tmp_path,
+    )
+
+    assert result.status == "BAD_PATH"
+    assert result.writes_files is False
+    assert any("source manifest path does not exist" in error for error in result.errors)
+    assert not (tmp_path / "reports" / "python_tooling" / "validation" / "candidate_c" / "bundle_missing_source_manifest").exists()
+    assert not (tmp_path / "reports" / "python_tooling" / "bundles").exists()
+
+
+def test_bundle_export_real_source_manifest_requires_source_report(tmp_path: Path) -> None:
+    source_manifest = _write_isolated_source_manifest(tmp_path)
+
+    result = plan_report_bundle_export(
+        dry_run=False,
+        source_manifest=_relative(tmp_path, source_manifest),
+        out="reports/python_tooling/validation/candidate_c/bundle_source_manifest_only",
+        project_root=tmp_path,
+    )
+
+    assert result.status == "BAD_PATH"
+    assert result.writes_files is False
+    assert any("--source-manifest requires --source-report" in error for error in result.errors)
+    assert not (tmp_path / "reports" / "python_tooling" / "validation" / "candidate_c" / "bundle_source_manifest_only").exists()
+    assert not (tmp_path / "reports" / "python_tooling" / "bundles").exists()
+
+
+def test_bundle_export_real_default_mode_rejects_isolated_output_path(tmp_path: Path) -> None:
+    output_path = _write_report(tmp_path)
+    _write_manifest(tmp_path, [_manifest_entry(output_path=output_path)])
+
+    result = plan_report_bundle_export(
+        dry_run=False,
+        out="reports/python_tooling/validation/candidate_c/bundle_default_rejected",
+        project_root=tmp_path,
+    )
+
+    assert result.status == "BAD_PATH"
+    assert result.writes_files is False
+    assert any("reports/python_tooling/bundles" in error for error in result.errors)
+    assert not (tmp_path / "reports" / "python_tooling" / "validation").exists()
     assert not (tmp_path / "reports" / "python_tooling" / "bundles").exists()
 
 
@@ -421,6 +610,40 @@ def test_bundle_export_real_bad_paths_are_rejected_without_writing(tmp_path: Pat
         result = plan_report_bundle_export(dry_run=False, out=value, project_root=tmp_path)
         assert result.status == "BAD_PATH", value
         assert result.writes_files is False
+
+
+def test_bundle_export_real_isolated_output_rejects_production_bundle_root(tmp_path: Path) -> None:
+    source_report = _write_isolated_source_report(tmp_path)
+
+    result = plan_report_bundle_export(
+        dry_run=False,
+        source_report=_relative(tmp_path, source_report),
+        out="reports/python_tooling/bundles/bundle_not_allowed",
+        project_root=tmp_path,
+    )
+
+    assert result.status == "BAD_PATH"
+    assert result.writes_files is False
+    assert any("must not target reports/python_tooling/bundles" in error for error in result.errors)
+    assert not (tmp_path / "reports" / "python_tooling" / "bundles").exists()
+
+
+def test_bundle_export_real_isolated_source_report_outside_runtime_root_rejected(tmp_path: Path) -> None:
+    source_report = tmp_path / "docs" / "reports" / "python_tooling" / "outside.md"
+    source_report.parent.mkdir(parents=True, exist_ok=True)
+    source_report.write_text("# outside\n", encoding="utf-8")
+
+    result = plan_report_bundle_export(
+        dry_run=False,
+        source_report=_relative(tmp_path, source_report),
+        out="reports/python_tooling/validation/candidate_c/bundle_outside_source",
+        project_root=tmp_path,
+    )
+
+    assert result.status == "BAD_PATH"
+    assert result.writes_files is False
+    assert any("under reports/python_tooling" in error for error in result.errors)
+    assert not (tmp_path / "reports" / "python_tooling" / "validation").exists()
 
 
 def test_bundle_export_real_source_report_outside_runtime_root_rejected(tmp_path: Path) -> None:

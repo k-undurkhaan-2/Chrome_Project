@@ -698,7 +698,7 @@ COMMANDS: list[CommandDescriptor] = [
         "Plan a report bundle export without writing files.",
         "Validate future directory or zip bundle output paths and preview bundle contents.",
         related_powershell_command=None,
-        parameters=["--dry-run", "--out", "--zip", "--manifest", "--limit", "--json"],
+        parameters=["--dry-run", "--out", "--zip", "--manifest", "--source-report", "--source-manifest", "--limit", "--json"],
         examples=[
             "python -m armedforces_tool report bundle export --dry-run --out reports/python_tooling/bundles/bundle_dry_run/",
             "python -m armedforces_tool report bundle export --dry-run --zip --out reports/python_tooling/bundles/bundle_dry_run.zip",
@@ -717,7 +717,7 @@ COMMANDS: list[CommandDescriptor] = [
         related_powershell_command=None,
         typical_use="Package report files referenced by reports/python_tooling/manifest.jsonl into a directory bundle.",
         risk_level="WRITE_CAPABLE",
-        parameters=["--out", "--manifest", "--limit", "--json"],
+        parameters=["--out", "--manifest", "--source-report", "--source-manifest", "--limit", "--json"],
         examples=[
             "python -m armedforces_tool report bundle export --out reports/python_tooling/bundles/bundle_20260616/",
             "python -m armedforces_tool report bundle export --out reports/python_tooling/bundles/bundle_20260616/ --json",
@@ -725,9 +725,9 @@ COMMANDS: list[CommandDescriptor] = [
         safety_notes=[
             "Python sidecar command only.",
             "Does not run CE.",
-            "Writes only under reports/python_tooling/bundles/<bundle_id>/.",
+            "Writes only under reports/python_tooling/bundles/<bundle_id>/ or an explicitly isolated validation directory under reports/python_tooling when source inputs are supplied.",
             "Creates bundle_manifest.json, index.md, and copied report files in the bundle directory.",
-            "Reads reports/python_tooling/manifest.jsonl but does not modify it.",
+            "Reads reports/python_tooling/manifest.jsonl by default, or explicit isolated source inputs, but does not modify them.",
             "Does not modify or delete source reports.",
             "Rejects zip output, protected paths, path traversal, existing output directories, and unsupported manifests.",
             "Does not write config, logs, registry, baselines, session state, or intake journal files.",
