@@ -1,5 +1,19 @@
 # Python tooling force / overwrite unsupported wording contract
 
+## Correction Note
+
+Phase 8.1 implementation stopped because read-only inspection found that `report export --force` is currently supported behavior, not an unsupported rejection path.
+
+This document must not be interpreted as requiring `FORCE_UNSUPPORTED` for `report export --force`.
+
+Future implementation target should be no-force overwrite rejection only, unless a real unsupported-force surface exists in a different command.
+
+See:
+
+```text
+docs/architecture/python_tooling_force_overwrite_behavior_policy.md
+```
+
 ## Purpose
 
 This document defines a future narrow rejection-path wording slice for force and overwrite requests in write-capable Python tooling.

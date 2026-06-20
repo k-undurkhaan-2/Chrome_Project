@@ -385,6 +385,8 @@ docs/architecture/python_tooling_force_overwrite_unsupported_wording_contract.md
 
 Future implementation must first inspect current CLI/source/tests for real existing force or overwrite rejection surfaces. It must stop if no current surface exists, and it must not add `--force`, enable overwrite, weaken path guards, expand approved roots, add wrapper export shortcuts, or introduce CE/runtime behavior.
 
+Phase 8.1 implementation stopped correctly because `report export --force` is supported today and is tested as a successful overwrite path. The next recommended step is a behavior policy and a no-force overwrite rejection contract, not relabeling `report export --force` as unsupported.
+
 ## Stop Conditions
 
 Stop Phase 7 selector or follow-up phases if any of these are required:

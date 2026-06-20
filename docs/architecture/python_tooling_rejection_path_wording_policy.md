@@ -432,3 +432,22 @@ Intended tokens:
 - `NO_FILES_WRITTEN`
 
 This future slice must not enable overwrite, must not enable `--force`, must not add a `--force` option only for testing, and must not write or replace existing outputs in rejection cases. If future source inspection finds no current force/overwrite rejection surface, implementation must stop and report that a separate parser-surface contract is needed.
+
+## Supported Behavior Guardrail
+
+Rejection-path wording tasks must not contradict supported success behavior.
+
+If source inspection finds that a requested rejection path is actually supported, the implementation phase must stop and record a behavior policy contract before any wording change.
+
+Phase 8.1 is the current example:
+
+- `report export --force` is supported today
+- it is not an unsupported rejection path
+- `FORCE_UNSUPPORTED` must not be used for `report export --force`
+- future overwrite wording should target no-force existing-output rejection
+
+The behavior policy is recorded in:
+
+```text
+docs/architecture/python_tooling_force_overwrite_behavior_policy.md
+```

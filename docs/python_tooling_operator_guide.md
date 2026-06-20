@@ -285,6 +285,12 @@ The Phase 7 rejection-path wording checkpoint tag is now established as `python-
 
 Phase 8.1 force / overwrite unsupported wording contract exists in `docs/architecture/python_tooling_force_overwrite_unsupported_wording_contract.md`. A future implementation may clarify fail-closed wording for existing output paths or unsupported force requests, but it must first inspect current CLI/source/tests for real current surfaces. Existing outputs should be treated as protected unless a command contract explicitly supports reuse. Validation must use pytest temp paths, not production/default report, manifest, bundle, log, config, session, intake, baseline, or registry paths.
 
+Phase 8.1 implementation stopped because `report export --force` is supported direct Python CLI behavior today. It appears in help and command inventory, is implemented as approved-target overwrite, and is tested as a successful `REPORT_EXPORT_OK` path.
+
+Use `report export --force` only when overwrite is intended, explicitly authorized by the current task, and limited to approved report roots. Do not use the read-only wrapper for write-capable exports. Validation-only phases must not manually run force/export commands.
+
+Future rejection wording should target no-force existing-output rejection. If future direction requires removing or deprecating `report export --force`, that must be handled as a separate high-risk behavior change/deprecation contract.
+
 ## Git Hygiene
 
 Do not commit:
