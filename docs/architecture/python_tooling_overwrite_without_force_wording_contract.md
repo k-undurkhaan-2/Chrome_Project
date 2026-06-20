@@ -493,17 +493,39 @@ Future implementation must stop if:
 - Candidate A/B/C success outputs would change
 - Phase 7.2A/7.2B/7.2C rejection outputs would change unexpectedly
 
+## Phase 8.2 Implementation Status
+
+Implemented on 2026-06-20:
+
+- `report export --out <existing-file>` without `--force` now uses the `OVERWRITE_UNSUPPORTED` and `NO_FILES_WRITTEN` rejection wording path.
+- `report bundle export --out <existing-directory>` now uses the `OVERWRITE_UNSUPPORTED` and `NO_FILES_WRITTEN` rejection wording path.
+- `report bundle export --out <existing-file>` now uses the same existing-output rejection wording path.
+- `report export --force` remains the supported approved-target overwrite success path.
+
+Inspected but not changed:
+
+- `report export --record-manifest --manifest-out <existing-file>` is append/preflight manifest semantics, not an existing-output overwrite rejection surface in this slice.
+
+Implementation boundaries:
+
+- no new command or option
+- no new overwrite behavior
+- no `FORCE_UNSUPPORTED` use for `report export --force`
+- no JSON/result schema change
+- no wrapper, PowerShell, Lua, CE, or runtime mutation change
+
 ## Recommended Next Phase
 
 Recommended:
 
 ```text
-Phase 8.2 - overwrite rejection without force wording implementation
+Phase 8.2 boundary smoke - overwrite rejection without force wording
 ```
 
 Scope:
 
-- conditional narrow source/test/docs implementation
+- validation-only
+- verify implemented `OVERWRITE_UNSUPPORTED` / `NO_FILES_WRITTEN` rejection output
 - preserve `report export --force`
 - no manual real writes
 - no CE

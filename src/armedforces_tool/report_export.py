@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .report_output_messages import (
     invalid_option_combination_message,
+    overwrite_rejection_message,
     report_export_complete_message,
     report_export_dry_run_message,
     report_export_manifest_complete_message,
@@ -498,6 +499,14 @@ def format_report_export_dry_run(result: ReportExportDryRunResult) -> str:
             "Field".ljust(width) + "  Value",
             "-".ljust(width, "-") + "  -----",
         ]
+    elif _uses_report_export_overwrite_rejection_message(result):
+        lines = [
+            overwrite_rejection_message(rejected_path=_display(result.target_path)),
+            "",
+            "Overwrite Rejection Details",
+            "Field".ljust(width) + "  Value",
+            "-".ljust(width, "-") + "  -----",
+        ]
     elif result.dry_run:
         lines = [
             report_export_dry_run_message(
@@ -582,6 +591,15 @@ def _uses_report_export_manifest_success_message(result: ReportExportDryRunResul
         and result.wrote_file
         and result.manifest_written
         and bool(result.manifest_path)
+    )
+
+
+def _uses_report_export_overwrite_rejection_message(result: ReportExportDryRunResult) -> bool:
+    return (
+        not result.dry_run
+        and not result.force
+        and result.conclusion == "REPORT_EXPORT_OVERWRITE_REJECTED"
+        and result.target_exists
     )
 
 

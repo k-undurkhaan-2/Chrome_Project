@@ -350,7 +350,10 @@ Current behavior is unchanged:
 - do not treat `report export --force` as unsupported
 - overwrite rejection wording should target no-force existing-output cases
 - Phase 8.2 contract exists at `docs/architecture/python_tooling_overwrite_without_force_wording_contract.md`
-- future no-force overwrite wording must preserve `report export --force` success behavior
+- Phase 8.2 implementation clarifies no-force existing-output rejection with `OVERWRITE_UNSUPPORTED` and `NO_FILES_WRITTEN`
+- implemented surfaces: `report export --out <existing-file>` without `--force`, `report bundle export --out <existing-directory>`, and `report bundle export --out <existing-file>`
+- `report export --record-manifest --manifest-out <existing-file>` remains append/preflight semantics and was not converted into overwrite rejection
+- no-force overwrite wording preserves `report export --force` success behavior
 - wrapper remains read-only and does not expose write-capable exports
 - daily operator workflow remains unchanged
 - production/default writes are not automatically authorized

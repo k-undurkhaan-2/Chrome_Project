@@ -563,6 +563,7 @@ def test_real_export_existing_target_without_force_is_rejected(tmp_path: Path) -
     target = tmp_path / "reports" / "python_tooling" / "existing.md"
     target.parent.mkdir(parents=True)
     target.write_text("existing", encoding="utf-8")
+    before = target.read_bytes()
 
     result = plan_report_export(
         report_type="full-status",
@@ -571,11 +572,18 @@ def test_real_export_existing_target_without_force_is_rejected(tmp_path: Path) -
         project_root=tmp_path,
         force=False,
     )
+    formatted = format_report_export_dry_run(result)
 
     assert result.conclusion == "REPORT_EXPORT_OVERWRITE_REJECTED"
     assert result.wrote_file is False
     assert result.writes_files is False
+    assert "OVERWRITE_UNSUPPORTED" in formatted
+    assert "NO_FILES_WRITTEN" in formatted
+    assert "FORCE_UNSUPPORTED" not in formatted
+    for token in ["REPORT_EXPORT_OK", "WRITE_COMPLETE", "MANIFEST_RECORDED", "BUNDLE_EXPORT_COMPLETE", "BUNDLE_EXPORT_OK"]:
+        assert token not in formatted
     assert target.read_text(encoding="utf-8") == "existing"
+    assert target.read_bytes() == before
 
 
 def test_real_export_existing_target_with_force_overwrites(tmp_path: Path) -> None:

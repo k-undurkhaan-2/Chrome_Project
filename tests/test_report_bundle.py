@@ -521,16 +521,31 @@ def test_bundle_export_real_existing_output_is_rejected_without_overwrite(tmp_pa
     existing.mkdir(parents=True)
     marker = existing / "keep.txt"
     marker.write_text("do not overwrite", encoding="utf-8")
+    before = marker.read_bytes()
 
     result = plan_report_bundle_export(
         dry_run=False,
         out="reports/python_tooling/bundles/bundle_existing/",
         project_root=tmp_path,
     )
+    formatted = format_report_bundle_export_plan(result)
 
     assert result.status == "OUTPUT_EXISTS"
     assert result.writes_files is False
+    assert "OVERWRITE_UNSUPPORTED" in formatted
+    assert "NO_FILES_WRITTEN" in formatted
+    assert "FORCE_UNSUPPORTED" not in formatted
+    for token in [
+        "BUNDLE_EXPORT_COMPLETE",
+        "BUNDLE_EXPORT_OK",
+        "SOURCE_UNCHANGED",
+        "REPORT_EXPORT_OK",
+        "WRITE_COMPLETE",
+        "MANIFEST_RECORDED",
+    ]:
+        assert token not in formatted
     assert marker.read_text(encoding="utf-8") == "do not overwrite"
+    assert marker.read_bytes() == before
 
 
 def test_bundle_export_real_isolated_existing_output_is_rejected_without_overwrite(tmp_path: Path) -> None:
@@ -539,6 +554,7 @@ def test_bundle_export_real_isolated_existing_output_is_rejected_without_overwri
     existing.mkdir(parents=True)
     marker = existing / "keep.txt"
     marker.write_text("do not overwrite", encoding="utf-8")
+    before = marker.read_bytes()
 
     result = plan_report_bundle_export(
         dry_run=False,
@@ -546,10 +562,58 @@ def test_bundle_export_real_isolated_existing_output_is_rejected_without_overwri
         out="reports/python_tooling/validation/candidate_c/bundle_existing",
         project_root=tmp_path,
     )
+    formatted = format_report_bundle_export_plan(result)
 
     assert result.status == "OUTPUT_EXISTS"
     assert result.writes_files is False
+    assert "OVERWRITE_UNSUPPORTED" in formatted
+    assert "NO_FILES_WRITTEN" in formatted
+    assert "FORCE_UNSUPPORTED" not in formatted
+    for token in [
+        "BUNDLE_EXPORT_COMPLETE",
+        "BUNDLE_EXPORT_OK",
+        "SOURCE_UNCHANGED",
+        "REPORT_EXPORT_OK",
+        "WRITE_COMPLETE",
+        "MANIFEST_RECORDED",
+    ]:
+        assert token not in formatted
     assert marker.read_text(encoding="utf-8") == "do not overwrite"
+    assert marker.read_bytes() == before
+    assert not (tmp_path / "reports" / "python_tooling" / "bundles").exists()
+
+
+def test_bundle_export_real_existing_output_file_is_rejected_without_overwrite(tmp_path: Path) -> None:
+    source_report = _write_isolated_source_report(tmp_path)
+    existing = tmp_path / "reports" / "python_tooling" / "validation" / "candidate_c" / "bundle_existing_file"
+    existing.parent.mkdir(parents=True, exist_ok=True)
+    existing.write_text("do not overwrite", encoding="utf-8")
+    before = existing.read_bytes()
+
+    result = plan_report_bundle_export(
+        dry_run=False,
+        source_report=_relative(tmp_path, source_report),
+        out="reports/python_tooling/validation/candidate_c/bundle_existing_file",
+        project_root=tmp_path,
+    )
+    formatted = format_report_bundle_export_plan(result)
+
+    assert result.status == "OUTPUT_EXISTS"
+    assert result.writes_files is False
+    assert "OVERWRITE_UNSUPPORTED" in formatted
+    assert "NO_FILES_WRITTEN" in formatted
+    assert "FORCE_UNSUPPORTED" not in formatted
+    for token in [
+        "BUNDLE_EXPORT_COMPLETE",
+        "BUNDLE_EXPORT_OK",
+        "SOURCE_UNCHANGED",
+        "REPORT_EXPORT_OK",
+        "WRITE_COMPLETE",
+        "MANIFEST_RECORDED",
+    ]:
+        assert token not in formatted
+    assert existing.read_text(encoding="utf-8") == "do not overwrite"
+    assert existing.read_bytes() == before
     assert not (tmp_path / "reports" / "python_tooling" / "bundles").exists()
 
 
