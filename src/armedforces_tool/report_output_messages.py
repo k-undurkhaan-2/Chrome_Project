@@ -171,6 +171,34 @@ def bad_path_message(
     )
 
 
+def path_guard_rejection_message(
+    *,
+    rejected_path: str,
+    reason: str,
+    output_option: str,
+    conclusion: str,
+    approved_root_guidance: str,
+    legacy_status: str | None = None,
+    detail: str | None = None,
+) -> str:
+    fields: list[tuple[str, object]] = [
+        ("status", "PATH_GUARD_REJECTED"),
+        ("reason", reason),
+        ("write_status", "NO_FILES_WRITTEN"),
+        ("output_option", output_option),
+        ("rejected_path", rejected_path),
+        ("approved_root", f"APPROVED_ROOT {approved_root_guidance}"),
+        ("conclusion", conclusion),
+    ]
+    if legacy_status:
+        fields.insert(1, ("legacy_status", legacy_status))
+    notes = ["No report, manifest, bundle directory, bundle_manifest.json, index.md, or copied report was written."]
+    if detail:
+        notes.insert(0, detail)
+    notes.append("Use an approved output root; protected paths and traversal remain blocked.")
+    return _format_message("Path Guard Rejected", fields, notes)
+
+
 def overwrite_rejection_message(*, rejected_path: str) -> str:
     return _format_message(
         "Report Output Overwrite Rejected",
@@ -273,6 +301,7 @@ __all__ = [
     "bundle_export_dry_run_message",
     "invalid_option_combination_message",
     "overwrite_rejection_message",
+    "path_guard_rejection_message",
     "report_export_complete_message",
     "report_export_dry_run_message",
     "report_export_manifest_complete_message",

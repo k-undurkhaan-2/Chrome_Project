@@ -363,7 +363,9 @@ Current behavior is unchanged:
 - Phase 9.1 path-guard / approved-root rejection wording contract exists at `docs/architecture/python_tooling_path_guard_rejection_wording_contract.md`
 - do not bypass approved roots or protected-path checks
 - do not use the wrapper for write-capable exports
-- future path-guard wording validation should use pytest temp paths and read-only status/inventory checks, not manual export commands
+- Phase 9.1 implementation clarifies current path-guard rejection output with `PATH_GUARD_REJECTED`, `OUTSIDE_APPROVED_ROOT` where accurate, and `NO_FILES_WRITTEN`
+- existing `BAD_PATH` / `PATH_REJECTED` result fields remain compatible
+- path-guard wording validation should use pytest temp paths and read-only status/inventory checks, not manual export commands
 
 ## Known Non-Goals
 

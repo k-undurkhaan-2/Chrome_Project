@@ -369,7 +369,7 @@ Phase 7.3 prepares the rejection-path wording checkpoint candidate after Phase 7
 
 Phase 8.3 prepares the no-force overwrite rejection checkpoint candidate after Phase 8.2 implementation and boundary smoke passed. Final smoke/tag remain pending; `report export --force` remains supported direct Python CLI behavior, wrapper remains read-only, and write surface remains `writes_files_count = 2`, `runs_ce_count = 0`.
 
-Phase 9.1 prepares the approved-root / path-guard rejection wording contract. Implementation remains pending and must not weaken path guards, expand approved roots, or add write destinations.
+Phase 9.1 implements approved-root / path-guard rejection wording for current report export and report bundle export guard surfaces. It adds `PATH_GUARD_REJECTED` / `NO_FILES_WRITTEN` human-readable output while preserving existing `BAD_PATH` / `PATH_REJECTED` compatibility, and does not weaken path guards, expand approved roots, or add write destinations.
 
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 

@@ -2,9 +2,11 @@
 
 ## Purpose
 
-This contract defines a future narrow wording slice for approved-root and path-guard rejections in Python report tooling.
+This contract defines a narrow wording slice for approved-root and path-guard rejections in Python report tooling.
 
-This contract does not implement source changes, does not run commands, and does not authorize new write behavior. Future implementation must be narrow, must not weaken path guards, must not expand approved roots, must not authorize additional write destinations, and must be validated by tests using pytest temp paths only.
+The Phase 9.1 implementation keeps the existing guard decisions and JSON/status schema, adds human-readable `PATH_GUARD_REJECTED` / `NO_FILES_WRITTEN` wording for current path-guard rejection surfaces, and retains existing `BAD_PATH` compatibility where that status already represents the guard rejection.
+
+This contract does not authorize new write behavior. Implementation must remain narrow, must not weaken path guards, must not expand approved roots, must not authorize additional write destinations, and must be validated by tests using pytest temp paths only.
 
 ## Baseline
 
@@ -33,7 +35,7 @@ Current stable state:
 
 ## Target Rejection Paths
 
-Future implementation must inspect current source/help/tests and target only real current guard surfaces.
+Implementation inspected current source/help/tests and targeted only real current guard surfaces.
 
 ### Case 1: Report Output Outside Approved Root
 
@@ -446,26 +448,32 @@ Future implementation must stop if:
 
 ## Recommended Next Phase
 
-Recommended:
+Phase 9.1 implementation status:
 
 ```text
-Phase 9.1 - approved-root / path-guard rejection wording implementation
+Phase 9.1 - approved-root / path-guard rejection wording implementation: implemented
 ```
 
 Scope:
 
-- conditional narrow source/test/docs implementation
-- only if real current guard surfaces exist
+- narrow source/test/docs implementation
+- real current guard surfaces were found
 - no guard weakening
 - no manual real writes
 - no CE
 - no wrapper changes
 - no tag
 
-If source inspection shows no current path-guard rejection surface exists, the implementation phase should stop and report that a separate guard-surface contract would be needed.
+Implemented human-readable wording covers:
+
+- `report export --out <outside-approved-root>`
+- `report export --record-manifest --manifest-out <outside-approved-root>`
+- `report bundle export --out <outside-approved-root>`
+- `report bundle export --source-report <guard-rejected-path>` where current planner semantics return `BAD_PATH`
+
+Existing `BAD_PATH` / `PATH_REJECTED` result fields remain unchanged for compatibility.
 
 ## Tag Policy
 
-- no tag is created by this contract
-- no tag should be created for this contract-only work
-- a future checkpoint may be considered only after implementation and boundary smoke pass
+- no tag is created by this implementation
+- a future checkpoint may be considered only after boundary smoke passes

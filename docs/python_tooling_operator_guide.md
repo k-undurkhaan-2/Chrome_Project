@@ -293,7 +293,7 @@ Future rejection wording should target no-force existing-output rejection. If fu
 
 Phase 8.2 no-force overwrite rejection implementation clarifies existing-output rejection when overwrite is not authorized. Implemented surfaces are `report export --out <existing-file>` without `--force`, `report bundle export --out <existing-directory>`, and `report bundle export --out <existing-file>`. These failures use `OVERWRITE_UNSUPPORTED` and `NO_FILES_WRITTEN`, and the existing output path is rejected without writing. `report export --record-manifest --manifest-out <existing-file>` remains append/preflight semantics, not overwrite rejection. `report export --force` success remains unchanged and remains direct Python CLI behavior only; do not use it in validation-only smoke. The wrapper remains read-only and does not expose write-capable exports.
 
-Phase 9.1 path guard rejection wording is the next planned narrow slice. Future implementation must not loosen path safety, must not expand approved roots, and must not add write destinations. Validation-only phases must not manually run report export, dry-run, manifest recording, or bundle export commands.
+Phase 9.1 path guard rejection wording is implemented as a narrow output-only slice. Current path guard failures now surface `PATH_GUARD_REJECTED`, `OUTSIDE_APPROVED_ROOT` when accurate, and `NO_FILES_WRITTEN` while preserving existing `BAD_PATH` / `PATH_REJECTED` result fields. The implementation does not loosen path safety, expand approved roots, add write destinations, or change wrapper behavior. Validation-only phases must not manually run report export, dry-run, manifest recording, or bundle export commands.
 
 ## Git Hygiene
 
@@ -320,7 +320,7 @@ git status --short
 - `NO_MANIFEST` from manifest or bundle verify means no runtime manifest currently exists.
 - `BUNDLE_ZIP_EXPORT_NOT_IMPLEMENTED` is expected for zip export.
 - `OUTPUT_EXISTS` means bundle output already exists and overwrite is unsupported.
-- `BAD_PATH` means a protected or traversal path was rejected.
+- `BAD_PATH` means a protected, traversal, or unapproved path was rejected; Phase 9.1 human-readable output may also show `PATH_GUARD_REJECTED`.
 - LF/CRLF warnings from `git diff --check` are acceptable if there is no whitespace error.
 
 ## Phase 5 Planning Gate

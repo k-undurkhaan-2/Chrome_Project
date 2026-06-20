@@ -775,6 +775,42 @@ def test_bundle_export_real_bad_paths_are_rejected_without_writing(tmp_path: Pat
         assert result.writes_files is False
 
 
+def test_bundle_export_real_path_guard_wording_without_writing(tmp_path: Path) -> None:
+    output_path = _write_report(tmp_path)
+    _write_manifest(tmp_path, [_manifest_entry(output_path=output_path)])
+
+    result = plan_report_bundle_export(
+        dry_run=False,
+        out="docs/reports/python_tooling/bundle",
+        project_root=tmp_path,
+    )
+
+    assert result.status == "BAD_PATH"
+    assert result.writes_files is False
+    assert not (tmp_path / "docs" / "reports" / "python_tooling" / "bundle").exists()
+
+    formatted = format_report_bundle_export_plan(result)
+    assert "PATH_GUARD_REJECTED" in formatted
+    assert "BAD_PATH" in formatted
+    assert "OUTSIDE_APPROVED_ROOT" in formatted
+    assert "NO_FILES_WRITTEN" in formatted
+    assert "--out" in formatted
+    assert "bundle output path must be under reports/python_tooling/bundles" in formatted
+    for forbidden in [
+        "BUNDLE_EXPORT_COMPLETE",
+        "BUNDLE_EXPORT_OK",
+        "SOURCE_UNCHANGED",
+        "REPORT_EXPORT_OK",
+        "WRITE_COMPLETE",
+        "MANIFEST_RECORDED",
+        "SOURCE_MISSING",
+        "SOURCE_INVALID",
+        "OVERWRITE_UNSUPPORTED",
+        "ZIP_UNSUPPORTED",
+    ]:
+        assert forbidden not in formatted
+
+
 def test_bundle_export_real_isolated_output_rejects_production_bundle_root(tmp_path: Path) -> None:
     source_report = _write_isolated_source_report(tmp_path)
 
@@ -807,6 +843,27 @@ def test_bundle_export_real_isolated_source_report_outside_runtime_root_rejected
     assert result.writes_files is False
     assert any("under reports/python_tooling" in error for error in result.errors)
     assert not (tmp_path / "reports" / "python_tooling" / "validation").exists()
+
+    formatted = format_report_bundle_export_plan(result)
+    assert "PATH_GUARD_REJECTED" in formatted
+    assert "BAD_PATH" in formatted
+    assert "OUTSIDE_APPROVED_ROOT" in formatted
+    assert "NO_FILES_WRITTEN" in formatted
+    assert "--source-report" in formatted
+    assert "report output path must be under reports/python_tooling" in formatted
+    for forbidden in [
+        "BUNDLE_EXPORT_COMPLETE",
+        "BUNDLE_EXPORT_OK",
+        "SOURCE_UNCHANGED",
+        "REPORT_EXPORT_OK",
+        "WRITE_COMPLETE",
+        "MANIFEST_RECORDED",
+        "SOURCE_MISSING",
+        "SOURCE_INVALID",
+        "OVERWRITE_UNSUPPORTED",
+        "ZIP_UNSUPPORTED",
+    ]:
+        assert forbidden not in formatted
 
 
 def test_bundle_export_real_source_report_outside_runtime_root_rejected(tmp_path: Path) -> None:

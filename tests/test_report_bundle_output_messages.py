@@ -5,6 +5,7 @@ from armedforces_tool.report_output_messages import (
     bundle_export_complete_message,
     bundle_export_dry_run_message,
     overwrite_rejection_message,
+    path_guard_rejection_message,
     report_export_complete_message,
     report_export_dry_run_message,
     report_export_manifest_complete_message,
@@ -154,6 +155,37 @@ def test_bad_path_message_tokens_and_guidance() -> None:
     assert "log/full_status.md" in text
     assert "protected path" in text
     assert "Do not bypass protected path checks." in text
+
+
+def test_path_guard_rejection_message_tokens_and_no_success_tokens() -> None:
+    text = path_guard_rejection_message(
+        rejected_path="outside/full_status.md",
+        reason="OUTSIDE_APPROVED_ROOT",
+        output_option="--out",
+        conclusion="REPORT_EXPORT_REJECTED",
+        approved_root_guidance="reports/python_tooling or docs/reports/python_tooling",
+        legacy_status="BAD_PATH",
+        detail="target path must be under reports/python_tooling or docs/reports/python_tooling",
+    )
+
+    _assert_tokens(text, ["PATH_GUARD_REJECTED", "BAD_PATH", "OUTSIDE_APPROVED_ROOT", "NO_FILES_WRITTEN"])
+    assert "--out" in text
+    assert "outside/full_status.md" in text
+    assert "target path must be under" in text
+    for token in [
+        "SOURCE_MISSING",
+        "SOURCE_INVALID",
+        "OVERWRITE_UNSUPPORTED",
+        "ZIP_UNSUPPORTED",
+        "SOURCE_UNCHANGED",
+        "BUNDLE_EXPORT_OK",
+        "BUNDLE_EXPORT_COMPLETE",
+        "REPORT_EXPORT_OK",
+        "MANIFEST_RECORDED",
+        "WRITE_COMPLETE",
+    ]:
+        assert token not in text
+    _assert_no_unsafe_suggestions(text)
 
 
 def test_overwrite_rejection_message_tokens() -> None:

@@ -15,6 +15,7 @@ from .report_output_messages import (
     bundle_export_complete_message,
     bundle_export_dry_run_message,
     overwrite_rejection_message,
+    path_guard_rejection_message,
     source_input_rejection_message,
     zip_unsupported_message,
 )
@@ -749,7 +750,23 @@ def format_report_bundle_export_plan(result: ReportBundleExportPlanResult) -> st
         ("runs_ce", result.runs_ce),
     ]
     width = max(len(label) for label, _ in rows)
-    if _uses_source_input_rejection_message(result):
+    if _uses_bundle_path_guard_rejection_message(result):
+        lines = [
+            path_guard_rejection_message(
+                rejected_path=_display(_bundle_rejected_path(result)),
+                reason=_bundle_path_guard_reason_token(result.errors),
+                output_option=_bundle_rejected_option(result),
+                conclusion="BUNDLE_EXPORT_REJECTED",
+                approved_root_guidance=_bundle_approved_root_guidance(result),
+                legacy_status=result.status,
+                detail=_first_error(result.errors),
+            ),
+            "",
+            "Bundle Export Details",
+            "Field".ljust(width) + "  Value",
+            "-".ljust(width, "-") + "  -----",
+        ]
+    elif _uses_source_input_rejection_message(result):
         lines = [
             _source_input_rejection_message(result),
             "",
@@ -846,12 +863,71 @@ def _uses_bundle_overwrite_rejection_message(result: ReportBundleExportPlanResul
     return not result.dry_run and result.status == "OUTPUT_EXISTS"
 
 
+def _uses_bundle_path_guard_rejection_message(result: ReportBundleExportPlanResult) -> bool:
+    return not result.dry_run and result.status == "BAD_PATH" and _bundle_has_path_guard_error(result.errors)
+
+
 def _uses_source_input_rejection_message(result: ReportBundleExportPlanResult) -> bool:
     return not result.dry_run and result.status in {
         "SOURCE_MISSING",
         "SOURCE_INVALID",
         "INVALID_OPTION_COMBINATION",
     }
+
+
+def _bundle_has_path_guard_error(errors: list[str]) -> bool:
+    return any(
+        "path traversal" in error
+        or "must be under reports/python_tooling" in error
+        or "must be under reports/python_tooling/bundles" in error
+        or "must not target reports/python_tooling/bundles" in error
+        or "source report is outside reports/python_tooling" in error
+        or "bundle manifest path must be reports/python_tooling/manifest.jsonl" in error
+        for error in errors
+    )
+
+
+def _bundle_path_guard_reason_token(errors: list[str]) -> str:
+    if any("must be under" in error or "outside reports/python_tooling" in error for error in errors):
+        return "OUTSIDE_APPROVED_ROOT"
+    if any("path traversal" in error for error in errors):
+        return "PATH_TRAVERSAL"
+    return "PATH_GUARD_REJECTED"
+
+
+def _bundle_rejected_option(result: ReportBundleExportPlanResult) -> str:
+    joined_errors = "\n".join(result.errors)
+    if "source manifest path" in joined_errors:
+        return "--source-manifest"
+    if "report output path" in joined_errors or "source report is outside" in joined_errors:
+        return "--source-report"
+    if "bundle manifest path" in joined_errors:
+        return "--manifest"
+    return "--out"
+
+
+def _bundle_rejected_path(result: ReportBundleExportPlanResult) -> str | None:
+    option = _bundle_rejected_option(result)
+    if option in {"--manifest", "--source-manifest"}:
+        return result.source_manifest_path
+    if option == "--source-report":
+        return None
+    return result.planned_output_path
+
+
+def _bundle_approved_root_guidance(result: ReportBundleExportPlanResult) -> str:
+    option = _bundle_rejected_option(result)
+    if option == "--out" and result.planned_output_root:
+        return result.planned_output_root
+    if option in {"--source-report", "--source-manifest"}:
+        return "reports/python_tooling"
+    if option == "--manifest":
+        return "reports/python_tooling/manifest.jsonl"
+    return "reports/python_tooling/bundles"
+
+
+def _first_error(errors: list[str]) -> str | None:
+    return errors[0] if errors else None
 
 
 def _source_input_rejection_status(errors: list[str]) -> str:

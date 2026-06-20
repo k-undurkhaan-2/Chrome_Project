@@ -275,6 +275,25 @@ def test_manifest_out_outside_root_rejects_before_write(tmp_path: Path) -> None:
     assert not (tmp_path / "reports").exists()
     assert not (tmp_path / "outside").exists()
 
+    text = format_report_export_dry_run(result)
+    assert "PATH_GUARD_REJECTED" in text
+    assert "OUTSIDE_APPROVED_ROOT" in text
+    assert "NO_FILES_WRITTEN" in text
+    assert "--manifest-out" in text
+    assert "manifest path must be under reports/python_tooling" in text
+    for forbidden in [
+        "REPORT_EXPORT_OK",
+        "WRITE_COMPLETE",
+        "MANIFEST_RECORDED",
+        "BUNDLE_EXPORT_COMPLETE",
+        "BUNDLE_EXPORT_OK",
+        "SOURCE_MISSING",
+        "SOURCE_INVALID",
+        "OVERWRITE_UNSUPPORTED",
+        "ZIP_UNSUPPORTED",
+    ]:
+        assert forbidden not in text
+
 
 def test_manifest_out_protected_path_rejects_before_write(tmp_path: Path) -> None:
     result = plan_report_export(
@@ -506,13 +525,33 @@ def test_path_traversal_is_rejected(tmp_path: Path) -> None:
 def test_outside_root_is_rejected(tmp_path: Path) -> None:
     result = plan_report_export(
         report_type="full-status",
-        dry_run=True,
+        dry_run=False,
         out=str(tmp_path / "outside" / "full_status.md"),
         project_root=tmp_path,
     )
 
-    assert result.conclusion == "REPORT_EXPORT_DRY_RUN_REJECTED"
+    assert result.conclusion == "REPORT_EXPORT_REJECTED"
     assert any("approved" in error or "must be under" in error for error in result.errors)
+    assert result.wrote_file is False
+    assert not (tmp_path / "outside").exists()
+
+    formatted = format_report_export_dry_run(result)
+    assert "PATH_GUARD_REJECTED" in formatted
+    assert "OUTSIDE_APPROVED_ROOT" in formatted
+    assert "NO_FILES_WRITTEN" in formatted
+    assert "--out" in formatted
+    for forbidden in [
+        "REPORT_EXPORT_OK",
+        "WRITE_COMPLETE",
+        "MANIFEST_RECORDED",
+        "BUNDLE_EXPORT_COMPLETE",
+        "BUNDLE_EXPORT_OK",
+        "SOURCE_MISSING",
+        "SOURCE_INVALID",
+        "OVERWRITE_UNSUPPORTED",
+        "ZIP_UNSUPPORTED",
+    ]:
+        assert forbidden not in formatted
 
 
 def test_protected_path_is_rejected(tmp_path: Path) -> None:

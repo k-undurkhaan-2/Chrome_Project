@@ -9,6 +9,7 @@ from pathlib import Path
 from .report_output_messages import (
     invalid_option_combination_message,
     overwrite_rejection_message,
+    path_guard_rejection_message,
     report_export_complete_message,
     report_export_dry_run_message,
     report_export_manifest_complete_message,
@@ -499,6 +500,21 @@ def format_report_export_dry_run(result: ReportExportDryRunResult) -> str:
             "Field".ljust(width) + "  Value",
             "-".ljust(width, "-") + "  -----",
         ]
+    elif _uses_report_export_path_guard_rejection_message(result):
+        lines = [
+            path_guard_rejection_message(
+                rejected_path=_display(_report_export_rejected_path(result)),
+                reason=_path_guard_reason_token(result.errors),
+                output_option=_report_export_rejected_option(result),
+                conclusion=result.conclusion,
+                approved_root_guidance=_report_export_approved_root_guidance(result),
+                detail=_first_error(result.errors),
+            ),
+            "",
+            "Path Guard Details",
+            "Field".ljust(width) + "  Value",
+            "-".ljust(width, "-") + "  -----",
+        ]
     elif _uses_report_export_overwrite_rejection_message(result):
         lines = [
             overwrite_rejection_message(rejected_path=_display(result.target_path)),
@@ -603,12 +619,72 @@ def _uses_report_export_overwrite_rejection_message(result: ReportExportDryRunRe
     )
 
 
+def _uses_report_export_path_guard_rejection_message(result: ReportExportDryRunResult) -> bool:
+    return (
+        not result.dry_run
+        and result.path_safety_status == "PATH_REJECTED"
+        and result.conclusion != "REPORT_EXPORT_OVERWRITE_REJECTED"
+        and _has_path_guard_error(result.errors)
+    )
+
+
 def _uses_manifest_out_invalid_option_message(result: ReportExportDryRunResult) -> bool:
     return (
         not result.record_manifest
         and result.conclusion in {"REPORT_EXPORT_REJECTED", "REPORT_EXPORT_DRY_RUN_REJECTED"}
         and any("--manifest-out requires --record-manifest" in error for error in result.errors)
     )
+
+
+def _has_path_guard_error(errors: list[str]) -> bool:
+    return any(
+        "path traversal" in error
+        or "must be under reports/python_tooling" in error
+        or "is protected" in error
+        or "--record-manifest only supports report outputs under reports/python_tooling" in error
+        for error in errors
+    )
+
+
+def _path_guard_reason_token(errors: list[str]) -> str:
+    if any("must be under" in error or "only supports report outputs under" in error for error in errors):
+        return "OUTSIDE_APPROVED_ROOT"
+    if any("path traversal" in error for error in errors):
+        return "PATH_TRAVERSAL"
+    if any("is protected" in error for error in errors):
+        return "PROTECTED_PATH"
+    return "PATH_GUARD_REJECTED"
+
+
+def _first_error(errors: list[str]) -> str | None:
+    return errors[0] if errors else None
+
+
+def _report_export_rejected_option(result: ReportExportDryRunResult) -> str:
+    if _report_export_rejected_manifest_path(result) is not None:
+        return "--manifest-out"
+    return "--out"
+
+
+def _report_export_rejected_path(result: ReportExportDryRunResult) -> str | None:
+    manifest_path = _report_export_rejected_manifest_path(result)
+    if manifest_path is not None:
+        return manifest_path
+    return result.target_path or result.planned_report_path
+
+
+def _report_export_rejected_manifest_path(result: ReportExportDryRunResult) -> str | None:
+    if any("manifest path" in error for error in result.errors):
+        return result.planned_manifest_path or result.manifest_path
+    return None
+
+
+def _report_export_approved_root_guidance(result: ReportExportDryRunResult) -> str:
+    if _report_export_rejected_option(result) == "--manifest-out":
+        return "reports/python_tooling"
+    if result.conclusion == "MANIFEST_OUTPUT_ROOT_UNSUPPORTED":
+        return "reports/python_tooling"
+    return "reports/python_tooling or docs/reports/python_tooling"
 
 
 def _target_from_args(
