@@ -519,7 +519,7 @@ Implementation boundaries:
 Recommended:
 
 ```text
-Phase 8.2 boundary smoke - overwrite rejection without force wording
+Phase 8.4 - no-force overwrite rejection final checkpoint smoke
 ```
 
 Scope:
@@ -527,13 +527,34 @@ Scope:
 - validation-only
 - verify implemented `OVERWRITE_UNSUPPORTED` / `NO_FILES_WRITTEN` rejection output
 - preserve `report export --force`
+- confirm Phase 8.2 boundary smoke remains stable
 - no manual real writes
 - no CE
 - no wrapper changes
 - no tag
 
+## Phase 8.2 Boundary Smoke Status
+
+Boundary smoke passed on 2026-06-20.
+
+Validated:
+
+- `report export --out <existing-file>` without `--force`
+- `report bundle export --out <existing-directory>`
+- `report bundle export --out <existing-file>`
+- `OVERWRITE_UNSUPPORTED` / `NO_FILES_WRITTEN` output
+- `report export --force` success behavior unchanged
+- manifest output existing-file path remains append/preflight semantics
+- `writes_files_count = 2`
+- `runs_ce_count = 0`
+- wrapper remains read-only
+- targeted tests and full pytest passed
+- no runtime artifacts were created
+
+Final checkpoint smoke remains pending.
+
 ## Tag Policy
 
 - no tag is created by this contract
-- no tag should be created for this contract-only work
-- a future checkpoint may be considered only after implementation and boundary smoke pass
+- no tag should be created for this contract/candidate work
+- a future checkpoint tag may be considered only after final checkpoint smoke passes

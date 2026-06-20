@@ -467,3 +467,25 @@ Token scopes must avoid contradicting supported behavior:
 - use `OVERWRITE_UNSUPPORTED` for no-force existing-output rejection when that is the true reason
 - use `NO_FILES_WRITTEN` only when no output artifact was written
 - reserve `FORCE_UNSUPPORTED` for a real unsupported-force surface
+
+## No-Force Overwrite Validated Slice
+
+Phase 8.2 is now another validated rejection-path wording example.
+
+Validated surfaces:
+
+- `report export --out <existing-file>` without `--force`
+- `report bundle export --out <existing-directory>`
+- `report bundle export --out <existing-file>`
+
+Validated tokens:
+
+- `OVERWRITE_UNSUPPORTED`
+- `NO_FILES_WRITTEN`
+
+Guardrails:
+
+- supported success paths must stay separate from rejection wording
+- `report export --force` remains success behavior and must not receive `FORCE_UNSUPPORTED`
+- no-write tokens apply only to actual no-write rejection paths
+- manifest existing-file behavior remains append/preflight unless a future contract changes it

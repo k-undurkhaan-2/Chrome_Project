@@ -164,3 +164,13 @@ See:
 ```text
 docs/architecture/python_tooling_overwrite_without_force_wording_contract.md
 ```
+
+## Current Status
+
+Phase 8.2 implemented and boundary-smoke validated the policy in practice:
+
+- `report export --force` remains a supported success path.
+- `FORCE_UNSUPPORTED` is not used for `report export --force`.
+- no-force existing-output rejection uses `OVERWRITE_UNSUPPORTED` and `NO_FILES_WRITTEN`.
+- manifest existing-file behavior remains append/preflight, not overwrite rejection.
+- future deprecation or removal of `report export --force` remains separate high-risk behavior-change work.

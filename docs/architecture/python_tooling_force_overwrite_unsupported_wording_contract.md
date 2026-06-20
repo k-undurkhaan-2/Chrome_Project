@@ -443,7 +443,7 @@ Future implementation must stop if:
 Recommended:
 
 ```text
-Phase 8.1 - force / overwrite unsupported wording implementation
+Superseded by the Phase 8.1-R1 behavior policy and Phase 8.2 no-force overwrite rejection contract
 ```
 
 Scope:
@@ -456,6 +456,26 @@ Scope:
 - no tag
 
 If source inspection shows no current force/overwrite rejection surface exists, the implementation phase should stop and report that a separate parser-surface contract is needed before force/overwrite wording can be implemented.
+
+## Supersession Note
+
+The broad unsupported-force framing is superseded for current work.
+
+Phase 8.1 inspection found that `report export --force` is supported success behavior, so this document must not be used to justify changing `report export --force` or applying `FORCE_UNSUPPORTED` to it.
+
+Current state is recorded in:
+
+```text
+docs/checkpoints/python_tooling_no_force_overwrite_rejection_checkpoint_candidate_20260620.md
+```
+
+The active validated slice is no-force existing-output rejection:
+
+- `report export --out <existing-file>` without `--force`
+- `report bundle export --out <existing-directory>`
+- `report bundle export --out <existing-file>`
+
+That slice uses `OVERWRITE_UNSUPPORTED` and `NO_FILES_WRITTEN` and preserves `report export --force` success behavior.
 
 ## Tag Policy
 

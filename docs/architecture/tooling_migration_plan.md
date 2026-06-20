@@ -367,6 +367,8 @@ Phase 7.1 adds the rejection-path wording policy in `docs/architecture/python_to
 
 Phase 7.3 prepares the rejection-path wording checkpoint candidate after Phase 7.2A, Phase 7.2B, and Phase 7.2C implementation/boundary smokes passed. Final smoke and tag creation remain pending; no new write surface, CE behavior, wrapper export support, zip support, or production/default write authorization is introduced.
 
+Phase 8.3 prepares the no-force overwrite rejection checkpoint candidate after Phase 8.2 implementation and boundary smoke passed. Final smoke/tag remain pending; `report export --force` remains supported direct Python CLI behavior, wrapper remains read-only, and write surface remains `writes_files_count = 2`, `runs_ce_count = 0`.
+
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 
 - Define request formats.

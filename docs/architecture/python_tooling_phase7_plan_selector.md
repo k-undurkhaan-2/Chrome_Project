@@ -399,13 +399,24 @@ Phase 8.2 no-force overwrite rejection contract is documented in:
 docs/architecture/python_tooling_overwrite_without_force_wording_contract.md
 ```
 
+Phase 8.2 no-force overwrite rejection implementation is complete and boundary-smoke validated.
+
+Recorded status:
+
+- Phase 8.1 STOP result: `report export --force` is supported success behavior
+- Phase 8.1-R1 behavior policy: completed
+- Phase 8.2 contract: completed
+- Phase 8.2 implementation: completed
+- Phase 8.2 boundary smoke: PASS
+- Phase 8.3 checkpoint candidate docs: current
+
 Next recommended phase:
 
 ```text
-Phase 8.2 - overwrite rejection without force wording implementation
+Phase 8.4 - no-force overwrite rejection final checkpoint smoke
 ```
 
-The implementation must preserve current `report export --force` success behavior.
+Do not create the no-force overwrite checkpoint tag until the final checkpoint smoke passes.
 
 ## Stop Conditions
 

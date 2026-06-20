@@ -354,6 +354,8 @@ Current behavior is unchanged:
 - implemented surfaces: `report export --out <existing-file>` without `--force`, `report bundle export --out <existing-directory>`, and `report bundle export --out <existing-file>`
 - `report export --record-manifest --manifest-out <existing-file>` remains append/preflight semantics and was not converted into overwrite rejection
 - no-force overwrite wording preserves `report export --force` success behavior
+- Phase 8.2 boundary smoke passed; no manual export is needed to validate the rejection path
+- use pytest and read-only status/inventory for validation
 - wrapper remains read-only and does not expose write-capable exports
 - daily operator workflow remains unchanged
 - production/default writes are not automatically authorized
