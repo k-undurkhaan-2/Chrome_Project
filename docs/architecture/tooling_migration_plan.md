@@ -371,6 +371,8 @@ Phase 8.3 prepares the no-force overwrite rejection checkpoint candidate after P
 
 Phase 9.1 implements approved-root / path-guard rejection wording for current report export and report bundle export guard surfaces. It adds `PATH_GUARD_REJECTED` / `NO_FILES_WRITTEN` human-readable output while preserving existing `BAD_PATH` / `PATH_REJECTED` compatibility, and does not weaken path guards, expand approved roots, or add write destinations.
 
+Phase 9.2 prepares the path-guard rejection checkpoint candidate after Phase 9.1 boundary smoke passed. Final smoke and tag creation remain pending.
+
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 
 - Define request formats.

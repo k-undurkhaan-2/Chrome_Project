@@ -473,7 +473,23 @@ Implemented human-readable wording covers:
 
 Existing `BAD_PATH` / `PATH_REJECTED` result fields remain unchanged for compatibility.
 
+Phase 9.1 boundary smoke status:
+
+```text
+PASS
+```
+
+Boundary smoke validated status overview `SAFE`, report inventory `writes_files_count = 2`, `runs_ce_count = 0`, wrapper read-only behavior, targeted path-guard tests, full pytest, unchanged protected hashes, and no runtime report/manifest/bundle artifacts.
+
+Checkpoint candidate status:
+
+```text
+docs/checkpoints/python_tooling_path_guard_rejection_checkpoint_candidate_20260620.md
+```
+
+Final checkpoint smoke remains pending. Do not create `python-tooling-path-guard-rejection-checkpoint-20260620` until that validation-only smoke passes.
+
 ## Tag Policy
 
 - no tag is created by this implementation
-- a future checkpoint may be considered only after boundary smoke passes
+- a future checkpoint tag may be considered only after the final checkpoint smoke passes

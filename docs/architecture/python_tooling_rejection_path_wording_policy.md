@@ -507,3 +507,27 @@ Target tokens:
 The slice must not weaken path guards, expand approved roots, add write destinations, or imply wrapper write support.
 
 Existing `BAD_PATH` wording may be preserved only if current implementation already uses it for the same guard semantics.
+
+## Approved-Root / Path-Guard Validated Slice
+
+Phase 9.1 is now another validated rejection-path wording example.
+
+Validated surfaces:
+
+- `report export --out <outside-approved-root>`
+- `report export --record-manifest --manifest-out <outside-approved-root>`
+- `report bundle export --out <outside-approved-root>`
+- `report bundle export --source-report <guard-rejected-path>` where current planner semantics already return `BAD_PATH`
+
+Validated tokens:
+
+- `PATH_GUARD_REJECTED`
+- `OUTSIDE_APPROVED_ROOT` where approved-root semantics apply
+- `NO_FILES_WRITTEN`
+
+Compatibility and guardrails:
+
+- `BAD_PATH` / `PATH_REJECTED` compatibility must be preserved for existing machine-readable result fields.
+- Guard tokens must stay scoped to guard rejections.
+- Path-guard wording must not weaken guard behavior, expand approved roots, add write destinations, or imply wrapper write support.
+- Missing/invalid source input, zip unsupported, no-force overwrite, and extension-only validation remain separate wording slices.

@@ -432,13 +432,24 @@ Phase 9.1 contract is documented in:
 docs/architecture/python_tooling_path_guard_rejection_wording_contract.md
 ```
 
+Recorded status:
+
+```text
+Phase 9.1 contract: completed
+Phase 9.1 implementation: completed
+Phase 9.1 boundary smoke: PASS
+Phase 9.2 checkpoint candidate docs: current
+```
+
+The implementation found real current guard surfaces and added path-guard rejection wording without weakening guards, expanding approved roots, adding write destinations, running CE, or adding wrapper export shortcuts.
+
 Next recommended phase:
 
 ```text
-Phase 9.1 - approved-root / path-guard rejection wording implementation
+Phase 9.3 - path-guard rejection final checkpoint smoke
 ```
 
-The implementation is conditional on real current guard surfaces and must not weaken path guards, expand approved roots, add write destinations, run CE, or add wrapper export shortcuts.
+Do not create the path-guard rejection checkpoint tag until the final checkpoint smoke passes.
 
 ## Stop Conditions
 

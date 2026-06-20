@@ -295,6 +295,8 @@ Phase 8.2 no-force overwrite rejection implementation clarifies existing-output 
 
 Phase 9.1 path guard rejection wording is implemented as a narrow output-only slice. Current path guard failures now surface `PATH_GUARD_REJECTED`, `OUTSIDE_APPROVED_ROOT` when accurate, and `NO_FILES_WRITTEN` while preserving existing `BAD_PATH` / `PATH_REJECTED` result fields. The implementation does not loosen path safety, expand approved roots, add write destinations, or change wrapper behavior. Validation-only phases must not manually run report export, dry-run, manifest recording, or bundle export commands.
 
+Phase 9.1 boundary smoke passed. It confirmed status `SAFE`, report inventory `writes_files_count=2`, `runs_ce_count=0`, wrapper read-only behavior, targeted path-guard tests, full pytest, unchanged protected hashes, and no runtime report, manifest, bundle, validation, or docs-report artifacts. Phase 9.2 checkpoint candidate docs are recorded in `docs/checkpoints/python_tooling_path_guard_rejection_checkpoint_candidate_20260620.md`; do not create the path-guard checkpoint tag until a later final checkpoint smoke passes.
+
 ## Git Hygiene
 
 Do not commit:

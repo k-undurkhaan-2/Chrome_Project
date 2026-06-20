@@ -366,6 +366,9 @@ Current behavior is unchanged:
 - Phase 9.1 implementation clarifies current path-guard rejection output with `PATH_GUARD_REJECTED`, `OUTSIDE_APPROVED_ROOT` where accurate, and `NO_FILES_WRITTEN`
 - existing `BAD_PATH` / `PATH_REJECTED` result fields remain compatible
 - path-guard wording validation should use pytest temp paths and read-only status/inventory checks, not manual export commands
+- Phase 9.1 boundary smoke passed with status `SAFE`, `writes_files_count=2`, `runs_ce_count=0`, wrapper read-only, targeted tests, full pytest, and no runtime report/manifest/bundle artifacts
+- Phase 9.2 checkpoint candidate docs exist at `docs/checkpoints/python_tooling_path_guard_rejection_checkpoint_candidate_20260620.md`
+- do not create `python-tooling-path-guard-rejection-checkpoint-20260620` until a later final checkpoint smoke passes
 
 ## Known Non-Goals
 
