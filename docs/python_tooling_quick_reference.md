@@ -335,6 +335,9 @@ Current behavior is unchanged:
 - Phase 7.2B missing source input wording contract exists: `docs/architecture/python_tooling_missing_source_input_wording_contract.md`
 - Phase 7.2B implementation clarifies missing or invalid isolated bundle source inputs with `SOURCE_MISSING`, `SOURCE_INVALID`, `INVALID_OPTION_COMBINATION`, and `NO_FILES_WRITTEN`
 - do not retry bundle validation with missing `--source-report` or `--source-manifest` paths; the command fails closed before creating bundle artifacts
+- Phase 7.2C zip unsupported wording contract exists: `docs/architecture/python_tooling_zip_unsupported_wording_contract.md`
+- zip export remains unsupported; directory bundle remains the supported real bundle form
+- future zip wording work must not add zip support or wrapper export support
 - daily operator workflow remains unchanged
 - production/default writes are not automatically authorized
 - wrapper remains read-only

@@ -314,6 +314,26 @@ Recommended next phase:
 Phase 7.2B - missing source input wording implementation
 ```
 
+Phase 7.2B boundary smoke passed after implementation. Missing or invalid isolated bundle source inputs now have fail-closed wording coverage with `SOURCE_MISSING`, `SOURCE_INVALID`, `INVALID_OPTION_COMBINATION`, and `NO_FILES_WRITTEN`.
+
+## Phase 7.2C Contract Status
+
+The Phase 7.2C zip unsupported wording contract is defined in:
+
+```text
+docs/architecture/python_tooling_zip_unsupported_wording_contract.md
+```
+
+It targets unsupported zip/archive output requests for `report bundle export`.
+
+Recommended next phase:
+
+```text
+Phase 7.2C - zip unsupported wording implementation
+```
+
+Implementation should proceed only if current CLI/source inspection confirms an existing zip rejection surface. If no such surface exists, the implementation phase must stop and report that a separate parser-surface contract is required. Zip export remains unsupported, and no zip support should be added for testing.
+
 ## Stop Conditions
 
 Stop Phase 7 selector or follow-up phases if any of these are required:

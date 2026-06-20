@@ -265,6 +265,8 @@ Phase 7.2A implementation clarifies that rejection path with `INVALID_OPTION_COM
 
 Phase 7.2B missing source input wording contract exists in `docs/architecture/python_tooling_missing_source_input_wording_contract.md`. The implementation clarifies fail-closed wording for missing or invalid `--source-report` and `--source-manifest` inputs in `report bundle export`. Missing sources use `SOURCE_MISSING`, invalid sources use `SOURCE_INVALID`, and `--source-manifest` without `--source-report` uses `INVALID_OPTION_COMBINATION`; each path includes `NO_FILES_WRITTEN` and does not expand the write surface.
 
+Phase 7.2C zip unsupported wording contract exists in `docs/architecture/python_tooling_zip_unsupported_wording_contract.md`. Future implementation should clarify fail-closed output for zip/archive bundle requests only if the current CLI/source already has a zip rejection surface. No zip support is planned; directory bundle remains the supported real bundle form, and the wrapper remains read-only.
+
 ## Git Hygiene
 
 Do not commit:

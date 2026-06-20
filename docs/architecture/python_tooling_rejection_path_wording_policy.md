@@ -360,6 +360,31 @@ Implementation note:
 - Failure output does not use `SOURCE_UNCHANGED` or bundle/report success tokens.
 - Candidate A/B/C success output, dry-run output, wrapper behavior, and CE/runtime boundaries remain unchanged.
 
+Phase 7.2B boundary smoke passed after implementation.
+
+## Phase 7.2C Contract Status
+
+The zip unsupported wording contract exists at:
+
+```text
+docs/architecture/python_tooling_zip_unsupported_wording_contract.md
+```
+
+It targets zip/archive output requests for `report bundle export`.
+
+Recommended next phase:
+
+```text
+Phase 7.2C - zip unsupported wording implementation
+```
+
+Implementation note:
+
+- Future implementation must first confirm the current CLI/source has an existing zip rejection surface.
+- Zip/archive requests should fail closed with `ZIP_UNSUPPORTED` and, if compatible, `NO_FILES_WRITTEN`.
+- Future implementation must not enable zip export, add zip support for testing, add `--force`, modify wrapper behavior, or weaken path guards.
+- If no current zip rejection surface exists, implementation must stop and report that a separate parser-surface contract is required.
+
 ## Checkpoint Policy
 
 No new tag is recommended for this policy-only phase.
