@@ -363,6 +363,28 @@ Phase 7.4 - rejection-path wording final checkpoint smoke
 
 Do not create a Phase 7 rejection-path wording checkpoint tag until Phase 7.4 passes.
 
+## Post-Checkpoint Next Slice
+
+The Phase 7 rejection-path wording checkpoint tag is complete:
+
+```text
+python-tooling-rejection-path-wording-checkpoint-20260620
+```
+
+Next slice candidate:
+
+```text
+Phase 8.1-contract - force / overwrite unsupported wording contract
+```
+
+The contract is documented in:
+
+```text
+docs/architecture/python_tooling_force_overwrite_unsupported_wording_contract.md
+```
+
+Future implementation must first inspect current CLI/source/tests for real existing force or overwrite rejection surfaces. It must stop if no current surface exists, and it must not add `--force`, enable overwrite, weaken path guards, expand approved roots, add wrapper export shortcuts, or introduce CE/runtime behavior.
+
 ## Stop Conditions
 
 Stop Phase 7 selector or follow-up phases if any of these are required:

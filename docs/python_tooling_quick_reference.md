@@ -344,6 +344,10 @@ Current behavior is unchanged:
 - no manual export is needed to verify those rejection paths; use targeted tests, full pytest, and wrapper read-only status/inventory checks
 - zip remains unsupported and should stay fail-closed
 - Phase 7.3 checkpoint candidate docs exist at `docs/checkpoints/python_tooling_rejection_path_wording_checkpoint_candidate_20260620.md`
+- Phase 8.1 force / overwrite unsupported wording contract exists at `docs/architecture/python_tooling_force_overwrite_unsupported_wording_contract.md`
+- do not use `--force` unless a future scoped task explicitly authorizes a current supported command surface
+- do not rely on overwrite behavior; existing outputs should be treated as protected unless a command contract explicitly says otherwise
+- force/overwrite wording work must not enable overwrite or expand wrapper write support
 - daily operator workflow remains unchanged
 - production/default writes are not automatically authorized
 - wrapper remains read-only

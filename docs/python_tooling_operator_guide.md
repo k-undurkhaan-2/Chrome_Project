@@ -281,6 +281,10 @@ Operators should validate these paths through targeted tests, full pytest, and r
 
 Phase 7.3 checkpoint candidate docs are recorded in `docs/checkpoints/python_tooling_rejection_path_wording_checkpoint_candidate_20260620.md`. No tag is created until a later final checkpoint smoke passes.
 
+The Phase 7 rejection-path wording checkpoint tag is now established as `python-tooling-rejection-path-wording-checkpoint-20260620`.
+
+Phase 8.1 force / overwrite unsupported wording contract exists in `docs/architecture/python_tooling_force_overwrite_unsupported_wording_contract.md`. A future implementation may clarify fail-closed wording for existing output paths or unsupported force requests, but it must first inspect current CLI/source/tests for real current surfaces. Existing outputs should be treated as protected unless a command contract explicitly supports reuse. Validation must use pytest temp paths, not production/default report, manifest, bundle, log, config, session, intake, baseline, or registry paths.
+
 ## Git Hygiene
 
 Do not commit:

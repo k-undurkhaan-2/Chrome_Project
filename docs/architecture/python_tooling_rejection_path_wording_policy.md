@@ -416,3 +416,19 @@ Validated token rules:
 No tag is created for policy-only or checkpoint-candidate documentation phases.
 
 Consider the future `python-tooling-rejection-path-wording-checkpoint-20260620` tag only after a validation-only final checkpoint smoke confirms the Phase 7.2A, Phase 7.2B, and Phase 7.2C slices remain stable.
+
+## Force / Overwrite Unsupported Contract
+
+The force / overwrite unsupported wording contract exists at:
+
+```text
+docs/architecture/python_tooling_force_overwrite_unsupported_wording_contract.md
+```
+
+Intended tokens:
+
+- `OVERWRITE_UNSUPPORTED`
+- `FORCE_UNSUPPORTED`
+- `NO_FILES_WRITTEN`
+
+This future slice must not enable overwrite, must not enable `--force`, must not add a `--force` option only for testing, and must not write or replace existing outputs in rejection cases. If future source inspection finds no current force/overwrite rejection surface, implementation must stop and report that a separate parser-surface contract is needed.
