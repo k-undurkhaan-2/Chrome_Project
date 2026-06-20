@@ -451,3 +451,19 @@ The behavior policy is recorded in:
 ```text
 docs/architecture/python_tooling_force_overwrite_behavior_policy.md
 ```
+
+## No-Force Overwrite Rejection Contract
+
+The next precise overwrite wording slice is no-force existing-output rejection:
+
+```text
+docs/architecture/python_tooling_overwrite_without_force_wording_contract.md
+```
+
+Supported success behavior must be preserved. In particular, `report export --force` remains a supported direct Python success path and must not receive `FORCE_UNSUPPORTED`.
+
+Token scopes must avoid contradicting supported behavior:
+
+- use `OVERWRITE_UNSUPPORTED` for no-force existing-output rejection when that is the true reason
+- use `NO_FILES_WRITTEN` only when no output artifact was written
+- reserve `FORCE_UNSUPPORTED` for a real unsupported-force surface

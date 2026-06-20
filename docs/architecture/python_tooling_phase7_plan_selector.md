@@ -387,6 +387,26 @@ Future implementation must first inspect current CLI/source/tests for real exist
 
 Phase 8.1 implementation stopped correctly because `report export --force` is supported today and is tested as a successful overwrite path. The next recommended step is a behavior policy and a no-force overwrite rejection contract, not relabeling `report export --force` as unsupported.
 
+Phase 8.1-R1 behavior policy is documented in:
+
+```text
+docs/architecture/python_tooling_force_overwrite_behavior_policy.md
+```
+
+Phase 8.2 no-force overwrite rejection contract is documented in:
+
+```text
+docs/architecture/python_tooling_overwrite_without_force_wording_contract.md
+```
+
+Next recommended phase:
+
+```text
+Phase 8.2 - overwrite rejection without force wording implementation
+```
+
+The implementation must preserve current `report export --force` success behavior.
+
 ## Stop Conditions
 
 Stop Phase 7 selector or follow-up phases if any of these are required:

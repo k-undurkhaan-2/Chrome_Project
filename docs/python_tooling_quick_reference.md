@@ -349,6 +349,8 @@ Current behavior is unchanged:
 - `report export --force` currently exists and allows approved-target overwrite
 - do not treat `report export --force` as unsupported
 - overwrite rejection wording should target no-force existing-output cases
+- Phase 8.2 contract exists at `docs/architecture/python_tooling_overwrite_without_force_wording_contract.md`
+- future no-force overwrite wording must preserve `report export --force` success behavior
 - wrapper remains read-only and does not expose write-capable exports
 - daily operator workflow remains unchanged
 - production/default writes are not automatically authorized

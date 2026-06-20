@@ -150,3 +150,17 @@ Phase 8.1B-contract - overwrite rejection without force wording contract
 ```
 
 The next contract must state explicitly that `report export --force` success remains unchanged.
+
+## Phase 8.2 Follow-Up
+
+The Phase 8.2 no-force overwrite rejection contract narrows future implementation to existing-output rejection where overwrite is not authorized.
+
+`report export --force` remains supported near-term and must not be relabeled as unsupported.
+
+`FORCE_UNSUPPORTED` remains reserved and must not be used for current `report export --force`.
+
+See:
+
+```text
+docs/architecture/python_tooling_overwrite_without_force_wording_contract.md
+```

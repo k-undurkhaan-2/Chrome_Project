@@ -291,6 +291,8 @@ Use `report export --force` only when overwrite is intended, explicitly authoriz
 
 Future rejection wording should target no-force existing-output rejection. If future direction requires removing or deprecating `report export --force`, that must be handled as a separate high-risk behavior change/deprecation contract.
 
+Phase 8.2 no-force overwrite rejection contract exists in `docs/architecture/python_tooling_overwrite_without_force_wording_contract.md`. Future wording work should clarify existing-output rejection when overwrite is not authorized. `report export --force` success remains unchanged. Validation-only phases must not manually run force/export commands.
+
 ## Git Hygiene
 
 Do not commit:

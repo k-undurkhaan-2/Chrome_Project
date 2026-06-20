@@ -14,6 +14,14 @@ See:
 docs/architecture/python_tooling_force_overwrite_behavior_policy.md
 ```
 
+Phase 8.2 supersedes the broad "force/overwrite unsupported" implementation target with a precise no-force overwrite rejection target:
+
+```text
+docs/architecture/python_tooling_overwrite_without_force_wording_contract.md
+```
+
+Future implementation should target no-force overwrite rejection only and must not use `FORCE_UNSUPPORTED` for `report export --force`.
+
 ## Purpose
 
 This document defines a future narrow rejection-path wording slice for force and overwrite requests in write-capable Python tooling.
