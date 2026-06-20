@@ -478,6 +478,7 @@ def test_bundle_export_real_isolated_source_report_and_manifest_preserves_inputs
 def test_bundle_export_real_zip_is_rejected_without_writing(tmp_path: Path) -> None:
     output_path = _write_report(tmp_path)
     _write_manifest(tmp_path, [_manifest_entry(output_path=output_path)])
+    zip_path = tmp_path / "reports" / "python_tooling" / "bundles" / "bundle_real.zip"
 
     result = plan_report_bundle_export(
         dry_run=False,
@@ -488,7 +489,29 @@ def test_bundle_export_real_zip_is_rejected_without_writing(tmp_path: Path) -> N
 
     assert result.status == "BUNDLE_ZIP_EXPORT_NOT_IMPLEMENTED"
     assert result.writes_files is False
+    assert result.would_write_files is False
+    assert result.bundle_written is False
+    assert result.planned_bundle_type == "zip"
+    assert not zip_path.exists()
     assert not (tmp_path / "reports" / "python_tooling" / "bundles").exists()
+    assert not list(tmp_path.rglob("bundle_manifest.json"))
+    assert not list(tmp_path.rglob("index.md"))
+
+    formatted = format_report_bundle_export_plan(result)
+    for token in ["ZIP_UNSUPPORTED", "NO_FILES_WRITTEN"]:
+        assert token in formatted
+    for token in [
+        "BUNDLE_EXPORT_COMPLETE",
+        "BUNDLE_EXPORT_OK",
+        "SOURCE_UNCHANGED",
+        "REPORT_EXPORT_OK",
+        "WRITE_COMPLETE",
+        "MANIFEST_RECORDED",
+        "SOURCE_MISSING",
+        "SOURCE_INVALID",
+        "INVALID_OPTION_COMBINATION",
+    ]:
+        assert token not in formatted
 
 
 def test_bundle_export_real_existing_output_is_rejected_without_overwrite(tmp_path: Path) -> None:

@@ -15,6 +15,7 @@ from .report_output_messages import (
     bundle_export_complete_message,
     bundle_export_dry_run_message,
     source_input_rejection_message,
+    zip_unsupported_message,
 )
 from .safety import DEFAULT_PROJECT_ROOT
 
@@ -768,6 +769,14 @@ def format_report_bundle_export_plan(result: ReportBundleExportPlanResult) -> st
             "Field".ljust(width) + "  Value",
             "-".ljust(width, "-") + "  -----",
         ]
+    elif _uses_zip_unsupported_message(result):
+        lines = [
+            zip_unsupported_message(),
+            "",
+            "Bundle Export Details",
+            "Field".ljust(width) + "  Value",
+            "-".ljust(width, "-") + "  -----",
+        ]
     elif _uses_real_bundle_export_success_message(result):
         lines = [
             bundle_export_complete_message(
@@ -813,6 +822,14 @@ def _uses_real_bundle_export_success_message(result: ReportBundleExportPlanResul
         and result.bundle_written
         and result.writes_files
         and result.planned_bundle_type == "directory"
+    )
+
+
+def _uses_zip_unsupported_message(result: ReportBundleExportPlanResult) -> bool:
+    return (
+        not result.dry_run
+        and result.status == "BUNDLE_ZIP_EXPORT_NOT_IMPLEMENTED"
+        and result.planned_bundle_type == "zip"
     )
 
 
