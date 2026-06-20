@@ -334,6 +334,35 @@ Phase 7.2C - zip unsupported wording implementation
 
 Implementation should proceed only if current CLI/source inspection confirms an existing zip rejection surface. If no such surface exists, the implementation phase must stop and report that a separate parser-surface contract is required. Zip export remains unsupported, and no zip support should be added for testing.
 
+Phase 7.2C implementation and boundary smoke passed. The existing `report bundle export --zip` rejection path remains fail-closed with status `BUNDLE_ZIP_EXPORT_NOT_IMPLEMENTED`, includes `ZIP_UNSUPPORTED` and `NO_FILES_WRITTEN`, does not enable zip support, and preserves Candidate A/B/C, Phase 7.2A, Phase 7.2B, and dry-run behavior.
+
+## Phase 7.3 Checkpoint Candidate Status
+
+The Phase 7.3 rejection-path wording checkpoint candidate is documented in:
+
+```text
+docs/checkpoints/python_tooling_rejection_path_wording_checkpoint_candidate_20260620.md
+```
+
+Current recorded status:
+
+- Phase 7.2A implementation and boundary smoke: PASS
+- Phase 7.2B implementation and boundary smoke: PASS
+- Phase 7.2C implementation and boundary smoke: PASS
+- stable rejection tokens: `INVALID_OPTION_COMBINATION`, `SOURCE_MISSING`, `SOURCE_INVALID`, `ZIP_UNSUPPORTED`, `NO_FILES_WRITTEN`
+- write surface remains `writes_files_count = 2`
+- CE surface remains `runs_ce_count = 0`
+- wrapper remains read-only
+- zip export and `--force` remain unsupported
+
+Recommended next phase:
+
+```text
+Phase 7.4 - rejection-path wording final checkpoint smoke
+```
+
+Do not create a Phase 7 rejection-path wording checkpoint tag until Phase 7.4 passes.
+
 ## Stop Conditions
 
 Stop Phase 7 selector or follow-up phases if any of these are required:

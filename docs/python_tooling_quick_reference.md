@@ -338,6 +338,12 @@ Current behavior is unchanged:
 - Phase 7.2C zip unsupported wording contract exists: `docs/architecture/python_tooling_zip_unsupported_wording_contract.md`
 - zip export remains unsupported; directory bundle remains the supported real bundle form
 - future zip wording work must not add zip support or wrapper export support
+- Phase 7.2A, Phase 7.2B, and Phase 7.2C rejection-path wording slices are implemented and smoke-validated
+- validated rejection/no-write tokens are `INVALID_OPTION_COMBINATION`, `SOURCE_MISSING`, `SOURCE_INVALID`, `ZIP_UNSUPPORTED`, and `NO_FILES_WRITTEN`
+- success tokens such as `SOURCE_UNCHANGED`, `BUNDLE_EXPORT_OK`, `BUNDLE_EXPORT_COMPLETE`, `REPORT_EXPORT_OK`, `MANIFEST_RECORDED`, and `WRITE_COMPLETE` must not appear in rejection outputs
+- no manual export is needed to verify those rejection paths; use targeted tests, full pytest, and wrapper read-only status/inventory checks
+- zip remains unsupported and should stay fail-closed
+- Phase 7.3 checkpoint candidate docs exist at `docs/checkpoints/python_tooling_rejection_path_wording_checkpoint_candidate_20260620.md`
 - daily operator workflow remains unchanged
 - production/default writes are not automatically authorized
 - wrapper remains read-only

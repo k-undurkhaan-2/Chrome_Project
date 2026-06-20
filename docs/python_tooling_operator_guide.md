@@ -267,6 +267,20 @@ Phase 7.2B missing source input wording contract exists in `docs/architecture/py
 
 Phase 7.2C zip unsupported wording contract exists in `docs/architecture/python_tooling_zip_unsupported_wording_contract.md`. Future implementation should clarify fail-closed output for zip/archive bundle requests only if the current CLI/source already has a zip rejection surface. No zip support is planned; directory bundle remains the supported real bundle form, and the wrapper remains read-only.
 
+Phase 7.2A, Phase 7.2B, and Phase 7.2C rejection-path wording slices are now implemented and smoke-validated. Current validated fail-closed cases include:
+
+- `report export --manifest-out <path>` without `--record-manifest`
+- missing or invalid `report bundle export --source-report`
+- missing or invalid `report bundle export --source-manifest`
+- `report bundle export --source-manifest <manifest>` without `--source-report`
+- unsupported `report bundle export --zip`
+
+These failures are no-write paths. They use stable tokens such as `INVALID_OPTION_COMBINATION`, `SOURCE_MISSING`, `SOURCE_INVALID`, `ZIP_UNSUPPORTED`, and `NO_FILES_WRITTEN`, and they must not include success tokens such as `SOURCE_UNCHANGED`, `BUNDLE_EXPORT_OK`, `BUNDLE_EXPORT_COMPLETE`, `REPORT_EXPORT_OK`, `MANIFEST_RECORDED`, or `WRITE_COMPLETE`.
+
+Operators should validate these paths through targeted tests, full pytest, and read-only wrapper status/inventory checks. Do not use the wrapper for write-capable exports. Do not manually run export, dry-run, `--record-manifest`, or bundle export commands during validation-only smoke tasks unless a future task explicitly authorizes that exact command and output path.
+
+Phase 7.3 checkpoint candidate docs are recorded in `docs/checkpoints/python_tooling_rejection_path_wording_checkpoint_candidate_20260620.md`. No tag is created until a later final checkpoint smoke passes.
+
 ## Git Hygiene
 
 Do not commit:

@@ -365,6 +365,8 @@ Phase 7.0 adds the post-real-write-validation next-work selector in `docs/archit
 
 Phase 7.1 adds the rejection-path wording policy in `docs/architecture/python_tooling_rejection_path_wording_policy.md`. The policy defines future fail-closed wording categories, token rules, testing expectations, boundaries, and stop conditions for errors such as `BAD_PATH`, protected path rejection, overwrite refusal, zip unsupported, invalid option combinations, missing source inputs, wrapper unsupported, `CE_NOT_RUN`, and dry-run no-write output. No implementation is added; runtime mutation, wrapper write support, production/default writes, zip export, and `--force` remain deferred.
 
+Phase 7.3 prepares the rejection-path wording checkpoint candidate after Phase 7.2A, Phase 7.2B, and Phase 7.2C implementation/boundary smokes passed. Final smoke and tag creation remain pending; no new write surface, CE behavior, wrapper export support, zip support, or production/default write authorization is introduced.
+
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 
 - Define request formats.

@@ -385,8 +385,34 @@ Implementation note:
 - Future implementation must not enable zip export, add zip support for testing, add `--force`, modify wrapper behavior, or weaken path guards.
 - If no current zip rejection surface exists, implementation must stop and report that a separate parser-surface contract is required.
 
+Phase 7.2C implementation and boundary smoke passed. The existing zip rejection path remains fail-closed with status `BUNDLE_ZIP_EXPORT_NOT_IMPLEMENTED`, includes `ZIP_UNSUPPORTED` and `NO_FILES_WRITTEN`, does not create zip or bundle artifacts, and does not enable zip support.
+
+## Validated Slices
+
+Phase 7 policy now has three validated examples:
+
+- Phase 7.2A invalid option combination: `report export --manifest-out <path>` without `--record-manifest`.
+- Phase 7.2B missing or invalid bundle source input: `--source-report`, `--source-manifest`, and `--source-manifest` without `--source-report`.
+- Phase 7.2C unsupported zip output: `report bundle export --zip`.
+
+Validated rejection/no-write tokens:
+
+- `INVALID_OPTION_COMBINATION`
+- `SOURCE_MISSING`
+- `SOURCE_INVALID`
+- `ZIP_UNSUPPORTED`
+- `NO_FILES_WRITTEN`
+
+Validated token rules:
+
+- success tokens must stay out of rejection output
+- `SOURCE_UNCHANGED` is success-only and must not appear in source rejection output
+- `NO_FILES_WRITTEN` must be used only when the command did not write output artifacts
+- unsupported features such as zip export and `--force` must not become enabled through wording tasks
+- rejection wording must not imply wrapper write support, CE execution, or production/default write authorization
+
 ## Checkpoint Policy
 
-No new tag is recommended for this policy-only phase.
+No tag is created for policy-only or checkpoint-candidate documentation phases.
 
-Consider a future checkpoint only after at least one implemented rejection-path slice passes targeted tests, full pytest, command inventory checks, and no-runtime-artifact validation.
+Consider the future `python-tooling-rejection-path-wording-checkpoint-20260620` tag only after a validation-only final checkpoint smoke confirms the Phase 7.2A, Phase 7.2B, and Phase 7.2C slices remain stable.
