@@ -489,3 +489,21 @@ Guardrails:
 - `report export --force` remains success behavior and must not receive `FORCE_UNSUPPORTED`
 - no-write tokens apply only to actual no-write rejection paths
 - manifest existing-file behavior remains append/preflight unless a future contract changes it
+
+## Approved-Root / Path-Guard Rejection Contract
+
+The approved-root / path-guard rejection wording contract exists at:
+
+```text
+docs/architecture/python_tooling_path_guard_rejection_wording_contract.md
+```
+
+Target tokens:
+
+- `PATH_GUARD_REJECTED`
+- `OUTSIDE_APPROVED_ROOT`
+- `NO_FILES_WRITTEN`
+
+The slice must not weaken path guards, expand approved roots, add write destinations, or imply wrapper write support.
+
+Existing `BAD_PATH` wording may be preserved only if current implementation already uses it for the same guard semantics.

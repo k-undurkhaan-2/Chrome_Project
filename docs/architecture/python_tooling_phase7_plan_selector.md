@@ -418,6 +418,28 @@ Phase 8.4 - no-force overwrite rejection final checkpoint smoke
 
 Do not create the no-force overwrite checkpoint tag until the final checkpoint smoke passes.
 
+## Phase 9 Path-Guard Rejection Slice
+
+The Phase 8 no-force overwrite checkpoint tag is complete:
+
+```text
+python-tooling-no-force-overwrite-rejection-checkpoint-20260620
+```
+
+Phase 9.1 contract is documented in:
+
+```text
+docs/architecture/python_tooling_path_guard_rejection_wording_contract.md
+```
+
+Next recommended phase:
+
+```text
+Phase 9.1 - approved-root / path-guard rejection wording implementation
+```
+
+The implementation is conditional on real current guard surfaces and must not weaken path guards, expand approved roots, add write destinations, run CE, or add wrapper export shortcuts.
+
 ## Stop Conditions
 
 Stop Phase 7 selector or follow-up phases if any of these are required:

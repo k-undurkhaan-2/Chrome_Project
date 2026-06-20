@@ -293,6 +293,8 @@ Future rejection wording should target no-force existing-output rejection. If fu
 
 Phase 8.2 no-force overwrite rejection implementation clarifies existing-output rejection when overwrite is not authorized. Implemented surfaces are `report export --out <existing-file>` without `--force`, `report bundle export --out <existing-directory>`, and `report bundle export --out <existing-file>`. These failures use `OVERWRITE_UNSUPPORTED` and `NO_FILES_WRITTEN`, and the existing output path is rejected without writing. `report export --record-manifest --manifest-out <existing-file>` remains append/preflight semantics, not overwrite rejection. `report export --force` success remains unchanged and remains direct Python CLI behavior only; do not use it in validation-only smoke. The wrapper remains read-only and does not expose write-capable exports.
 
+Phase 9.1 path guard rejection wording is the next planned narrow slice. Future implementation must not loosen path safety, must not expand approved roots, and must not add write destinations. Validation-only phases must not manually run report export, dry-run, manifest recording, or bundle export commands.
+
 ## Git Hygiene
 
 Do not commit:
