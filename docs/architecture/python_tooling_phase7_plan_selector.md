@@ -467,13 +467,33 @@ docs/architecture/python_tooling_source_manifest_parse_rejection_contract.md
 
 The contract targets existing but malformed or semantically invalid `--source-manifest` files for `report bundle export`. It keeps missing/non-file source inputs under Phase 7.2B and path-guard source manifest failures under Phase 9.1.
 
+Recorded status:
+
+```text
+Phase 10.1 contract: completed
+Phase 10.2 implementation: STOPPED
+Phase 10.2-R1 behavior policy: current
+```
+
+Phase 10.2 stopped because isolated `--source-manifest` is path/file validated but content-unparsed today. The behavior policy is documented in:
+
+```text
+docs/architecture/python_tooling_source_manifest_behavior_policy.md
+```
+
 Next recommended phase:
 
 ```text
-Phase 10.1 - source manifest parse/invalid rejection wording implementation
+Phase 10.3-contract - default manifest parse rejection wording contract
 ```
 
-Implementation should proceed only if source/help/test inspection confirms a real current source-manifest parse or invalid-content rejection surface. If no such surface exists, implementation must stop and report that a separate manifest-validation surface contract is needed.
+Alternative path:
+
+```text
+Phase 10.x-contract - isolated source-manifest validation surface contract
+```
+
+Implementation should target the default manifest parse surface first because `_analyze_existing_manifest()` / `_parse_manifest_line()` already return `INVALID_MANIFEST` for malformed default manifests.
 
 ## Stop Conditions
 

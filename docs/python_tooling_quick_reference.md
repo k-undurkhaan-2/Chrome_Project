@@ -374,6 +374,10 @@ Current behavior is unchanged:
 - missing/non-file source manifests remain Phase 7.2B source input rejection
 - path-guarded source manifests remain Phase 9.1 path-guard rejection
 - validation should use pytest temp paths and read-only status/inventory checks, not manual export, dry-run, `--record-manifest`, or bundle export commands
+- Phase 10.2 stopped: isolated `--source-manifest` is path/file checked but content-unparsed today
+- malformed content validation for isolated `--source-manifest` is not active
+- default manifest parse failures are a separate existing surface using `INVALID_MANIFEST`
+- wrapper remains read-only
 
 ## Known Non-Goals
 

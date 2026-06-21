@@ -375,6 +375,8 @@ Phase 9.2 prepares the path-guard rejection checkpoint candidate after Phase 9.1
 
 Phase 10.1 prepares the source manifest parse / invalid-content rejection wording contract for future `report bundle export --source-manifest <existing but malformed/invalid manifest>` failures. Implementation remains pending and must first confirm real current manifest parse/invalid surfaces without weakening path guards, expanding approved roots, or adding write destinations.
 
+Phase 10.2 source-manifest parse implementation stopped because isolated `--source-manifest` is currently path/file validated but content-unparsed. Phase 10.2-R1 prepares the behavior policy and redirects the next wording target toward default manifest parse rejection or a separate isolated source-manifest validation surface contract.
+
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 
 - Define request formats.

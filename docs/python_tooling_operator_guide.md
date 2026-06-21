@@ -299,6 +299,8 @@ Phase 9.1 boundary smoke passed. It confirmed status `SAFE`, report inventory `w
 
 Phase 10.1 source manifest parse / invalid-content rejection contract exists in `docs/architecture/python_tooling_source_manifest_parse_rejection_contract.md`. It plans the next narrow wording slice for `report bundle export --source-manifest <existing but malformed/invalid manifest>`. Future implementation must keep missing/non-file source input wording separate from manifest parse failures, must keep path-guard failures under Phase 9.1, and must not weaken source/path validation. Validation-only phases must not manually run export, dry-run, `--record-manifest`, or bundle export commands.
 
+Phase 10.2 stopped because isolated `--source-manifest` content is not parsed today. In isolated bundle mode, `--source-manifest` is path/file checked and preserved as an input reference, while default manifest parsing remains a separate surface handled by `_analyze_existing_manifest()` / `_parse_manifest_line()` and `INVALID_MANIFEST`. Do not assume isolated `--source-manifest` content validation is active, and do not manually run export commands during validation-only phases.
+
 ## Git Hygiene
 
 Do not commit:

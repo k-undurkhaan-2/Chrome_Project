@@ -1,5 +1,19 @@
 # Python Tooling Source Manifest Parse Rejection Contract
 
+## Phase 10.2 Correction Note
+
+Phase 10.2 implementation STOPPED after source inspection found that isolated `report bundle export --source-manifest` content is not parsed today.
+
+This document must not be interpreted as authorizing new isolated source-manifest content parsing behavior. Any future isolated `--source-manifest` content validation requires a separate behavior/surface contract.
+
+Current wording implementation should target only real current surfaces. The existing default manifest parse path may be a separate next slice:
+
+```text
+_analyze_existing_manifest()
+_parse_manifest_line()
+INVALID_MANIFEST
+```
+
 ## Purpose
 
 This contract defines a narrow future wording slice for:
@@ -323,4 +337,10 @@ Future implementation must STOP if:
 Phase 10.1 - source manifest parse/invalid rejection wording implementation
 ```
 
-This is conditional on source/help/test inspection confirming real current source-manifest parse or invalid-content rejection surfaces.
+This is superseded by the Phase 10.2 STOP result for isolated `--source-manifest`. The recommended near-term next phase is:
+
+```text
+Phase 10.3-contract - default manifest parse rejection wording contract
+```
+
+An isolated source-manifest parse implementation should proceed only after a separate isolated source-manifest validation surface contract defines the behavior.

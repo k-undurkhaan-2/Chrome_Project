@@ -547,3 +547,5 @@ Target tokens:
 - `NO_FILES_WRITTEN`
 
 This slice is for `report bundle export --source-manifest <existing but malformed/invalid manifest>` only. It must not replace Phase 7.2B missing/non-file source input wording (`SOURCE_MISSING` / `SOURCE_INVALID`) or Phase 9.1 path-guard wording (`PATH_GUARD_REJECTED`, `BAD_PATH`, `PATH_REJECTED`).
+
+Phase 10.2 is the current behavior-policy example: source inspection found no isolated `--source-manifest` parse/invalid rejection surface because isolated bundle mode validates path/file safety but does not parse manifest content. Rejection-path wording tasks must not introduce new validation behavior. If inspection finds the requested rejection path does not exist, implementation must stop and record a behavior policy before any code change.
