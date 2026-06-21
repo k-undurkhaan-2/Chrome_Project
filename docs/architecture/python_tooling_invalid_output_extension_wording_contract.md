@@ -2,11 +2,41 @@
 
 ## Purpose
 
-This contract defines a future narrow wording slice for invalid output extension / unsupported output type rejections in Python report tooling.
+This contract defines a narrow wording slice for invalid output extension / unsupported output type rejections in Python report tooling.
 
 This is documentation only. It does not implement behavior, enable new output formats, add commands or options, modify Python source or tests, modify the read-only wrapper, run CE, or authorize report/bundle writes.
 
-Future implementation must clarify only real current rejection surfaces. It must not weaken path guards, expand approved roots, add write destinations, or convert an unsupported output type into a supported format.
+Implementation clarified only real current rejection surfaces. It did not weaken path guards, expand approved roots, add write destinations, or convert an unsupported output type into a supported format.
+
+## Current Status
+
+Phase 11 status:
+
+```text
+Phase 11.1 contract: completed
+Phase 11.2 implementation: completed
+Phase 11.3 boundary smoke: PASS
+Phase 11.4 checkpoint candidate docs: current
+Final checkpoint smoke: pending
+```
+
+Implemented surfaces:
+
+```text
+report export --out <unsupported-extension>
+report export --record-manifest --manifest-out <unsupported-extension>
+report bundle export --out <file-like path>
+```
+
+Skipped / non-target surface:
+
+```text
+report bundle export --out <path.zip> --zip
+```
+
+This remains Phase 7.2C zip unsupported with `ZIP_UNSUPPORTED` / `BUNDLE_ZIP_EXPORT_NOT_IMPLEMENTED`.
+
+Phase 11.3 boundary smoke validated `status overview = SAFE`, `writes_files_count = 2`, `runs_ce_count = 0`, wrapper read-only behavior, targeted tests, prior-slice regression tests, full pytest, no runtime artifacts, unchanged protected hashes, and clean final git status.
 
 ## Baseline
 
@@ -257,10 +287,10 @@ Future implementation must STOP if:
 
 ## Recommended Next Phase
 
-Recommended next phase, conditional on real current surfaces:
+Recommended next phase:
 
 ```text
-Phase 11.1 - invalid output extension / output type rejection wording implementation
+Phase 11.5 - invalid output extension rejection final checkpoint smoke
 ```
 
-If the implementation uses a separate next-numbered task, it should preserve the same scope and explicitly state that it is implementation-only and conditional on current source/help/test surfaces.
+Do not create `python-tooling-invalid-output-extension-rejection-checkpoint-20260621` until the final checkpoint smoke passes.

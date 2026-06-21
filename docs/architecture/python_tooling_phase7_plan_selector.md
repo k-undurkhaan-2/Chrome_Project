@@ -544,7 +544,10 @@ docs/architecture/python_tooling_invalid_output_extension_wording_contract.md
 Recorded status:
 
 ```text
-Phase 11.1 contract: current
+Phase 11.1 contract: completed
+Phase 11.2 implementation: completed
+Phase 11.3 boundary smoke: PASS
+Phase 11.4 checkpoint candidate docs: current
 ```
 
 Target tokens:
@@ -553,13 +556,29 @@ Target tokens:
 - `OUTPUT_TYPE_UNSUPPORTED`
 - `NO_FILES_WRITTEN`
 
+Implemented surfaces:
+
+```text
+report export --out <unsupported-extension>
+report export --record-manifest --manifest-out <unsupported-extension>
+report bundle export --out <file-like path>
+```
+
+Skipped surface:
+
+```text
+report bundle export --out <path.zip> --zip
+```
+
+This remains Phase 7.2C `ZIP_UNSUPPORTED` / `BUNDLE_ZIP_EXPORT_NOT_IMPLEMENTED`.
+
 Next recommended phase:
 
 ```text
-Phase 11.1 - invalid output extension / output type rejection wording implementation
+Phase 11.5 - invalid output extension rejection final checkpoint smoke
 ```
 
-The implementation phase must first inspect current source/help/tests and STOP if no current invalid output extension/type rejection surface exists. It must not enable new output formats, add options, weaken path guards, expand approved roots, or add write destinations.
+Do not create `python-tooling-invalid-output-extension-rejection-checkpoint-20260621` until the final checkpoint smoke passes. The Phase 11 line must continue to avoid new output formats, new options, path guard weakening, approved-root expansion, and new write destinations.
 
 ## Stop Conditions
 

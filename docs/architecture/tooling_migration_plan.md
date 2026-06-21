@@ -383,6 +383,8 @@ Phase 10 default manifest parse rejection checkpoint is established as `python-t
 
 Phase 11.1 prepares the invalid output extension / output type rejection wording contract. It is docs-only, does not enable new output formats, and requires any future implementation to inspect current source/help/tests and stop if no real current rejection surface exists.
 
+Phase 11.4 prepares the invalid output extension rejection checkpoint candidate after Phase 11.2 implementation and Phase 11.3 boundary smoke passed. Final smoke and tag creation remain pending; no new output format, command, option, write destination, wrapper export shortcut, or CE/runtime behavior is introduced.
+
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 
 - Define request formats.

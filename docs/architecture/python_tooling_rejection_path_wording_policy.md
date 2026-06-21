@@ -598,3 +598,15 @@ Target tokens:
 This slice is for output paths rejected because the extension, output type, or output form is invalid or unsupported. It must not replace path guard, overwrite, zip unsupported, source input, or default manifest parse rejection semantics.
 
 Wording work must not enable new output formats, add commands or options, weaken path guards, expand approved roots, or add write destinations. Future implementation must first inspect current source/help/tests and STOP if no real current invalid output extension/type rejection surface exists.
+
+Validated status:
+
+- Phase 11.2 implemented invalid output extension/type wording for current surfaces only.
+- Phase 11.3 boundary smoke passed.
+- Implemented surfaces are `report export --out <unsupported-extension>`, `report export --record-manifest --manifest-out <unsupported-extension>`, and `report bundle export --out <file-like path>`.
+- `OUTPUT_EXTENSION_INVALID` is scoped to unsupported report/manifest output extensions.
+- `OUTPUT_TYPE_UNSUPPORTED` is scoped to unsupported bundle output form or file-like targets.
+- `NO_FILES_WRITTEN` indicates fail-closed rejection before output artifacts are written.
+- `.zip` / zip requests remain `ZIP_UNSUPPORTED` and are not reclassified as generic output type failures.
+
+This is another validated example that wording work may clarify an existing rejection surface but must not enable output formats or move adjacent-domain tokens out of their scoped domains.

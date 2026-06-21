@@ -386,8 +386,12 @@ Current behavior is unchanged:
 - Phase 10.6 checkpoint candidate docs exist at `docs/checkpoints/python_tooling_default_manifest_parse_rejection_checkpoint_candidate_20260621.md`
 - default manifest parse checkpoint tag is `python-tooling-default-manifest-parse-rejection-checkpoint-20260621`
 - Phase 11.1 invalid output extension/type contract exists at `docs/architecture/python_tooling_invalid_output_extension_wording_contract.md`
-- future invalid output extension/type wording targets `OUTPUT_EXTENSION_INVALID`, `OUTPUT_TYPE_UNSUPPORTED`, and `NO_FILES_WRITTEN`
-- future implementation must first inspect current source/help/tests and STOP if no current rejection surface exists; do not enable new output formats through wording work
+- Phase 11.2 implemented invalid output extension/type wording for current surfaces only, and Phase 11.3 boundary smoke passed
+- invalid output extension/type wording uses `OUTPUT_EXTENSION_INVALID`, `OUTPUT_TYPE_UNSUPPORTED`, and `NO_FILES_WRITTEN`
+- implemented surfaces are `report export --out <unsupported-extension>`, `report export --record-manifest --manifest-out <unsupported-extension>`, and `report bundle export --out <file-like path>`
+- `.zip` / zip requests remain `ZIP_UNSUPPORTED`; no new output formats were enabled
+- validate this rejection line with pytest and read-only status/inventory, not manual export commands
+- wrapper remains read-only and does not expose write-capable report/bundle export commands
 
 ## Known Non-Goals
 
