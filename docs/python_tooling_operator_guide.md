@@ -297,6 +297,8 @@ Phase 9.1 path guard rejection wording is implemented as a narrow output-only sl
 
 Phase 9.1 boundary smoke passed. It confirmed status `SAFE`, report inventory `writes_files_count=2`, `runs_ce_count=0`, wrapper read-only behavior, targeted path-guard tests, full pytest, unchanged protected hashes, and no runtime report, manifest, bundle, validation, or docs-report artifacts. Phase 9.2 checkpoint candidate docs are recorded in `docs/checkpoints/python_tooling_path_guard_rejection_checkpoint_candidate_20260620.md`; do not create the path-guard checkpoint tag until a later final checkpoint smoke passes.
 
+Phase 10.1 source manifest parse / invalid-content rejection contract exists in `docs/architecture/python_tooling_source_manifest_parse_rejection_contract.md`. It plans the next narrow wording slice for `report bundle export --source-manifest <existing but malformed/invalid manifest>`. Future implementation must keep missing/non-file source input wording separate from manifest parse failures, must keep path-guard failures under Phase 9.1, and must not weaken source/path validation. Validation-only phases must not manually run export, dry-run, `--record-manifest`, or bundle export commands.
+
 ## Git Hygiene
 
 Do not commit:

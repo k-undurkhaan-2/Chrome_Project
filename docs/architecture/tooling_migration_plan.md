@@ -373,6 +373,8 @@ Phase 9.1 implements approved-root / path-guard rejection wording for current re
 
 Phase 9.2 prepares the path-guard rejection checkpoint candidate after Phase 9.1 boundary smoke passed. Final smoke and tag creation remain pending.
 
+Phase 10.1 prepares the source manifest parse / invalid-content rejection wording contract for future `report bundle export --source-manifest <existing but malformed/invalid manifest>` failures. Implementation remains pending and must first confirm real current manifest parse/invalid surfaces without weakening path guards, expanding approved roots, or adding write destinations.
+
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 
 - Define request formats.

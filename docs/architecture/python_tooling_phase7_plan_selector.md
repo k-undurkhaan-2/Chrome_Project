@@ -451,6 +451,30 @@ Phase 9.3 - path-guard rejection final checkpoint smoke
 
 Do not create the path-guard rejection checkpoint tag until the final checkpoint smoke passes.
 
+## Phase 10 Source Manifest Parse / Invalid Rejection Slice
+
+The Phase 9 path-guard rejection checkpoint tag is complete:
+
+```text
+python-tooling-path-guard-rejection-checkpoint-20260620
+```
+
+Phase 10.1 source manifest parse / invalid-content rejection contract is documented in:
+
+```text
+docs/architecture/python_tooling_source_manifest_parse_rejection_contract.md
+```
+
+The contract targets existing but malformed or semantically invalid `--source-manifest` files for `report bundle export`. It keeps missing/non-file source inputs under Phase 7.2B and path-guard source manifest failures under Phase 9.1.
+
+Next recommended phase:
+
+```text
+Phase 10.1 - source manifest parse/invalid rejection wording implementation
+```
+
+Implementation should proceed only if source/help/test inspection confirms a real current source-manifest parse or invalid-content rejection surface. If no such surface exists, implementation must stop and report that a separate manifest-validation surface contract is needed.
+
 ## Stop Conditions
 
 Stop Phase 7 selector or follow-up phases if any of these are required:

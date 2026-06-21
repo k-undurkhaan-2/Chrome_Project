@@ -369,6 +369,11 @@ Current behavior is unchanged:
 - Phase 9.1 boundary smoke passed with status `SAFE`, `writes_files_count=2`, `runs_ce_count=0`, wrapper read-only, targeted tests, full pytest, and no runtime report/manifest/bundle artifacts
 - Phase 9.2 checkpoint candidate docs exist at `docs/checkpoints/python_tooling_path_guard_rejection_checkpoint_candidate_20260620.md`
 - do not create `python-tooling-path-guard-rejection-checkpoint-20260620` until a later final checkpoint smoke passes
+- Phase 10.1 source manifest parse / invalid-content rejection contract exists at `docs/architecture/python_tooling_source_manifest_parse_rejection_contract.md`
+- malformed or semantically invalid existing `--source-manifest` files should use future `MANIFEST_PARSE_FAILED` or `MANIFEST_INVALID` wording with `NO_FILES_WRITTEN`
+- missing/non-file source manifests remain Phase 7.2B source input rejection
+- path-guarded source manifests remain Phase 9.1 path-guard rejection
+- validation should use pytest temp paths and read-only status/inventory checks, not manual export, dry-run, `--record-manifest`, or bundle export commands
 
 ## Known Non-Goals
 

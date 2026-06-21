@@ -531,3 +531,19 @@ Compatibility and guardrails:
 - Guard tokens must stay scoped to guard rejections.
 - Path-guard wording must not weaken guard behavior, expand approved roots, add write destinations, or imply wrapper write support.
 - Missing/invalid source input, zip unsupported, no-force overwrite, and extension-only validation remain separate wording slices.
+
+## Source Manifest Parse / Invalid Content Contract
+
+The source manifest parse / invalid-content rejection wording contract exists at:
+
+```text
+docs/architecture/python_tooling_source_manifest_parse_rejection_contract.md
+```
+
+Target tokens:
+
+- `MANIFEST_PARSE_FAILED`
+- `MANIFEST_INVALID`
+- `NO_FILES_WRITTEN`
+
+This slice is for `report bundle export --source-manifest <existing but malformed/invalid manifest>` only. It must not replace Phase 7.2B missing/non-file source input wording (`SOURCE_MISSING` / `SOURCE_INVALID`) or Phase 9.1 path-guard wording (`PATH_GUARD_REJECTED`, `BAD_PATH`, `PATH_REJECTED`).
