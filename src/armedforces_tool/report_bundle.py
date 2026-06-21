@@ -16,6 +16,7 @@ from .report_output_messages import (
     bundle_export_dry_run_message,
     default_manifest_rejection_message,
     overwrite_rejection_message,
+    output_type_rejection_message,
     path_guard_rejection_message,
     source_input_rejection_message,
     zip_unsupported_message,
@@ -756,7 +757,22 @@ def format_report_bundle_export_plan(result: ReportBundleExportPlanResult) -> st
         ("runs_ce", result.runs_ce),
     ]
     width = max(len(label) for label, _ in rows)
-    if _uses_bundle_path_guard_rejection_message(result):
+    if _uses_bundle_output_type_rejection_message(result):
+        lines = [
+            output_type_rejection_message(
+                output_option="--out",
+                rejected_path=_display(result.planned_output_path),
+                expected_output="directory bundle output path without a file extension",
+                conclusion="BUNDLE_EXPORT_REJECTED",
+                legacy_status=result.status,
+                detail=_first_error(result.errors),
+            ),
+            "",
+            "Bundle Export Details",
+            "Field".ljust(width) + "  Value",
+            "-".ljust(width, "-") + "  -----",
+        ]
+    elif _uses_bundle_path_guard_rejection_message(result):
         lines = [
             path_guard_rejection_message(
                 rejected_path=_display(_bundle_rejected_path(result)),
@@ -885,6 +901,15 @@ def _uses_bundle_path_guard_rejection_message(result: ReportBundleExportPlanResu
     return not result.dry_run and result.status == "BAD_PATH" and _bundle_has_path_guard_error(result.errors)
 
 
+def _uses_bundle_output_type_rejection_message(result: ReportBundleExportPlanResult) -> bool:
+    return (
+        not result.dry_run
+        and result.status == "BAD_PATH"
+        and _bundle_has_output_type_error(result.errors)
+        and not _bundle_has_path_guard_error(result.errors)
+    )
+
+
 def _uses_source_input_rejection_message(result: ReportBundleExportPlanResult) -> bool:
     return not result.dry_run and result.status in {
         "SOURCE_MISSING",
@@ -902,6 +927,10 @@ def _default_manifest_reason_token(errors: list[str]) -> str:
     if "invalid json" in joined_errors or "failed to read manifest" in joined_errors:
         return "MANIFEST_PARSE_FAILED"
     return "MANIFEST_INVALID"
+
+
+def _bundle_has_output_type_error(errors: list[str]) -> bool:
+    return any("directory bundle output must be a directory path without a file extension" in error for error in errors)
 
 
 def _bundle_has_path_guard_error(errors: list[str]) -> bool:

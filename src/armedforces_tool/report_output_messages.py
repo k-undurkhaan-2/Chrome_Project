@@ -199,6 +199,62 @@ def path_guard_rejection_message(
     return _format_message("Path Guard Rejected", fields, notes)
 
 
+def output_extension_rejection_message(
+    *,
+    output_option: str,
+    rejected_path: str,
+    expected_extension: str,
+    conclusion: str,
+    legacy_status: str | None = None,
+    detail: str | None = None,
+) -> str:
+    fields: list[tuple[str, object]] = [
+        ("status", "OUTPUT_EXTENSION_INVALID"),
+        ("write_status", "NO_FILES_WRITTEN"),
+        ("output_option", output_option),
+        ("rejected_path", rejected_path),
+        ("expected_extension", expected_extension),
+        ("conclusion", conclusion),
+    ]
+    if legacy_status:
+        fields.insert(1, ("legacy_status", legacy_status))
+    notes = [
+        "No report file, manifest file, bundle directory, bundle_manifest.json, index.md, copied report, or zip was written."
+    ]
+    if detail:
+        notes.insert(0, detail)
+    notes.append("Use the supported output extension for this command.")
+    return _format_message("Output Extension Rejected", fields, notes)
+
+
+def output_type_rejection_message(
+    *,
+    output_option: str,
+    rejected_path: str,
+    expected_output: str,
+    conclusion: str,
+    legacy_status: str | None = None,
+    detail: str | None = None,
+) -> str:
+    fields: list[tuple[str, object]] = [
+        ("status", "OUTPUT_TYPE_UNSUPPORTED"),
+        ("write_status", "NO_FILES_WRITTEN"),
+        ("output_option", output_option),
+        ("rejected_path", rejected_path),
+        ("expected_output", expected_output),
+        ("conclusion", conclusion),
+    ]
+    if legacy_status:
+        fields.insert(1, ("legacy_status", legacy_status))
+    notes = [
+        "No report file, manifest file, bundle directory, bundle_manifest.json, index.md, copied report, or zip was written."
+    ]
+    if detail:
+        notes.insert(0, detail)
+    notes.append("Use the supported output form for this command.")
+    return _format_message("Output Type Rejected", fields, notes)
+
+
 def overwrite_rejection_message(*, rejected_path: str) -> str:
     return _format_message(
         "Report Output Overwrite Rejected",
@@ -329,6 +385,8 @@ __all__ = [
     "default_manifest_rejection_message",
     "invalid_option_combination_message",
     "overwrite_rejection_message",
+    "output_extension_rejection_message",
+    "output_type_rejection_message",
     "path_guard_rejection_message",
     "report_export_complete_message",
     "report_export_dry_run_message",

@@ -578,6 +578,87 @@ def test_non_markdown_extension_is_rejected(tmp_path: Path) -> None:
     assert any(".md" in error for error in result.errors)
 
 
+def test_real_export_non_markdown_extension_uses_output_extension_wording_without_write(tmp_path: Path) -> None:
+    result = plan_report_export(
+        report_type="full-status",
+        dry_run=False,
+        out="reports/python_tooling/full_status.txt",
+        project_root=tmp_path,
+    )
+    formatted = format_report_export_dry_run(result)
+
+    assert result.conclusion == "REPORT_EXPORT_REJECTED"
+    assert result.wrote_file is False
+    assert result.writes_files is False
+    assert any("target path must use the .md extension" in error for error in result.errors)
+    assert not (tmp_path / "reports" / "python_tooling" / "full_status.txt").exists()
+    assert "OUTPUT_EXTENSION_INVALID" in formatted
+    assert "NO_FILES_WRITTEN" in formatted
+    assert "--out" in formatted
+    assert ".md" in formatted
+    for forbidden in [
+        "REPORT_EXPORT_OK",
+        "WRITE_COMPLETE",
+        "MANIFEST_RECORDED",
+        "BUNDLE_EXPORT_COMPLETE",
+        "BUNDLE_EXPORT_OK",
+        "SOURCE_UNCHANGED",
+        "SOURCE_MISSING",
+        "SOURCE_INVALID",
+        "MANIFEST_PARSE_FAILED",
+        "MANIFEST_INVALID",
+        "PATH_GUARD_REJECTED",
+        "OUTSIDE_APPROVED_ROOT",
+        "OVERWRITE_UNSUPPORTED",
+        "ZIP_UNSUPPORTED",
+        "FORCE_UNSUPPORTED",
+    ]:
+        assert forbidden not in formatted
+
+
+def test_manifest_out_non_jsonl_extension_uses_output_extension_wording_without_write(tmp_path: Path) -> None:
+    result = plan_report_export(
+        report_type="full-status",
+        dry_run=False,
+        out="reports/python_tooling/full_status.md",
+        project_root=tmp_path,
+        record_manifest=True,
+        manifest_out="reports/python_tooling/custom_manifest.txt",
+    )
+    formatted = format_report_export_dry_run(result)
+
+    assert result.conclusion == "REPORT_EXPORT_REJECTED"
+    assert result.wrote_file is False
+    assert result.manifest_written is False
+    assert result.writes_files is False
+    assert any("manifest path must use the .jsonl extension" in error for error in result.errors)
+    assert not (tmp_path / "reports" / "python_tooling" / "full_status.md").exists()
+    assert not (tmp_path / "reports" / "python_tooling" / "custom_manifest.txt").exists()
+    assert not (tmp_path / "reports" / "python_tooling" / "manifest.jsonl").exists()
+    assert "OUTPUT_EXTENSION_INVALID" in formatted
+    assert "NO_FILES_WRITTEN" in formatted
+    assert "--manifest-out" in formatted
+    assert ".jsonl" in formatted
+    for forbidden in [
+        "REPORT_EXPORT_OK",
+        "WRITE_COMPLETE",
+        "MANIFEST_RECORDED",
+        "BUNDLE_EXPORT_COMPLETE",
+        "BUNDLE_EXPORT_OK",
+        "SOURCE_UNCHANGED",
+        "SOURCE_MISSING",
+        "SOURCE_INVALID",
+        "MANIFEST_PARSE_FAILED",
+        "MANIFEST_INVALID",
+        "PATH_GUARD_REJECTED",
+        "OUTSIDE_APPROVED_ROOT",
+        "OVERWRITE_UNSUPPORTED",
+        "ZIP_UNSUPPORTED",
+        "FORCE_UNSUPPORTED",
+    ]:
+        assert forbidden not in formatted
+
+
 def test_existing_target_without_force_warns_and_writes_nothing(tmp_path: Path) -> None:
     target = tmp_path / "reports" / "python_tooling" / "existing.md"
     target.parent.mkdir(parents=True)

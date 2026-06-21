@@ -5,6 +5,8 @@ from armedforces_tool.report_output_messages import (
     bundle_export_complete_message,
     bundle_export_dry_run_message,
     overwrite_rejection_message,
+    output_extension_rejection_message,
+    output_type_rejection_message,
     path_guard_rejection_message,
     report_export_complete_message,
     report_export_dry_run_message,
@@ -183,6 +185,72 @@ def test_path_guard_rejection_message_tokens_and_no_success_tokens() -> None:
         "REPORT_EXPORT_OK",
         "MANIFEST_RECORDED",
         "WRITE_COMPLETE",
+    ]:
+        assert token not in text
+    _assert_no_unsafe_suggestions(text)
+
+
+def test_output_extension_rejection_message_tokens_and_scope() -> None:
+    text = output_extension_rejection_message(
+        output_option="--out",
+        rejected_path="reports/python_tooling/full_status.txt",
+        expected_extension=".md",
+        conclusion="REPORT_EXPORT_REJECTED",
+        legacy_status="BAD_PATH",
+        detail="target path must use the .md extension",
+    )
+
+    _assert_tokens(text, ["OUTPUT_EXTENSION_INVALID", "BAD_PATH", "NO_FILES_WRITTEN", "--out"])
+    assert "reports/python_tooling/full_status.txt" in text
+    assert ".md" in text
+    for token in [
+        "PATH_GUARD_REJECTED",
+        "OUTSIDE_APPROVED_ROOT",
+        "OVERWRITE_UNSUPPORTED",
+        "ZIP_UNSUPPORTED",
+        "SOURCE_MISSING",
+        "SOURCE_INVALID",
+        "MANIFEST_PARSE_FAILED",
+        "MANIFEST_INVALID",
+        "REPORT_EXPORT_OK",
+        "WRITE_COMPLETE",
+        "MANIFEST_RECORDED",
+        "BUNDLE_EXPORT_COMPLETE",
+        "BUNDLE_EXPORT_OK",
+        "SOURCE_UNCHANGED",
+    ]:
+        assert token not in text
+    _assert_no_unsafe_suggestions(text)
+
+
+def test_output_type_rejection_message_tokens_and_scope() -> None:
+    text = output_type_rejection_message(
+        output_option="--out",
+        rejected_path="reports/python_tooling/bundles/bundle.txt",
+        expected_output="directory bundle output path without a file extension",
+        conclusion="BUNDLE_EXPORT_REJECTED",
+        legacy_status="BAD_PATH",
+        detail="directory bundle output must be a directory path without a file extension",
+    )
+
+    _assert_tokens(text, ["OUTPUT_TYPE_UNSUPPORTED", "BAD_PATH", "NO_FILES_WRITTEN", "--out"])
+    assert "reports/python_tooling/bundles/bundle.txt" in text
+    assert "directory bundle output path without a file extension" in text
+    for token in [
+        "PATH_GUARD_REJECTED",
+        "OUTSIDE_APPROVED_ROOT",
+        "OVERWRITE_UNSUPPORTED",
+        "ZIP_UNSUPPORTED",
+        "SOURCE_MISSING",
+        "SOURCE_INVALID",
+        "MANIFEST_PARSE_FAILED",
+        "MANIFEST_INVALID",
+        "REPORT_EXPORT_OK",
+        "WRITE_COMPLETE",
+        "MANIFEST_RECORDED",
+        "BUNDLE_EXPORT_COMPLETE",
+        "BUNDLE_EXPORT_OK",
+        "SOURCE_UNCHANGED",
     ]:
         assert token not in text
     _assert_no_unsafe_suggestions(text)

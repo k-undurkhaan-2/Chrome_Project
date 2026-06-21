@@ -876,6 +876,49 @@ def test_bundle_export_real_path_guard_wording_without_writing(tmp_path: Path) -
         assert forbidden not in formatted
 
 
+def test_bundle_export_real_file_like_output_uses_output_type_wording_without_writing(tmp_path: Path) -> None:
+    output_path = _write_report(tmp_path)
+    _write_manifest(tmp_path, [_manifest_entry(output_path=output_path)])
+
+    for value in [
+        "reports/python_tooling/bundles/bundle.txt",
+        "reports/python_tooling/bundles/bundle.zip",
+    ]:
+        result = plan_report_bundle_export(dry_run=False, out=value, project_root=tmp_path)
+        formatted = format_report_bundle_export_plan(result)
+        rejected_path = tmp_path / value
+
+        assert result.status == "BAD_PATH", value
+        assert result.writes_files is False
+        assert result.bundle_written is False
+        assert any("directory bundle output must be a directory path without a file extension" in error for error in result.errors)
+        assert not rejected_path.exists()
+        assert not list(tmp_path.rglob("bundle_manifest.json"))
+        assert not list(tmp_path.rglob("index.md"))
+        assert "OUTPUT_TYPE_UNSUPPORTED" in formatted
+        assert "NO_FILES_WRITTEN" in formatted
+        assert "--out" in formatted
+        assert "directory bundle output path without a file extension" in formatted
+        for forbidden in [
+            "BUNDLE_EXPORT_COMPLETE",
+            "BUNDLE_EXPORT_OK",
+            "SOURCE_UNCHANGED",
+            "REPORT_EXPORT_OK",
+            "WRITE_COMPLETE",
+            "MANIFEST_RECORDED",
+            "SOURCE_MISSING",
+            "SOURCE_INVALID",
+            "MANIFEST_PARSE_FAILED",
+            "MANIFEST_INVALID",
+            "PATH_GUARD_REJECTED",
+            "OUTSIDE_APPROVED_ROOT",
+            "OVERWRITE_UNSUPPORTED",
+            "ZIP_UNSUPPORTED",
+            "FORCE_UNSUPPORTED",
+        ]:
+            assert forbidden not in formatted
+
+
 def test_bundle_export_real_isolated_output_rejects_production_bundle_root(tmp_path: Path) -> None:
     source_report = _write_isolated_source_report(tmp_path)
 

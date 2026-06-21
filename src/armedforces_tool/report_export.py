@@ -9,6 +9,7 @@ from pathlib import Path
 from .report_output_messages import (
     invalid_option_combination_message,
     overwrite_rejection_message,
+    output_extension_rejection_message,
     path_guard_rejection_message,
     report_export_complete_message,
     report_export_dry_run_message,
@@ -500,6 +501,22 @@ def format_report_export_dry_run(result: ReportExportDryRunResult) -> str:
             "Field".ljust(width) + "  Value",
             "-".ljust(width, "-") + "  -----",
         ]
+    elif _uses_report_export_output_extension_rejection_message(result):
+        rejected_option = _report_export_rejected_option(result)
+        lines = [
+            output_extension_rejection_message(
+                output_option=rejected_option,
+                rejected_path=_display(_report_export_rejected_path(result)),
+                expected_extension=".jsonl" if rejected_option == "--manifest-out" else ".md",
+                conclusion=result.conclusion,
+                legacy_status="BAD_PATH",
+                detail=_first_error(result.errors),
+            ),
+            "",
+            "Output Extension Details",
+            "Field".ljust(width) + "  Value",
+            "-".ljust(width, "-") + "  -----",
+        ]
     elif _uses_report_export_path_guard_rejection_message(result):
         lines = [
             path_guard_rejection_message(
@@ -628,11 +645,29 @@ def _uses_report_export_path_guard_rejection_message(result: ReportExportDryRunR
     )
 
 
+def _uses_report_export_output_extension_rejection_message(result: ReportExportDryRunResult) -> bool:
+    return (
+        not result.dry_run
+        and result.path_safety_status == "PATH_REJECTED"
+        and result.conclusion != "REPORT_EXPORT_OVERWRITE_REJECTED"
+        and _has_output_extension_error(result.errors)
+        and not _has_path_guard_error(result.errors)
+    )
+
+
 def _uses_manifest_out_invalid_option_message(result: ReportExportDryRunResult) -> bool:
     return (
         not result.record_manifest
         and result.conclusion in {"REPORT_EXPORT_REJECTED", "REPORT_EXPORT_DRY_RUN_REJECTED"}
         and any("--manifest-out requires --record-manifest" in error for error in result.errors)
+    )
+
+
+def _has_output_extension_error(errors: list[str]) -> bool:
+    return any(
+        "target path must use the .md extension" in error
+        or "manifest path must use the .jsonl extension" in error
+        for error in errors
     )
 
 
