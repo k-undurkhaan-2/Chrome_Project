@@ -378,6 +378,8 @@ Current behavior is unchanged:
 - malformed content validation for isolated `--source-manifest` is not active
 - default manifest parse failures are a separate existing surface using `INVALID_MANIFEST`
 - wrapper remains read-only
+- Phase 10.3 default manifest parse rejection contract exists at `docs/architecture/python_tooling_default_manifest_parse_rejection_contract.md`
+- the Phase 10.3 target is `_analyze_existing_manifest()` / `_parse_manifest_line()` / `INVALID_MANIFEST`, not isolated `--source-manifest`
 
 ## Known Non-Goals
 

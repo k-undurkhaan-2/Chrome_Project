@@ -301,6 +301,8 @@ Phase 10.1 source manifest parse / invalid-content rejection contract exists in 
 
 Phase 10.2 stopped because isolated `--source-manifest` content is not parsed today. In isolated bundle mode, `--source-manifest` is path/file checked and preserved as an input reference, while default manifest parsing remains a separate surface handled by `_analyze_existing_manifest()` / `_parse_manifest_line()` and `INVALID_MANIFEST`. Do not assume isolated `--source-manifest` content validation is active, and do not manually run export commands during validation-only phases.
 
+Phase 10.3 default manifest parse rejection contract exists in `docs/architecture/python_tooling_default_manifest_parse_rejection_contract.md`. It targets the existing default manifest parser and preserves `INVALID_MANIFEST` compatibility while planning clearer future wording such as `MANIFEST_PARSE_FAILED`, `MANIFEST_INVALID`, and `NO_FILES_WRITTEN`. It does not change isolated `--source-manifest` behavior.
+
 ## Git Hygiene
 
 Do not commit:

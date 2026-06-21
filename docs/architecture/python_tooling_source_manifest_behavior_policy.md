@@ -130,3 +130,13 @@ Phase 10.x-contract - isolated source-manifest validation surface contract
 ```
 
 The default manifest parse rejection contract is preferred because it targets an existing parser surface.
+
+## Phase 10.3 Default Manifest Parse Contract
+
+The default manifest parse rejection contract exists at:
+
+```text
+docs/architecture/python_tooling_default_manifest_parse_rejection_contract.md
+```
+
+It targets the existing `_analyze_existing_manifest()` / `_parse_manifest_line()` / `INVALID_MANIFEST` surface only. Isolated `--source-manifest` remains path/file validated and content-unparsed.

@@ -14,6 +14,14 @@ _parse_manifest_line()
 INVALID_MANIFEST
 ```
 
+Phase 10.3 now defines that separate default manifest parse rejection wording contract at:
+
+```text
+docs/architecture/python_tooling_default_manifest_parse_rejection_contract.md
+```
+
+It does not authorize isolated `--source-manifest` content parsing.
+
 ## Purpose
 
 This contract defines a narrow future wording slice for:

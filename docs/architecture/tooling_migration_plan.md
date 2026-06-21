@@ -377,6 +377,8 @@ Phase 10.1 prepares the source manifest parse / invalid-content rejection wordin
 
 Phase 10.2 source-manifest parse implementation stopped because isolated `--source-manifest` is currently path/file validated but content-unparsed. Phase 10.2-R1 prepares the behavior policy and redirects the next wording target toward default manifest parse rejection or a separate isolated source-manifest validation surface contract.
 
+Phase 10.3 prepares the default manifest parse rejection wording contract for the existing `_analyze_existing_manifest()` / `_parse_manifest_line()` / `INVALID_MANIFEST` surface. It does not authorize isolated `--source-manifest` content parsing or any new write behavior.
+
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 
 - Define request formats.

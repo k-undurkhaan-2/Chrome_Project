@@ -549,3 +549,23 @@ Target tokens:
 This slice is for `report bundle export --source-manifest <existing but malformed/invalid manifest>` only. It must not replace Phase 7.2B missing/non-file source input wording (`SOURCE_MISSING` / `SOURCE_INVALID`) or Phase 9.1 path-guard wording (`PATH_GUARD_REJECTED`, `BAD_PATH`, `PATH_REJECTED`).
 
 Phase 10.2 is the current behavior-policy example: source inspection found no isolated `--source-manifest` parse/invalid rejection surface because isolated bundle mode validates path/file safety but does not parse manifest content. Rejection-path wording tasks must not introduce new validation behavior. If inspection finds the requested rejection path does not exist, implementation must stop and record a behavior policy before any code change.
+
+## Default Manifest Parse / Invalid Manifest Contract
+
+The default manifest parse rejection wording contract exists at:
+
+```text
+docs/architecture/python_tooling_default_manifest_parse_rejection_contract.md
+```
+
+Target surface:
+
+- `_analyze_existing_manifest()`
+- `_parse_manifest_line()`
+- `INVALID_MANIFEST`
+
+Token policy:
+
+- preserve `INVALID_MANIFEST` as the compatibility status where current behavior uses it
+- use `MANIFEST_PARSE_FAILED`, `MANIFEST_INVALID`, and `NO_FILES_WRITTEN` only for default manifest parse/invalid wording where current semantics support it
+- do not introduce isolated `--source-manifest` content parsing through wording work

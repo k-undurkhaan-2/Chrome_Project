@@ -495,6 +495,31 @@ Phase 10.x-contract - isolated source-manifest validation surface contract
 
 Implementation should target the default manifest parse surface first because `_analyze_existing_manifest()` / `_parse_manifest_line()` already return `INVALID_MANIFEST` for malformed default manifests.
 
+## Phase 10.3 Default Manifest Parse Rejection Contract
+
+Phase 10.3 contract is documented in:
+
+```text
+docs/architecture/python_tooling_default_manifest_parse_rejection_contract.md
+```
+
+Recorded status:
+
+```text
+Phase 10.1 contract: completed
+Phase 10.2 implementation: STOPPED
+Phase 10.2-R1 behavior policy: completed
+Phase 10.3 contract: current
+```
+
+Next recommended phase:
+
+```text
+Phase 10.3 - default manifest parse rejection wording implementation
+```
+
+Implementation must first inspect current source/help/tests and stop if no safe default manifest parse rejection surface can be tested. It must not introduce isolated `--source-manifest` content parsing.
+
 ## Stop Conditions
 
 Stop Phase 7 selector or follow-up phases if any of these are required:
