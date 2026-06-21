@@ -303,6 +303,10 @@ Phase 10.2 stopped because isolated `--source-manifest` content is not parsed to
 
 Phase 10.3 default manifest parse rejection contract exists in `docs/architecture/python_tooling_default_manifest_parse_rejection_contract.md`. It targets the existing default manifest parser and preserves `INVALID_MANIFEST` compatibility while planning clearer future wording such as `MANIFEST_PARSE_FAILED`, `MANIFEST_INVALID`, and `NO_FILES_WRITTEN`. It does not change isolated `--source-manifest` behavior.
 
+Phase 10.4 implemented default manifest parse rejection wording, and Phase 10.5 boundary smoke passed. Default manifest parse failures now keep `INVALID_MANIFEST` compatibility while surfacing `MANIFEST_PARSE_FAILED` for malformed default manifest JSON/JSONL, `MANIFEST_INVALID` for parseable but invalid default manifest records, and `NO_FILES_WRITTEN` for fail-closed output. Isolated `--source-manifest` is still not content-parsed. Validation-only phases must not run export, dry-run, `--record-manifest`, or bundle export commands manually; use pytest temp paths and read-only status/inventory. The wrapper remains read-only.
+
+Phase 10.6 checkpoint candidate docs are recorded in `docs/checkpoints/python_tooling_default_manifest_parse_rejection_checkpoint_candidate_20260621.md`. Do not create `python-tooling-default-manifest-parse-rejection-checkpoint-20260621` until a later final checkpoint smoke passes.
+
 ## Git Hygiene
 
 Do not commit:

@@ -14,6 +14,29 @@ It is documentation only. It does not implement source changes, run commands, ad
 
 Future implementation must target only the real default manifest parser surface, preserve `INVALID_MANIFEST` compatibility when that is the current machine-readable status, avoid weakening path guards, avoid expanding approved roots, and avoid creating bundle output in rejection cases.
 
+## Current Status
+
+Phase 10.4 implemented this contract for the default manifest parser surface. Phase 10.5 boundary smoke passed.
+
+Implemented surface:
+
+```text
+_analyze_existing_manifest()
+_parse_manifest_line()
+INVALID_MANIFEST
+```
+
+Current stable behavior:
+
+- `INVALID_MANIFEST` compatibility is preserved.
+- malformed default manifest JSON/JSONL is reported with `MANIFEST_PARSE_FAILED`.
+- parseable but invalid default manifest records are reported with `MANIFEST_INVALID`.
+- fail-closed output includes `NO_FILES_WRITTEN`.
+- isolated `--source-manifest` remains path/file validated and content-unparsed.
+- no bundle directory, `bundle_manifest.json`, `index.md`, copied report, or zip is written for these rejection paths.
+
+Final checkpoint smoke and tag remain pending.
+
 ## Baseline
 
 Current stable checkpoint tags:

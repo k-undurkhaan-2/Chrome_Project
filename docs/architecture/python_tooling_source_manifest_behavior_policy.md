@@ -140,3 +140,15 @@ docs/architecture/python_tooling_default_manifest_parse_rejection_contract.md
 ```
 
 It targets the existing `_analyze_existing_manifest()` / `_parse_manifest_line()` / `INVALID_MANIFEST` surface only. Isolated `--source-manifest` remains path/file validated and content-unparsed.
+
+## Phase 10.4 / 10.5 Status
+
+Default manifest parse rejection wording has been implemented and smoke-validated:
+
+- Phase 10.4 implemented `INVALID_MANIFEST` human-readable wording for the default parser surface.
+- malformed default manifest JSON/JSONL uses `MANIFEST_PARSE_FAILED`.
+- parseable but invalid default manifest records use `MANIFEST_INVALID`.
+- fail-closed output includes `NO_FILES_WRITTEN`.
+- Phase 10.5 boundary smoke passed with status `SAFE`, `writes_files_count = 2`, `runs_ce_count = 0`, wrapper read-only, targeted tests, full pytest, and no runtime report/manifest/bundle artifacts.
+
+This does not change isolated `--source-manifest` behavior. Isolated source manifests remain path/file validated and content-unparsed. Any future isolated source-manifest content validation remains separate behavior work.

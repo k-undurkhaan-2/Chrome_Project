@@ -22,6 +22,8 @@ docs/architecture/python_tooling_default_manifest_parse_rejection_contract.md
 
 It does not authorize isolated `--source-manifest` content parsing.
 
+Phase 10.4 implemented wording for the separate default manifest parser surface, not isolated `--source-manifest` content parsing. Phase 10.5 boundary smoke passed. Any isolated content validation remains out of scope unless a separate behavior/surface contract defines and authorizes it.
+
 ## Purpose
 
 This contract defines a narrow future wording slice for:

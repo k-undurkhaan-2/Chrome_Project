@@ -569,3 +569,14 @@ Token policy:
 - preserve `INVALID_MANIFEST` as the compatibility status where current behavior uses it
 - use `MANIFEST_PARSE_FAILED`, `MANIFEST_INVALID`, and `NO_FILES_WRITTEN` only for default manifest parse/invalid wording where current semantics support it
 - do not introduce isolated `--source-manifest` content parsing through wording work
+
+Validated status:
+
+- Phase 10.4 implemented this default manifest parser wording.
+- Phase 10.5 boundary smoke passed.
+- `INVALID_MANIFEST` remains the compatibility status.
+- `MANIFEST_PARSE_FAILED` is scoped to malformed default manifest parse failure.
+- `MANIFEST_INVALID` is scoped to parseable but invalid default manifest records.
+- `NO_FILES_WRITTEN` indicates fail-closed output before bundle artifacts are written.
+
+This is another validated example of the policy rule that wording work must not introduce new validation behavior.

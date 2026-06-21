@@ -379,6 +379,8 @@ Phase 10.2 source-manifest parse implementation stopped because isolated `--sour
 
 Phase 10.3 prepares the default manifest parse rejection wording contract for the existing `_analyze_existing_manifest()` / `_parse_manifest_line()` / `INVALID_MANIFEST` surface. It does not authorize isolated `--source-manifest` content parsing or any new write behavior.
 
+Phase 10.6 prepares the default manifest parse rejection checkpoint candidate after Phase 10.4 implementation and Phase 10.5 boundary smoke passed. Final smoke and tag creation remain pending.
+
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 
 - Define request formats.

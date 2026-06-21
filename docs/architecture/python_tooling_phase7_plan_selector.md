@@ -509,16 +509,27 @@ Recorded status:
 Phase 10.1 contract: completed
 Phase 10.2 implementation: STOPPED
 Phase 10.2-R1 behavior policy: completed
-Phase 10.3 contract: current
+Phase 10.3 contract: completed
+Phase 10.4 implementation: completed
+Phase 10.5 boundary smoke: PASS
+Phase 10.6 checkpoint candidate docs: current
 ```
 
 Next recommended phase:
 
 ```text
-Phase 10.3 - default manifest parse rejection wording implementation
+Phase 10.7 - default manifest parse rejection final checkpoint smoke
 ```
 
-Implementation must first inspect current source/help/tests and stop if no safe default manifest parse rejection surface can be tested. It must not introduce isolated `--source-manifest` content parsing.
+Phase 10.4 implemented `INVALID_MANIFEST` human-readable wording for malformed and invalid default manifest content, using `MANIFEST_PARSE_FAILED`, `MANIFEST_INVALID`, and `NO_FILES_WRITTEN`. Phase 10.5 validated status `SAFE`, `writes_files_count = 2`, `runs_ce_count = 0`, wrapper read-only, targeted tests, full pytest, no runtime artifacts, and clean final git status.
+
+The checkpoint candidate is documented in:
+
+```text
+docs/checkpoints/python_tooling_default_manifest_parse_rejection_checkpoint_candidate_20260621.md
+```
+
+Do not create `python-tooling-default-manifest-parse-rejection-checkpoint-20260621` until a later final checkpoint smoke passes.
 
 ## Stop Conditions
 

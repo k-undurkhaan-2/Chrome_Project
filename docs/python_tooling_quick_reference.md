@@ -380,6 +380,11 @@ Current behavior is unchanged:
 - wrapper remains read-only
 - Phase 10.3 default manifest parse rejection contract exists at `docs/architecture/python_tooling_default_manifest_parse_rejection_contract.md`
 - the Phase 10.3 target is `_analyze_existing_manifest()` / `_parse_manifest_line()` / `INVALID_MANIFEST`, not isolated `--source-manifest`
+- Phase 10.4 implemented default manifest parse rejection wording and Phase 10.5 boundary smoke passed
+- default manifest parse rejection preserves `INVALID_MANIFEST` and uses `MANIFEST_PARSE_FAILED`, `MANIFEST_INVALID`, and `NO_FILES_WRITTEN` where scoped
+- validation for this path uses pytest temp paths plus read-only status/inventory; do not manually run export, dry-run, `--record-manifest`, or bundle export commands
+- Phase 10.6 checkpoint candidate docs exist at `docs/checkpoints/python_tooling_default_manifest_parse_rejection_checkpoint_candidate_20260621.md`
+- do not create `python-tooling-default-manifest-parse-rejection-checkpoint-20260621` until a later final checkpoint smoke passes
 
 ## Known Non-Goals
 
