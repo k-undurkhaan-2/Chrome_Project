@@ -305,7 +305,9 @@ Phase 10.3 default manifest parse rejection contract exists in `docs/architectur
 
 Phase 10.4 implemented default manifest parse rejection wording, and Phase 10.5 boundary smoke passed. Default manifest parse failures now keep `INVALID_MANIFEST` compatibility while surfacing `MANIFEST_PARSE_FAILED` for malformed default manifest JSON/JSONL, `MANIFEST_INVALID` for parseable but invalid default manifest records, and `NO_FILES_WRITTEN` for fail-closed output. Isolated `--source-manifest` is still not content-parsed. Validation-only phases must not run export, dry-run, `--record-manifest`, or bundle export commands manually; use pytest temp paths and read-only status/inventory. The wrapper remains read-only.
 
-Phase 10.6 checkpoint candidate docs are recorded in `docs/checkpoints/python_tooling_default_manifest_parse_rejection_checkpoint_candidate_20260621.md`. Do not create `python-tooling-default-manifest-parse-rejection-checkpoint-20260621` until a later final checkpoint smoke passes.
+Phase 10.6 checkpoint candidate docs are recorded in `docs/checkpoints/python_tooling_default_manifest_parse_rejection_checkpoint_candidate_20260621.md`. The default manifest parse rejection checkpoint tag is `python-tooling-default-manifest-parse-rejection-checkpoint-20260621`.
+
+Phase 11.1 invalid output extension / output type rejection wording contract exists in `docs/architecture/python_tooling_invalid_output_extension_wording_contract.md`. It plans future wording for unsupported output extensions or output forms using conceptual tokens `OUTPUT_EXTENSION_INVALID`, `OUTPUT_TYPE_UNSUPPORTED`, and `NO_FILES_WRITTEN`. Future implementation must first inspect current source/help/tests and STOP if no real current surface exists; wording work must not enable new output formats, add options, weaken guards, expand roots, or add write destinations.
 
 ## Git Hygiene
 

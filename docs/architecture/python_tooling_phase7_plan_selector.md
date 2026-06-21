@@ -512,13 +512,15 @@ Phase 10.2-R1 behavior policy: completed
 Phase 10.3 contract: completed
 Phase 10.4 implementation: completed
 Phase 10.5 boundary smoke: PASS
-Phase 10.6 checkpoint candidate docs: current
+Phase 10.6 checkpoint candidate docs: completed
+Phase 10.7 final checkpoint smoke: PASS
+Checkpoint tag: python-tooling-default-manifest-parse-rejection-checkpoint-20260621
 ```
 
 Next recommended phase:
 
 ```text
-Phase 10.7 - default manifest parse rejection final checkpoint smoke
+Phase 11.1-contract - invalid output extension / output type rejection wording contract
 ```
 
 Phase 10.4 implemented `INVALID_MANIFEST` human-readable wording for malformed and invalid default manifest content, using `MANIFEST_PARSE_FAILED`, `MANIFEST_INVALID`, and `NO_FILES_WRITTEN`. Phase 10.5 validated status `SAFE`, `writes_files_count = 2`, `runs_ce_count = 0`, wrapper read-only, targeted tests, full pytest, no runtime artifacts, and clean final git status.
@@ -529,7 +531,35 @@ The checkpoint candidate is documented in:
 docs/checkpoints/python_tooling_default_manifest_parse_rejection_checkpoint_candidate_20260621.md
 ```
 
-Do not create `python-tooling-default-manifest-parse-rejection-checkpoint-20260621` until a later final checkpoint smoke passes.
+The checkpoint tag `python-tooling-default-manifest-parse-rejection-checkpoint-20260621` is recorded as completed.
+
+## Phase 11.1 Invalid Output Extension / Output Type Contract
+
+Phase 11.1 contract is documented in:
+
+```text
+docs/architecture/python_tooling_invalid_output_extension_wording_contract.md
+```
+
+Recorded status:
+
+```text
+Phase 11.1 contract: current
+```
+
+Target tokens:
+
+- `OUTPUT_EXTENSION_INVALID`
+- `OUTPUT_TYPE_UNSUPPORTED`
+- `NO_FILES_WRITTEN`
+
+Next recommended phase:
+
+```text
+Phase 11.1 - invalid output extension / output type rejection wording implementation
+```
+
+The implementation phase must first inspect current source/help/tests and STOP if no current invalid output extension/type rejection surface exists. It must not enable new output formats, add options, weaken path guards, expand approved roots, or add write destinations.
 
 ## Stop Conditions
 

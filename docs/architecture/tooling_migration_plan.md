@@ -379,7 +379,9 @@ Phase 10.2 source-manifest parse implementation stopped because isolated `--sour
 
 Phase 10.3 prepares the default manifest parse rejection wording contract for the existing `_analyze_existing_manifest()` / `_parse_manifest_line()` / `INVALID_MANIFEST` surface. It does not authorize isolated `--source-manifest` content parsing or any new write behavior.
 
-Phase 10.6 prepares the default manifest parse rejection checkpoint candidate after Phase 10.4 implementation and Phase 10.5 boundary smoke passed. Final smoke and tag creation remain pending.
+Phase 10 default manifest parse rejection checkpoint is established as `python-tooling-default-manifest-parse-rejection-checkpoint-20260621` after Phase 10.4 implementation, Phase 10.5 boundary smoke, and Phase 10.7 final smoke passed.
+
+Phase 11.1 prepares the invalid output extension / output type rejection wording contract. It is docs-only, does not enable new output formats, and requires any future implementation to inspect current source/help/tests and stop if no real current rejection surface exists.
 
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 

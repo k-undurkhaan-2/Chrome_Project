@@ -384,7 +384,10 @@ Current behavior is unchanged:
 - default manifest parse rejection preserves `INVALID_MANIFEST` and uses `MANIFEST_PARSE_FAILED`, `MANIFEST_INVALID`, and `NO_FILES_WRITTEN` where scoped
 - validation for this path uses pytest temp paths plus read-only status/inventory; do not manually run export, dry-run, `--record-manifest`, or bundle export commands
 - Phase 10.6 checkpoint candidate docs exist at `docs/checkpoints/python_tooling_default_manifest_parse_rejection_checkpoint_candidate_20260621.md`
-- do not create `python-tooling-default-manifest-parse-rejection-checkpoint-20260621` until a later final checkpoint smoke passes
+- default manifest parse checkpoint tag is `python-tooling-default-manifest-parse-rejection-checkpoint-20260621`
+- Phase 11.1 invalid output extension/type contract exists at `docs/architecture/python_tooling_invalid_output_extension_wording_contract.md`
+- future invalid output extension/type wording targets `OUTPUT_EXTENSION_INVALID`, `OUTPUT_TYPE_UNSUPPORTED`, and `NO_FILES_WRITTEN`
+- future implementation must first inspect current source/help/tests and STOP if no current rejection surface exists; do not enable new output formats through wording work
 
 ## Known Non-Goals
 

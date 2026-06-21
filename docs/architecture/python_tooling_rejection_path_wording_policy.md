@@ -580,3 +580,21 @@ Validated status:
 - `NO_FILES_WRITTEN` indicates fail-closed output before bundle artifacts are written.
 
 This is another validated example of the policy rule that wording work must not introduce new validation behavior.
+
+## Invalid Output Extension / Output Type Contract
+
+The invalid output extension / output type rejection wording contract exists at:
+
+```text
+docs/architecture/python_tooling_invalid_output_extension_wording_contract.md
+```
+
+Target tokens:
+
+- `OUTPUT_EXTENSION_INVALID`
+- `OUTPUT_TYPE_UNSUPPORTED`
+- `NO_FILES_WRITTEN`
+
+This slice is for output paths rejected because the extension, output type, or output form is invalid or unsupported. It must not replace path guard, overwrite, zip unsupported, source input, or default manifest parse rejection semantics.
+
+Wording work must not enable new output formats, add commands or options, weaken path guards, expand approved roots, or add write destinations. Future implementation must first inspect current source/help/tests and STOP if no real current invalid output extension/type rejection surface exists.
