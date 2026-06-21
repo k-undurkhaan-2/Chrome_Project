@@ -309,7 +309,7 @@ Phase 10.6 checkpoint candidate docs are recorded in `docs/checkpoints/python_to
 
 Phase 11.1 invalid output extension / output type rejection wording contract exists in `docs/architecture/python_tooling_invalid_output_extension_wording_contract.md`. Phase 11.2 implemented clearer rejection output for existing unsupported report/manifest extensions and file-like bundle output paths, and Phase 11.3 boundary smoke passed. These failures use `OUTPUT_EXTENSION_INVALID`, `OUTPUT_TYPE_UNSUPPORTED`, and `NO_FILES_WRITTEN`, reject before writing, and do not enable new output formats. Zip remains `ZIP_UNSUPPORTED`, the wrapper remains read-only, and validation-only phases must not run export, dry-run, `--record-manifest`, or bundle export commands manually.
 
-Phase 11.4 checkpoint candidate docs are recorded in `docs/checkpoints/python_tooling_invalid_output_extension_rejection_checkpoint_candidate_20260621.md`. Do not create `python-tooling-invalid-output-extension-rejection-checkpoint-20260621` until a later final checkpoint smoke passes.
+Phase 11 invalid output extension/type rejection is checkpointed as `python-tooling-invalid-output-extension-rejection-checkpoint-20260621`. Phase 11.5 final checkpoint smoke passed with status `SAFE`, command inventory `writes_files_count=2`, `runs_ce_count=0`, wrapper read-only behavior, and no runtime report, manifest, bundle, validation, or docs-report artifacts. Manual validation should still avoid direct export, dry-run, `--record-manifest`, or bundle export unless a task explicitly authorizes the exact command and output path. Next work should start from the Phase 12 selector in `docs/architecture/python_tooling_phase12_post_invalid_output_checkpoint_selector.md`.
 
 ## Git Hygiene
 

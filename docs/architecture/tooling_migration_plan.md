@@ -383,7 +383,9 @@ Phase 10 default manifest parse rejection checkpoint is established as `python-t
 
 Phase 11.1 prepares the invalid output extension / output type rejection wording contract. It is docs-only, does not enable new output formats, and requires any future implementation to inspect current source/help/tests and stop if no real current rejection surface exists.
 
-Phase 11.4 prepares the invalid output extension rejection checkpoint candidate after Phase 11.2 implementation and Phase 11.3 boundary smoke passed. Final smoke and tag creation remain pending; no new output format, command, option, write destination, wrapper export shortcut, or CE/runtime behavior is introduced.
+Phase 11 invalid output extension rejection checkpoint is established as `python-tooling-invalid-output-extension-rejection-checkpoint-20260621`. It covers `OUTPUT_EXTENSION_INVALID`, `OUTPUT_TYPE_UNSUPPORTED`, and `NO_FILES_WRITTEN` for current invalid output extension/type surfaces. No new output format, command, option, write destination, wrapper export shortcut, or CE/runtime behavior is introduced.
+
+Phase 12.0 prepares the post invalid-output checkpoint selector in `docs/architecture/python_tooling_phase12_post_invalid_output_checkpoint_selector.md`. The recommended next slice is a docs-only checkpoint/status overview sync. Candidate isolated source-manifest content parsing remains deferred until an explicit product/behavior decision.
 
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 

@@ -392,6 +392,10 @@ Current behavior is unchanged:
 - `.zip` / zip requests remain `ZIP_UNSUPPORTED`; no new output formats were enabled
 - validate this rejection line with pytest and read-only status/inventory, not manual export commands
 - wrapper remains read-only and does not expose write-capable report/bundle export commands
+- checkpoint tag exists: `python-tooling-invalid-output-extension-rejection-checkpoint-20260621`
+- current command inventory remains 49 commands with `writes_files_count=2` and `runs_ce_count=0`
+- write-capable Python commands remain only `report export` and `report bundle export`
+- next recommended docs slice is Phase 12.1 checkpoint/status overview docs sync, starting from `docs/architecture/python_tooling_phase12_post_invalid_output_checkpoint_selector.md`
 
 ## Known Non-Goals
 
