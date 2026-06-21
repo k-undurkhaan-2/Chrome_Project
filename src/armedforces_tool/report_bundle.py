@@ -14,6 +14,7 @@ from .report_manifest import REQUIRED_FIELDS
 from .report_output_messages import (
     bundle_export_complete_message,
     bundle_export_dry_run_message,
+    default_manifest_rejection_message,
     overwrite_rejection_message,
     path_guard_rejection_message,
     source_input_rejection_message,
@@ -427,6 +428,11 @@ def plan_report_bundle_export(
         )
 
     if analysis.status != "OK":
+        analysis_errors = (
+            _default_manifest_error_details(analysis)
+            if analysis.status == "INVALID_MANIFEST"
+            else analysis.errors
+        )
         return ReportBundleExportPlanResult(
             action="export",
             dry_run=False,
@@ -455,7 +461,7 @@ def plan_report_bundle_export(
             writes_files=False,
             runs_ce=False,
             warnings=analysis.warnings,
-            errors=analysis.errors,
+            errors=analysis_errors,
         )
 
     duplicate_bundle_names = _duplicate_bundle_report_names(analysis.records)
@@ -787,6 +793,18 @@ def format_report_bundle_export_plan(result: ReportBundleExportPlanResult) -> st
             "Field".ljust(width) + "  Value",
             "-".ljust(width, "-") + "  -----",
         ]
+    elif _uses_default_manifest_rejection_message(result):
+        lines = [
+            default_manifest_rejection_message(
+                manifest_path=_display(result.source_manifest_path),
+                reason=_default_manifest_reason_token(result.errors),
+                detail=_first_error(result.errors),
+            ),
+            "",
+            "Bundle Export Details",
+            "Field".ljust(width) + "  Value",
+            "-".ljust(width, "-") + "  -----",
+        ]
     elif _uses_bundle_overwrite_rejection_message(result):
         lines = [
             overwrite_rejection_message(rejected_path=_display(result.planned_output_path)),
@@ -875,6 +893,17 @@ def _uses_source_input_rejection_message(result: ReportBundleExportPlanResult) -
     }
 
 
+def _uses_default_manifest_rejection_message(result: ReportBundleExportPlanResult) -> bool:
+    return not result.dry_run and result.status == "INVALID_MANIFEST"
+
+
+def _default_manifest_reason_token(errors: list[str]) -> str:
+    joined_errors = "\n".join(errors).lower()
+    if "invalid json" in joined_errors or "failed to read manifest" in joined_errors:
+        return "MANIFEST_PARSE_FAILED"
+    return "MANIFEST_INVALID"
+
+
 def _bundle_has_path_guard_error(errors: list[str]) -> bool:
     return any(
         "path traversal" in error
@@ -928,6 +957,21 @@ def _bundle_approved_root_guidance(result: ReportBundleExportPlanResult) -> str:
 
 def _first_error(errors: list[str]) -> str | None:
     return errors[0] if errors else None
+
+
+def _default_manifest_error_details(analysis: ReportBundleResult) -> list[str]:
+    details = list(analysis.errors)
+    for entry in analysis.invalid_entries:
+        line_number = entry.get("line_number")
+        errors = entry.get("errors")
+        if isinstance(errors, list):
+            for error in errors:
+                if isinstance(error, str):
+                    prefix = f"line {line_number}: " if line_number else ""
+                    details.append(f"{prefix}{error}")
+    for report_id in analysis.duplicate_report_ids:
+        details.append(f"duplicate report_id: {report_id}")
+    return details
 
 
 def _source_input_rejection_status(errors: list[str]) -> str:

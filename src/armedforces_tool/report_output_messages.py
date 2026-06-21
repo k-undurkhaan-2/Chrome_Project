@@ -225,6 +225,33 @@ def zip_unsupported_message() -> str:
     )
 
 
+def default_manifest_rejection_message(
+    *,
+    manifest_path: str,
+    reason: str,
+    detail: str | None = None,
+) -> str:
+    notes = [
+        "Default report manifest parsing failed before bundle export could start.",
+        "No bundle directory, bundle_manifest.json, index.md, copied report, or zip was written.",
+        "Isolated --source-manifest inputs remain path/file validated only.",
+    ]
+    if detail:
+        notes.insert(0, detail)
+    return _format_message(
+        "Default Manifest Rejected",
+        [
+            ("status", "INVALID_MANIFEST"),
+            ("reason", reason),
+            ("source_kind", "default_manifest"),
+            ("manifest_path", manifest_path),
+            ("write_status", "NO_FILES_WRITTEN"),
+            ("conclusion", "BUNDLE_EXPORT_REJECTED"),
+        ],
+        notes,
+    )
+
+
 def invalid_option_combination_message(
     *,
     invalid_option: str,
@@ -299,6 +326,7 @@ __all__ = [
     "bad_path_message",
     "bundle_export_complete_message",
     "bundle_export_dry_run_message",
+    "default_manifest_rejection_message",
     "invalid_option_combination_message",
     "overwrite_rejection_message",
     "path_guard_rejection_message",

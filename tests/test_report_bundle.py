@@ -17,6 +17,17 @@ SOURCE_INPUT_FAILURE_FORBIDDEN_TOKENS = [
     "MANIFEST_RECORDED",
 ]
 
+DEFAULT_MANIFEST_FAILURE_FORBIDDEN_TOKENS = [
+    *SOURCE_INPUT_FAILURE_FORBIDDEN_TOKENS,
+    "SOURCE_MISSING",
+    "SOURCE_INVALID",
+    "PATH_GUARD_REJECTED",
+    "OUTSIDE_APPROVED_ROOT",
+    "OVERWRITE_UNSUPPORTED",
+    "ZIP_UNSUPPORTED",
+    "FORCE_UNSUPPORTED",
+]
+
 
 def _manifest_path(project_root: Path) -> Path:
     return project_root / "reports" / "python_tooling" / "manifest.jsonl"
@@ -87,6 +98,13 @@ def _assert_source_input_failure_output(text: str, required_tokens: list[str]) -
     for token in [*required_tokens, "NO_FILES_WRITTEN"]:
         assert token in text
     for token in SOURCE_INPUT_FAILURE_FORBIDDEN_TOKENS:
+        assert token not in text
+
+
+def _assert_default_manifest_failure_output(text: str, required_tokens: list[str]) -> None:
+    for token in [*required_tokens, "INVALID_MANIFEST", "NO_FILES_WRITTEN"]:
+        assert token in text
+    for token in DEFAULT_MANIFEST_FAILURE_FORBIDDEN_TOKENS:
         assert token not in text
 
 
@@ -628,6 +646,53 @@ def test_bundle_export_real_missing_report_writes_nothing(tmp_path: Path) -> Non
 
     assert result.status == "MISSING_REPORTS"
     assert result.writes_files is False
+    assert not (tmp_path / "reports" / "python_tooling" / "bundles").exists()
+
+
+def test_bundle_export_real_malformed_default_manifest_has_parse_rejection_wording(tmp_path: Path) -> None:
+    _write_manifest(tmp_path, raw="{not json}\n")
+    bundle_root = tmp_path / "reports" / "python_tooling" / "bundles" / "bundle_bad_manifest"
+
+    result = plan_report_bundle_export(
+        dry_run=False,
+        out="reports/python_tooling/bundles/bundle_bad_manifest/",
+        project_root=tmp_path,
+    )
+    formatted = format_report_bundle_export_plan(result)
+
+    assert result.status == "INVALID_MANIFEST"
+    assert result.manifest_valid is False
+    assert result.writes_files is False
+    assert result.bundle_written is False
+    assert any("invalid JSON" in error for error in result.errors)
+    _assert_default_manifest_failure_output(formatted, ["MANIFEST_PARSE_FAILED", "default_manifest"])
+    assert not bundle_root.exists()
+    assert not list(tmp_path.rglob("bundle_manifest.json"))
+    assert not list(tmp_path.rglob("index.md"))
+    assert not (tmp_path / "reports" / "python_tooling" / "bundles").exists()
+
+
+def test_bundle_export_real_invalid_default_manifest_record_has_invalid_rejection_wording(tmp_path: Path) -> None:
+    _write_manifest(tmp_path, raw=json.dumps({"report_id": "missing-required-fields"}) + "\n")
+    bundle_root = tmp_path / "reports" / "python_tooling" / "bundles" / "bundle_invalid_manifest"
+
+    result = plan_report_bundle_export(
+        dry_run=False,
+        out="reports/python_tooling/bundles/bundle_invalid_manifest/",
+        project_root=tmp_path,
+    )
+    formatted = format_report_bundle_export_plan(result)
+
+    assert result.status == "INVALID_MANIFEST"
+    assert result.manifest_valid is False
+    assert result.writes_files is False
+    assert result.bundle_written is False
+    assert any("missing required field" in error for error in result.errors)
+    _assert_default_manifest_failure_output(formatted, ["MANIFEST_INVALID", "default_manifest"])
+    assert "MANIFEST_PARSE_FAILED" not in formatted
+    assert not bundle_root.exists()
+    assert not list(tmp_path.rglob("bundle_manifest.json"))
+    assert not list(tmp_path.rglob("index.md"))
     assert not (tmp_path / "reports" / "python_tooling" / "bundles").exists()
 
 
