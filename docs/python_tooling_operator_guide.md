@@ -229,6 +229,127 @@ Phase 6.5C added isolated Candidate C validation inputs for future explicitly au
 
 These options do not change daily safe checks. They remain part of the write-capable `report bundle export` command, are not exposed through the read-only wrapper, and must not be run during read-only smoke checks.
 
+## Report Bundle Export Operator Guidance
+
+### Operator Summary
+
+`report bundle export` is a write-capable direct Python command. It is not exposed through the read-only PowerShell wrapper. It writes files only when a task explicitly allows real bundle export and defines the exact output path, evidence, and cleanup boundary.
+
+Docs-only and validation-only phases must not run `report bundle export` manually. When tests need to exercise bundle behavior, they should use pytest temp paths or fixtures.
+
+### Supported Output Form
+
+The supported real bundle output form is a directory-style bundle. When a task explicitly allows it, the command can write a bundle directory containing the current bundle structure.
+
+Unsupported output forms remain fail-closed:
+
+- file-like or unsupported output form:
+  - `OUTPUT_TYPE_UNSUPPORTED`
+  - `NO_FILES_WRITTEN`
+- `.zip` or archive request:
+  - `ZIP_UNSUPPORTED`
+  - `BUNDLE_ZIP_EXPORT_NOT_IMPLEMENTED`
+  - `NO_FILES_WRITTEN`
+
+No new output formats are enabled. No new write destination is added. Path guards and approved roots remain strict.
+
+### `--source-report`
+
+`--source-report` identifies the source report input for isolated bundle validation or explicitly authorized real bundle export.
+
+Expected source-report rejection domains:
+
+- missing source-report path:
+  - `SOURCE_MISSING`
+  - `NO_FILES_WRITTEN`
+- non-file or invalid source-report path:
+  - `SOURCE_INVALID`
+  - `NO_FILES_WRITTEN`
+- path guard rejection:
+  - `PATH_GUARD_REJECTED`
+  - `BAD_PATH`
+  - `PATH_REJECTED`
+  - `NO_FILES_WRITTEN` where compatible
+
+These notes document current operator expectations only; they do not introduce new behavior.
+
+### `--source-manifest`
+
+Isolated `--source-manifest <existing-file>` remains path/file validation only. Its content is not parsed as an active behavior surface today.
+
+Expected source-manifest rejection domains:
+
+- missing source-manifest path remains `SOURCE_MISSING`
+- non-file source-manifest path remains `SOURCE_INVALID`
+- guard-rejected source-manifest path remains in the path guard domain
+
+Source-manifest content parsing remains deferred and requires an explicit product/behavior decision before any implementation.
+
+### Default Manifest Parsing
+
+Default manifest parsing is separate from isolated `--source-manifest` path validation.
+
+Default manifest parse failure is a validated Phase 10 surface:
+
+- malformed default manifest parse failure:
+  - `INVALID_MANIFEST`
+  - `MANIFEST_PARSE_FAILED`
+  - `NO_FILES_WRITTEN`
+- parseable but invalid default manifest records:
+  - `INVALID_MANIFEST`
+  - `MANIFEST_INVALID`
+  - `NO_FILES_WRITTEN`
+
+Do not treat isolated `--source-manifest` content as equivalent to default manifest parsing.
+
+### Dry-Run / Preview Boundary
+
+Dry-run and preview paths are not rejection paths. A successful dry-run or preview is not the same as a `NO_FILES_WRITTEN` rejection.
+
+Docs-only and validation-only phases still must not run manual dry-run unless the task explicitly allows it. When tests cover dry-run behavior, they should use pytest temp paths or fixtures.
+
+### Rejection Token Quick Map
+
+| Situation | Expected domain/tokens |
+|---|---|
+| valid directory bundle success | `BUNDLE_EXPORT_COMPLETE` / `BUNDLE_EXPORT_OK` as currently documented |
+| dry-run/preview | dry-run preview tokens as currently documented; not rejection |
+| zip/archive request | `ZIP_UNSUPPORTED`, `BUNDLE_ZIP_EXPORT_NOT_IMPLEMENTED`, `NO_FILES_WRITTEN` |
+| unsupported file-like output | `OUTPUT_TYPE_UNSUPPORTED`, `NO_FILES_WRITTEN` |
+| missing source path | `SOURCE_MISSING`, `NO_FILES_WRITTEN` |
+| invalid/non-file source path | `SOURCE_INVALID`, `NO_FILES_WRITTEN` |
+| path guard rejection | `PATH_GUARD_REJECTED`, `BAD_PATH`, `PATH_REJECTED`, `NO_FILES_WRITTEN` where compatible |
+| default manifest parse failure | `INVALID_MANIFEST`, `MANIFEST_PARSE_FAILED`, `NO_FILES_WRITTEN` |
+| default manifest invalid record | `INVALID_MANIFEST`, `MANIFEST_INVALID`, `NO_FILES_WRITTEN` |
+
+### Safe Read-Only Validation Commands
+
+These commands are read-only and safe for docs/status validation:
+
+```powershell
+$env:PYTHONPATH="D:\armedforces.io-v2\src"
+.venv\Scripts\python.exe -m armedforces_tool status overview
+.venv\Scripts\python.exe -m armedforces_tool commands list --category report
+.venv\Scripts\python.exe -m armedforces_tool commands show --command "report bundle export"
+
+powershell -NoProfile -ExecutionPolicy Bypass -File .\src\python_tooling_wrapper.ps1 status
+powershell -NoProfile -ExecutionPolicy Bypass -File .\src\python_tooling_wrapper.ps1 inventory
+```
+
+### Prohibited Unless Task Explicitly Allows
+
+Docs-only and validation-only phases must not manually run:
+
+- `report export`
+- `report export --force`
+- `report export --record-manifest`
+- report export dry-run
+- `report bundle export`
+- report bundle export dry-run
+- write / restore commands
+- CE
+- baseline, session, intake, local-config, log, manifest, report, or bundle writes
+
 Phase 5 output wording final state is summarized in `docs/architecture/python_tooling_phase5_output_wording_final_state.md`. The checkpoint `python-tooling-output-wording-checkpoint-20260618` exists and covers help text wording, helper wording, dry-run wording, and Candidate A/B/C human-readable success wording integrations.
 
 This checkpoint does not authorize wrapper export shortcuts and does not authorize manual real-write validation without a separate task.

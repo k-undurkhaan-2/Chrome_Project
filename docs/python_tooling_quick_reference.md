@@ -411,6 +411,16 @@ Current behavior is unchanged:
 - use the audit before making more rejection wording changes
 - do not merge adjacent token domains casually; keep path guard, overwrite, zip, source input, manifest parse, and output type tokens scoped to their own domains
 
+## Bundle Export Operator Note
+
+- `report bundle export` is write-capable direct Python only.
+- the read-only wrapper does not expose `report bundle export`.
+- directory-style bundle output is the supported real bundle form when a task explicitly authorizes it.
+- zip/archive export remains unsupported and fail-closed.
+- isolated `--source-manifest <existing-file>` content parsing remains deferred; today it is path/file validation only.
+- default manifest parse rejection is separate and already validated with `INVALID_MANIFEST`, `MANIFEST_PARSE_FAILED`, `MANIFEST_INVALID`, and `NO_FILES_WRITTEN`.
+- start with `docs/python_tooling_operator_guide.md` and `docs/architecture/python_tooling_checkpoint_status_overview.md` before any bundle-related task.
+
 ## Known Non-Goals
 
 This quick reference does not authorize:

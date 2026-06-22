@@ -120,6 +120,8 @@ git tag --no-sign <tag>
 
 Phase 12.2 rejection-message consistency audit is documented in `docs/architecture/python_tooling_rejection_message_consistency_audit.md`. It is docs-only/audit-only; any implementation fixes must be separate and must start from a narrow contract.
 
+Phase 12.3 report bundle export operator guide hardening is documented in `docs/python_tooling_operator_guide.md`. It is docs-only and adds no command surface changes, no write-surface expansion, and no new bundle output form.
+
 1. Candidate B can follow after this overview:
    - `Phase 12.2 - rejection-message consistency audit`
 2. Candidate C should be deferred until explicit product/behavior decision:

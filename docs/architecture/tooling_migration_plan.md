@@ -391,6 +391,8 @@ Phase 12.1 checkpoint/status overview docs sync is prepared in `docs/architectur
 
 Phase 12.2 rejection-message consistency audit is prepared after checkpoint/status overview. It is docs-only/audit-only and does not implement source/test behavior changes.
 
+Phase 12.3 report bundle export operator guide hardening is prepared after the rejection-message consistency audit. It is docs-only and does not change command behavior, wrapper behavior, write surface, or runtime state.
+
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 
 - Define request formats.

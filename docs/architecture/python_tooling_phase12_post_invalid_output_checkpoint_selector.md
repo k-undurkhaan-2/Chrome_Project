@@ -177,6 +177,8 @@ Phase 12.1 checkpoint/status overview docs sync has been selected from Candidate
 
 Phase 12.2 selects Candidate B after the checkpoint/status overview. Candidate C, isolated source-manifest content parsing, remains deferred pending an explicit product/behavior decision.
 
+Phase 12.3 selects Candidate D, report bundle export operator guide hardening, after the Candidate B audit found no low-risk implementation fix requirement. Candidate C remains deferred pending an explicit product/behavior decision.
+
 Recommended next slice:
 
 ```text

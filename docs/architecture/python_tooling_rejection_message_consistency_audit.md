@@ -131,3 +131,7 @@ Phase 12.3 - Python tooling checkpoint wrap-up docs
 ```
 
 Use the wrap-up option if the goal is to pause behavior-adjacent work after the audit.
+
+## Operator Documentation Follow-Up
+
+After this audit, Phase 12.3 selected report bundle export operator guide hardening to clarify how bundle-related rejection domains appear to operators. That docs phase does not imply token-domain changes, source behavior changes, command surface changes, or write-surface expansion.
