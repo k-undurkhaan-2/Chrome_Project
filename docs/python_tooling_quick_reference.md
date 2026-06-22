@@ -397,6 +397,17 @@ Current behavior is unchanged:
 - write-capable Python commands remain only `report export` and `report bundle export`
 - next recommended docs slice is Phase 12.1 checkpoint/status overview docs sync, starting from `docs/architecture/python_tooling_phase12_post_invalid_output_checkpoint_selector.md`
 
+## Current Python Tooling Status
+
+- latest checkpoint: `python-tooling-invalid-output-extension-rejection-checkpoint-20260621`
+- compact overview: `docs/architecture/python_tooling_checkpoint_status_overview.md`
+- command surface: `writes_files_count=2`, `runs_ce_count=0`
+- write-capable commands remain `report export` and `report bundle export`
+- wrapper remains read-only and does not expose export shortcuts
+- docs-only and validation-only phases must not manually run report export, dry-run, `--record-manifest`, bundle export, write, or restore unless a task explicitly authorizes the exact command and output path
+- next recommended slice after the overview is Phase 12.2 rejection-message consistency audit
+- isolated source-manifest content parsing remains deferred until an explicit product/behavior decision
+
 ## Known Non-Goals
 
 This quick reference does not authorize:

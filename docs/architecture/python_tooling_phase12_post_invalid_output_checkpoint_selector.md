@@ -173,6 +173,8 @@ Phase 12.1 - report bundle export operator guide hardening
 
 ## Recommended next slice
 
+Phase 12.1 checkpoint/status overview docs sync has been selected from Candidate A and is prepared in `docs/architecture/python_tooling_checkpoint_status_overview.md`. After that overview, the likely next slice is Candidate B, rejection-message consistency audit, unless a narrow operator docs hardening pass is preferred.
+
 Recommended next slice:
 
 ```text

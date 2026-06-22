@@ -311,6 +311,8 @@ Phase 11.1 invalid output extension / output type rejection wording contract exi
 
 Phase 11 invalid output extension/type rejection is checkpointed as `python-tooling-invalid-output-extension-rejection-checkpoint-20260621`. Phase 11.5 final checkpoint smoke passed with status `SAFE`, command inventory `writes_files_count=2`, `runs_ce_count=0`, wrapper read-only behavior, and no runtime report, manifest, bundle, validation, or docs-report artifacts. Manual validation should still avoid direct export, dry-run, `--record-manifest`, or bundle export unless a task explicitly authorizes the exact command and output path. Next work should start from the Phase 12 selector in `docs/architecture/python_tooling_phase12_post_invalid_output_checkpoint_selector.md`.
 
+For current Python tooling status, start with `docs/architecture/python_tooling_checkpoint_status_overview.md`. The wrapper remains read-only; use direct Python only when a task explicitly allows it. Validation-only phases must avoid manual real export, dry-run, write, restore, `--record-manifest`, and bundle export commands. Current write-capable commands remain limited to `report export` and `report bundle export`.
+
 ## Git Hygiene
 
 Do not commit:
