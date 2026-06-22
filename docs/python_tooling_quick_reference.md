@@ -421,6 +421,14 @@ Current behavior is unchanged:
 - default manifest parse rejection is separate and already validated with `INVALID_MANIFEST`, `MANIFEST_PARSE_FAILED`, `MANIFEST_INVALID`, and `NO_FILES_WRITTEN`.
 - start with `docs/python_tooling_operator_guide.md` and `docs/architecture/python_tooling_checkpoint_status_overview.md` before any bundle-related task.
 
+## Phase 13 Next Work
+
+- Phase 12 docs-hardening is closed.
+- Start next work from `docs/architecture/python_tooling_phase13_next_work_selector.md`.
+- Python tooling stable baseline remains `writes_files_count=2`, `runs_ce_count=0`, wrapper read-only, and write-capable commands limited to `report export` and `report bundle export`.
+- Default recommendation is to return to core feature / CE-Lua workflow intake.
+- Isolated source-manifest content parsing remains deferred until explicit product/behavior decision.
+
 ## Known Non-Goals
 
 This quick reference does not authorize:

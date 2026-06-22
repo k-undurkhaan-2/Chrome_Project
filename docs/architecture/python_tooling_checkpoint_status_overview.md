@@ -130,3 +130,7 @@ Phase 12.3 report bundle export operator guide hardening is documented in `docs/
    - report bundle export operator guide hardening
 
 Do not start any of these from this overview document alone.
+
+## Phase 13 Selector
+
+Phase 12 docs-hardening closed after final smoke. Phase 13 next-work selection is recorded in `docs/architecture/python_tooling_phase13_next_work_selector.md`. The recommended default is to return to core feature / CE-Lua workflow intake; the deferred isolated source-manifest content parsing behavior remains available only as an explicit product/behavior contract.

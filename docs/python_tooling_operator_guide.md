@@ -436,6 +436,8 @@ For current Python tooling status, start with `docs/architecture/python_tooling_
 
 Rejection-message consistency is audited in `docs/architecture/python_tooling_rejection_message_consistency_audit.md`. Treat rejection domain tokens as stable diagnostic categories: invalid option, source input, zip unsupported, overwrite, path guard, default manifest parse, and output extension/type should remain separate. Manual export remains disallowed in docs-only and validation-only tasks unless the task explicitly allows the exact command and output path.
 
+The operator guide is stable after Phase 12.4 docs-hardening final smoke. Future work should start from `docs/architecture/python_tooling_phase13_next_work_selector.md` and should not change operator boundaries without an explicit task contract.
+
 ## Git Hygiene
 
 Do not commit:

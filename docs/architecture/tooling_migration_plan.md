@@ -393,6 +393,8 @@ Phase 12.2 rejection-message consistency audit is prepared after checkpoint/stat
 
 Phase 12.3 report bundle export operator guide hardening is prepared after the rejection-message consistency audit. It is docs-only and does not change command behavior, wrapper behavior, write surface, or runtime state.
 
+Phase 12 docs-hardening is closed after final smoke. Phase 13 next-work selector is prepared in `docs/architecture/python_tooling_phase13_next_work_selector.md`.
+
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 
 - Define request formats.
