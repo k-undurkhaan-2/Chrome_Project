@@ -389,6 +389,8 @@ Phase 12.0 prepares the post invalid-output checkpoint selector in `docs/archite
 
 Phase 12.1 checkpoint/status overview docs sync is prepared in `docs/architecture/python_tooling_checkpoint_status_overview.md` after the invalid output extension checkpoint.
 
+Phase 12.2 rejection-message consistency audit is prepared after checkpoint/status overview. It is docs-only/audit-only and does not implement source/test behavior changes.
+
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 
 - Define request formats.

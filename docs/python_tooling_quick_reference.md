@@ -407,6 +407,9 @@ Current behavior is unchanged:
 - docs-only and validation-only phases must not manually run report export, dry-run, `--record-manifest`, bundle export, write, or restore unless a task explicitly authorizes the exact command and output path
 - next recommended slice after the overview is Phase 12.2 rejection-message consistency audit
 - isolated source-manifest content parsing remains deferred until an explicit product/behavior decision
+- rejection-message consistency audit: `docs/architecture/python_tooling_rejection_message_consistency_audit.md`
+- use the audit before making more rejection wording changes
+- do not merge adjacent token domains casually; keep path guard, overwrite, zip, source input, manifest parse, and output type tokens scoped to their own domains
 
 ## Known Non-Goals
 

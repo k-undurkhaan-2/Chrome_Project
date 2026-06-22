@@ -313,6 +313,8 @@ Phase 11 invalid output extension/type rejection is checkpointed as `python-tool
 
 For current Python tooling status, start with `docs/architecture/python_tooling_checkpoint_status_overview.md`. The wrapper remains read-only; use direct Python only when a task explicitly allows it. Validation-only phases must avoid manual real export, dry-run, write, restore, `--record-manifest`, and bundle export commands. Current write-capable commands remain limited to `report export` and `report bundle export`.
 
+Rejection-message consistency is audited in `docs/architecture/python_tooling_rejection_message_consistency_audit.md`. Treat rejection domain tokens as stable diagnostic categories: invalid option, source input, zip unsupported, overwrite, path guard, default manifest parse, and output extension/type should remain separate. Manual export remains disallowed in docs-only and validation-only tasks unless the task explicitly allows the exact command and output path.
+
 ## Git Hygiene
 
 Do not commit:
