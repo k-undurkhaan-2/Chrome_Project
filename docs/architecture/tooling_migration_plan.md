@@ -395,6 +395,8 @@ Phase 12.3 report bundle export operator guide hardening is prepared after the r
 
 Phase 12 docs-hardening is closed after final smoke. Phase 13 next-work selector is prepared in `docs/architecture/python_tooling_phase13_next_work_selector.md`.
 
+Phase 13.1 core feature next-module intake is prepared in `docs/architecture/core_feature_next_module_intake.md` after Python tooling docs-hardening closure. The recommended next phase is CE/Lua current-state revalidation planning; CE remains blocked until explicitly authorized.
+
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 
 - Define request formats.

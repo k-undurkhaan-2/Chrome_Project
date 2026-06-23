@@ -188,3 +188,7 @@ If Candidate A is selected:
 ```text
 python_tooling_phase13_1_source_manifest_parsing_behavior_contract_task.md
 ```
+
+## Phase 13.1 Status
+
+Phase 13.1 core feature next-module intake is recorded in `docs/architecture/core_feature_next_module_intake.md`. The recommended next phase is CE/Lua current-state revalidation planning unless the project owner explicitly chooses another candidate. CE remains blocked until a later task explicitly authorizes it.
