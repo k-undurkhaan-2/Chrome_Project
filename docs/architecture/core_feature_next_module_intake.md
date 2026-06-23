@@ -191,3 +191,7 @@ Alternative if Candidate B is chosen:
 ```text
 core_feature_phase13_2_candidate_ranking_next_module_selector_task.md
 ```
+
+## Phase 13.2 Status
+
+Candidate A has been selected for the next docs-only planning step. The CE/Lua current-state revalidation plan is prepared in `docs/architecture/core_feature_ce_lua_current_state_revalidation_plan.md`. CE remains blocked until a future task explicitly authorizes runtime execution and provides current operator inputs.

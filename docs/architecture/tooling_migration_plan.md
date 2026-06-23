@@ -397,6 +397,8 @@ Phase 12 docs-hardening is closed after final smoke. Phase 13 next-work selector
 
 Phase 13.1 core feature next-module intake is prepared in `docs/architecture/core_feature_next_module_intake.md` after Python tooling docs-hardening closure. The recommended next phase is CE/Lua current-state revalidation planning; CE remains blocked until explicitly authorized.
 
+Phase 13.2 CE/Lua current-state revalidation plan is prepared in `docs/architecture/core_feature_ce_lua_current_state_revalidation_plan.md`; CE remains blocked pending explicit authorization.
+
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 
 - Define request formats.
