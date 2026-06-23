@@ -399,6 +399,8 @@ Phase 13.1 core feature next-module intake is prepared in `docs/architecture/cor
 
 Phase 13.2 CE/Lua current-state revalidation plan is prepared in `docs/architecture/core_feature_ce_lua_current_state_revalidation_plan.md`; CE remains blocked pending explicit authorization.
 
+Phase 13.3 CE/Lua quick revalidation contract is prepared in `docs/architecture/core_feature_ce_lua_quick_revalidation_contract.md`; CE remains blocked until explicit Phase 13.4 authorization.
+
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 
 - Define request formats.

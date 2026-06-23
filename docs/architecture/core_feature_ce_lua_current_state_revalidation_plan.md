@@ -211,16 +211,18 @@ Always forbidden unless explicitly scoped:
 
 ## Expected Future Task Names
 
+Phase 13.3 quick revalidation contract is prepared in `docs/architecture/core_feature_ce_lua_quick_revalidation_contract.md`. CE remains blocked until Phase 13.4 explicitly authorizes CE execution and Lua runtime execution. The next runtime task must collect operator permissions and current case inputs before any quick smoke.
+
 Recommended next task:
 
 ```text
-core_feature_phase13_3_ce_lua_quick_revalidation_contract_task.md
+core_feature_phase13_4_ce_lua_quick_revalidation_smoke_task.md
 ```
 
 Alternative if the user does not want CE yet:
 
 ```text
-core_feature_phase13_3_candidate_ranking_next_module_selector_task.md
+core_feature_phase13_4_candidate_ranking_next_module_selector_task.md
 ```
 
 ## Stop Conditions For Future CE Task
