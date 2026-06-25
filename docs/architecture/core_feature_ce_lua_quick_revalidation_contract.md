@@ -286,6 +286,8 @@ The future Phase 13.4 final report must include:
 
 ## Recommended Next Task
 
+Phase 13.5D quick revalidation passed with batch `20260625-233355`, `quick_success`, `best_candidate = 0x27A061C7D48`, and true-address rank 1. Quick profile skipped stable intersection, so Phase 13.6 prepares the full smoke contract in `docs/architecture/core_feature_ce_lua_full_smoke_contract.md` for future stable-rank validation.
+
 After this contract is committed, recommended next task:
 
 ```text

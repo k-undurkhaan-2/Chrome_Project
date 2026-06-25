@@ -401,6 +401,8 @@ Phase 13.2 CE/Lua current-state revalidation plan is prepared in `docs/architect
 
 Phase 13.3 CE/Lua quick revalidation contract is prepared in `docs/architecture/core_feature_ce_lua_quick_revalidation_contract.md`; CE remains blocked until explicit Phase 13.4 authorization.
 
+Phase 13.6 full smoke contract is prepared in `docs/architecture/core_feature_ce_lua_full_smoke_contract.md` after quick_success batch `20260625-233355`; full CE/Lua execution remains blocked pending explicit authorization.
+
 ### Phase 4: Stabilize CE Runtime Adapter Contract
 
 - Define request formats.

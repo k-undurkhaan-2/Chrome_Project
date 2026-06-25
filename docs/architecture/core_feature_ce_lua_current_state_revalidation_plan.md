@@ -213,16 +213,18 @@ Always forbidden unless explicitly scoped:
 
 Phase 13.3 quick revalidation contract is prepared in `docs/architecture/core_feature_ce_lua_quick_revalidation_contract.md`. CE remains blocked until Phase 13.4 explicitly authorizes CE execution and Lua runtime execution. The next runtime task must collect operator permissions and current case inputs before any quick smoke.
 
+Phase 13.5D quick smoke passed with `quick_success` for `0x27A061C7D48`. Phase 13.6 full smoke contract is prepared in `docs/architecture/core_feature_ce_lua_full_smoke_contract.md`; CE remains blocked until explicit future full-smoke authorization.
+
 Recommended next task:
 
 ```text
-core_feature_phase13_4_ce_lua_quick_revalidation_smoke_task.md
+core_feature_phase13_7_full_profile_config_manual_dofile_handoff_task.md
 ```
 
 Alternative if the user does not want CE yet:
 
 ```text
-core_feature_phase13_4_candidate_ranking_next_module_selector_task.md
+core_feature_phase13_7_candidate_ranking_next_module_selector_task.md
 ```
 
 ## Stop Conditions For Future CE Task
