@@ -90,7 +90,7 @@ end
 
 local function normalize_validation_profile(value)
   local profile = tostring(value or "full"):lower()
-  if profile == "full" or profile == "quick" then
+  if profile == "full" or profile == "quick" or profile == "single" then
     return profile
   end
   error("invalid validation_profile: " .. tostring(value))
@@ -955,7 +955,7 @@ local function apply_runtime_empty_diagnostics(summary, diagnostics)
   summary.no_probe_B_collector_empty = diagnostics.no_probe_B_collector_empty
 end
 
-local function validate_collector_bundle(bundle, mode_name)
+local function validate_collector_bundle(bundle, mode_name, validation_profile)
   if type(bundle) ~= "table" then
     bundle = {failure_class = "collector_missing_summary", error = "collector returned no usable bundle"}
   end
@@ -964,10 +964,28 @@ local function validate_collector_bundle(bundle, mode_name)
     failure_class = "collector_invalid_result"
     err = "collector returned no usable final ranking"
   end
+  if failure_class == nil and validation_profile == "single" then
+    local ranked = bundle.result.ranked
+    local ranking_valid = #ranked > 0 and bundle.result.best == ranked[1]
+    for _, item in ipairs(ranked) do
+      if type(item) ~= "table" or type(item.candidate) ~= "table"
+          or type(item.candidate.value_addr) ~= "number"
+          or type(item.score) ~= "number" or item.score ~= item.score
+          or math.abs(item.score) == math.huge then
+        ranking_valid = false
+        break
+      end
+    end
+    if not ranking_valid then
+      failure_class = "collector_invalid_result"
+      err = "single requires a non-empty, usable final ranking and best candidate"
+    end
+  end
   bundle.failure_class = failure_class
   bundle.error = err
   apply_runtime_empty_diagnostics(bundle, build_runtime_empty_diagnostics({[mode_name] = bundle}, {mode_name}))
-  if type(bundle.result) ~= "table" then
+  if type(bundle.result) ~= "table"
+      or (validation_profile == "single" and failure_class == "collector_invalid_result") then
     bundle.result = {}
   end
   if bundle.run_valid == false then
@@ -977,19 +995,33 @@ local function validate_collector_bundle(bundle, mode_name)
 end
 
 local function build_case_runtime_diagnostics(group)
-  local quick = group.no_probe_A and group.no_probe_A.validation_profile == "quick"
-  local required_modes = quick and {"no_probe_A"}
+  local profile = group.no_probe_A and group.no_probe_A.validation_profile
+  local required_modes = (profile == "quick" or profile == "single") and {"no_probe_A"}
     or {"no_probe_A", "with_probe", "no_probe_B", "stable_no_probe_intersection"}
   return build_runtime_empty_diagnostics(group, required_modes)
 end
 
+local function validate_single_configuration(case_cfg)
+  if case_cfg.validation_profile == "single"
+      and (case_cfg.execution_mode ~= "disabled" or case_cfg.write_enabled ~= false) then
+    error('validation_profile=single requires execution_mode="disabled" and write_enabled=false')
+  end
+end
+
 local function get_case_mode_entries(case_cfg)
-  if case_cfg.validation_profile == "quick" then
+  if case_cfg.validation_profile == "quick" or case_cfg.validation_profile == "single" then
     return {
       {name = "no_probe_A", probe_full_foundlist = false},
     }, "with_probe, no_probe_B, stable_no_probe_intersection"
   end
   return case_cfg.modes or {}, "none"
+end
+
+local function validation_profile_note(profile)
+  if profile == "single" then
+    return "single_pass_detect_only"
+  end
+  return profile == "quick" and "smoke_test_only" or "baseline_eligible"
 end
 
 local function apply_validation_profile_fields(summary, case_cfg, skipped_modes)
@@ -999,7 +1031,7 @@ local function apply_validation_profile_fields(summary, case_cfg, skipped_modes)
   summary.validation_profile = case_cfg.validation_profile or "full"
   summary.baseline_eligible = summary.validation_profile == "full"
   summary.skipped_modes = skipped_modes or "none"
-  summary.profile_note = summary.validation_profile == "quick" and "smoke_test_only" or "baseline_eligible"
+  summary.profile_note = validation_profile_note(summary.validation_profile)
 end
 
 local function get_runtime_diagnostic(diagnostics, key)
@@ -1473,7 +1505,7 @@ local function emit_compact_bundle_report(case_cfg, mode_cfg, bundle, policy)
   print_kv("validation_profile", case_cfg.validation_profile)
   print_kv("baseline_eligible", case_cfg.validation_profile == "full")
   print_kv("skipped_modes", case_cfg.skipped_modes or "none")
-  print_kv("profile_note", case_cfg.validation_profile == "quick" and "smoke_test_only" or "baseline_eligible")
+  print_kv("profile_note", validation_profile_note(case_cfg.validation_profile))
   print_kv("session_id", case_cfg.session_id)
   print_kv("mode", mode_cfg.mode)
   print_hex_kv("known_true_addr", case_cfg.known_true_addr)
@@ -1520,7 +1552,7 @@ local function emit_bundle_report(case_cfg, mode_cfg, bundle, policy)
   print_kv("validation_profile", case_cfg.validation_profile)
   print_kv("baseline_eligible", case_cfg.validation_profile == "full")
   print_kv("skipped_modes", case_cfg.skipped_modes or "none")
-  print_kv("profile_note", case_cfg.validation_profile == "quick" and "smoke_test_only" or "baseline_eligible")
+  print_kv("profile_note", validation_profile_note(case_cfg.validation_profile))
   print_kv("session_id", case_cfg.session_id)
   print_kv("mode", mode_cfg.mode)
   print_hex_kv("known_true_addr", case_cfg.known_true_addr)
@@ -1596,7 +1628,7 @@ local function build_run_summary(case_cfg, mode_cfg, bundle, log_path, filter_de
     validation_profile = case_cfg.validation_profile,
     baseline_eligible = case_cfg.validation_profile == "full",
     skipped_modes = case_cfg.skipped_modes or "none",
-    profile_note = case_cfg.validation_profile == "quick" and "smoke_test_only" or "baseline_eligible",
+    profile_note = validation_profile_note(case_cfg.validation_profile),
     session_id = case_cfg.session_id,
     mode = mode_cfg.mode,
     run_valid = bundle.run_valid,
@@ -2106,7 +2138,7 @@ local function build_stable_intersection_summary(case_cfg, bundle, log_path, ana
     validation_profile = case_cfg.validation_profile,
     baseline_eligible = case_cfg.validation_profile == "full",
     skipped_modes = case_cfg.skipped_modes or "none",
-    profile_note = case_cfg.validation_profile == "quick" and "smoke_test_only" or "baseline_eligible",
+    profile_note = validation_profile_note(case_cfg.validation_profile),
     session_id = case_cfg.session_id,
     mode = "stable_no_probe_intersection",
     probe_full_foundlist = false,
@@ -2349,7 +2381,7 @@ local function run_stable_intersection_mode(case_cfg, no_probe_a, with_probe, no
       validation_profile = case_cfg.validation_profile,
       baseline_eligible = case_cfg.validation_profile == "full",
       skipped_modes = case_cfg.skipped_modes or "none",
-      profile_note = case_cfg.validation_profile == "quick" and "smoke_test_only" or "baseline_eligible",
+      profile_note = validation_profile_note(case_cfg.validation_profile),
       session_id = case_cfg.session_id,
       mode = "stable_no_probe_intersection",
       known_true_addr = case_cfg.known_true_addr,
@@ -2760,12 +2792,17 @@ local function resolve_mode_config(mode_entry)
 end
 
 local function run_case_mode(case_cfg, mode_entry, batch_id)
+  validate_single_configuration(case_cfg)
   local total_start_ms = now_ms()
   local mode_config_start_ms = now_ms()
   local mode_cfg = resolve_mode_config(mode_entry)
   if mode_cfg.probe_full_foundlist == nil then
     local preset = MODE_PRESETS[mode_cfg.mode]
     mode_cfg.probe_full_foundlist = preset and preset.probe_full_foundlist or false
+  end
+  if case_cfg.validation_profile == "single"
+      and (mode_cfg.mode ~= "no_probe_A" or mode_cfg.probe_full_foundlist ~= false) then
+    error("validation_profile=single requires no_probe_A with probe_full_foundlist=false")
   end
   local mode_config_ms = elapsed_ms(mode_config_start_ms)
 
@@ -2813,7 +2850,7 @@ local function run_case_mode(case_cfg, mode_entry, batch_id)
       end,
     })
     collector_ms = elapsed_ms(collector_start_ms)
-    bundle = validate_collector_bundle(bundle, mode_cfg.mode)
+    bundle = validate_collector_bundle(bundle, mode_cfg.mode, case_cfg.validation_profile)
     bundle.screening_compute_ms = bundle.run_valid and screening_compute_ms or nil
 
     local report_console_start_ms = console_print_total_ms
@@ -2845,6 +2882,17 @@ local function run_case_mode(case_cfg, mode_entry, batch_id)
     print(bundle_or_err)
   end
 
+  if case_cfg.validation_profile == "single" then
+    print("=== single_detect_only ===")
+    print_kv("validation_profile", case_cfg.validation_profile)
+    print_kv("mode", mode_cfg.mode)
+    print_kv("probe_full_foundlist", mode_cfg.probe_full_foundlist)
+    print_kv("baseline_eligible", false)
+    print_kv("skipped_modes", case_cfg.skipped_modes)
+    print_kv("profile_note", validation_profile_note(case_cfg.validation_profile))
+    print_execution_fields(build_default_execution_result(case_cfg))
+  end
+
   local log_text = table.concat(active_log_lines, "\r\n") .. "\r\n"
   local log_size_bytes = #log_text
   local write_start_ms = now_ms()
@@ -2855,7 +2903,7 @@ local function run_case_mode(case_cfg, mode_entry, batch_id)
   local total_ms = elapsed_ms(total_start_ms)
 
   if not ok then
-    return finalize_timing_summary({
+    local summary = finalize_timing_summary({
       case_id = case_cfg.case_id,
       case_config_loaded = case_cfg.case_config_loaded,
       case_config_path = case_cfg.case_config_path,
@@ -2920,6 +2968,11 @@ local function run_case_mode(case_cfg, mode_entry, batch_id)
       recommendation = "INVALID_RUNTIME_SAMPLE",
       error = bundle_or_err,
     })
+    if case_cfg.validation_profile == "single" then
+      apply_validation_profile_fields(summary, case_cfg, case_cfg.skipped_modes)
+      apply_default_execution_fields(summary, case_cfg)
+    end
+    return summary
   end
 
   local filter_debug = get_filter_debug_snapshot()
@@ -2952,6 +3005,10 @@ local function run_case_mode(case_cfg, mode_entry, batch_id)
 end
 
 local function main()
+  -- Reject every incompatible single case before any collection or UI action.
+  for _, case_cfg in ipairs(RUN_CASES) do
+    validate_single_configuration(case_cfg)
+  end
   if type(getLuaEngine) == "function" then
     local engine = getLuaEngine()
     if engine ~= nil and type(engine.show) == "function" then
@@ -2981,7 +3038,7 @@ local function main()
       apply_execution_fields(case_summaries.no_probe_A, execution_result)
     end
 
-    if case_cfg.validation_profile ~= "quick" then
+    if case_cfg.validation_profile ~= "quick" and case_cfg.validation_profile ~= "single" then
       local stable_summary = run_stable_intersection_mode(case_cfg, case_summaries.no_probe_A, case_summaries.with_probe, case_summaries.no_probe_B, batch_id)
       apply_validation_profile_fields(stable_summary, case_cfg, skipped_modes)
       if stable_summary ~= nil then

@@ -359,9 +359,16 @@ def test_scoring_collection_policy_and_write_controls_are_unchanged():
 
     assert collection_policy(collector) == collection_policy(previous(COLLECTOR))
     batch = BATCH.read_text(encoding="utf-8")
+    # Permit only the authorized normalization addition; retain byte-for-byte
+    # checks on presets, config parsing, defaults, and all write/restore guards.
+    single_branch = 'if profile == "full" or profile == "quick" or profile == "single" then'
+    assert batch.count(single_branch) == 1
+    compatible_batch = batch.replace(
+        single_branch, 'if profile == "full" or profile == "quick" then', 1,
+    )
     for start, end in (
         ("local MODE_PRESETS", "local original_print"),
         ("local function build_default_execution_result", "function load_value_executor"),
     ):
-        assert section(batch, start, end) == section(previous(BATCH), start, end)
+        assert section(compatible_batch, start, end) == section(previous(BATCH), start, end)
     assert 'execution_mode = "disabled"' in batch and 'write_enabled = false' in batch
