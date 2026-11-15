@@ -1936,6 +1936,26 @@ local function copy_option_table(opts)
   return copied
 end
 
+local function snapshot_failure(snapshot)
+  if type(snapshot) ~= 'table' then
+    return 'collector_missing_summary', 'stable collector returned no usable snapshot'
+  end
+  if snapshot.error ~= nil and snapshot.failure_class == 'collector_runtime_empty' then
+    return 'collector_error', snapshot.error
+  end
+  if snapshot.error ~= nil or snapshot.failure_class ~= nil or snapshot.run_valid == false then
+    return snapshot.failure_class or 'collector_error', snapshot.error
+  end
+  local count = snapshot.raw_count
+  if type(count) ~= 'number' or count ~= count or count < 0 or count == math.huge or count % 1 ~= 0 then
+    return 'collector_invalid_raw_count', 'stable snapshot raw_count is invalid: ' .. tostring(count)
+  end
+  if count == 0 then
+    return 'collector_runtime_empty', nil
+  end
+  return nil, nil
+end
+
 local function run_stable_no_probe_intersection(opts)
   local snapshot_a_opts = copy_option_table(opts)
   snapshot_a_opts.stable_no_probe_intersection_enabled = false
@@ -1947,6 +1967,10 @@ local function run_stable_no_probe_intersection(opts)
   local snapshot_a_start_ms = now_ms()
   local snapshot_a = MVP0FoundList.collect(snapshot_a_opts)
   local stable_snapshot_A_ms = elapsed_ms(snapshot_a_start_ms)
+  local snapshot_a_failure, snapshot_a_error = snapshot_failure(snapshot_a)
+  if snapshot_a_failure ~= nil and snapshot_a_failure ~= 'collector_runtime_empty' then
+    return {failure_class = snapshot_a_failure, error = snapshot_a_error}
+  end
   local snapshot_a_filtered = copy_numeric_array(MVP0FoundList.LAST_FILTER_DEBUG and MVP0FoundList.LAST_FILTER_DEBUG.matched_addresses or {})
 
   local snapshot_b_opts = copy_option_table(opts)
@@ -1959,6 +1983,10 @@ local function run_stable_no_probe_intersection(opts)
   local snapshot_b_start_ms = now_ms()
   local snapshot_b = MVP0FoundList.collect(snapshot_b_opts)
   local stable_snapshot_B_ms = elapsed_ms(snapshot_b_start_ms)
+  local snapshot_b_failure, snapshot_b_error = snapshot_failure(snapshot_b)
+  if snapshot_b_failure ~= nil and snapshot_b_failure ~= 'collector_runtime_empty' then
+    return {failure_class = snapshot_b_failure, error = snapshot_b_error}
+  end
   local snapshot_b_filtered = copy_numeric_array(MVP0FoundList.LAST_FILTER_DEBUG and MVP0FoundList.LAST_FILTER_DEBUG.matched_addresses or {})
   local stable_intersection_build_start_ms = now_ms()
   local stable_filtered = {}
@@ -2012,6 +2040,7 @@ local function run_stable_no_probe_intersection(opts)
   })
 
   bundle.raw_count = snapshot_b.raw_count
+  bundle.failure_class = snapshot_a_failure or snapshot_b_failure
   bundle.scanned_count = snapshot_b.scanned_count
   bundle.unique_count = snapshot_b.unique_count
   bundle.scan_budget = snapshot_b.scan_budget
@@ -2120,7 +2149,7 @@ function MVP0FoundList.run_from_filtered_addresses(opts)
     session_id = opts and opts.session_id,
     session_mode = bundle.session_mode or (opts and opts.session_mode) or 'stable_no_probe_intersection',
   })
-  bundle.result = MVP0.run(bundle.input)
+  bundle.result = MVP0.run(bundle.input, opts and opts.on_rank_complete)
 
   bundle.known_true_rank_position = nil
   bundle.known_true_base_score = nil
@@ -2146,12 +2175,15 @@ end
 function MVP0FoundList.run(opts)
   if opts and opts.stable_no_probe_intersection_enabled == true then
     local bundle = run_stable_no_probe_intersection(opts)
+    if bundle.failure_class ~= nil and bundle.failure_class ~= 'collector_runtime_empty' then
+      return bundle
+    end
     bundle.input = MVP0.make_input(bundle.candidate_value_addrs, bundle.target_value_pattern, {
       target_value_float = opts and opts.target_value_float,
       session_id = opts and opts.session_id,
       session_mode = bundle.session_mode or 'stable_no_probe_intersection',
     })
-    bundle.result = MVP0.run(bundle.input)
+    bundle.result = MVP0.run(bundle.input, opts and opts.on_rank_complete)
 
     bundle.known_true_rank_position = nil
     bundle.known_true_base_score = nil
@@ -2175,7 +2207,7 @@ function MVP0FoundList.run(opts)
   end
 
   local bundle = MVP0FoundList.build_input(opts)
-  bundle.result = MVP0.run(bundle.input)
+  bundle.result = MVP0.run(bundle.input, opts and opts.on_rank_complete)
 
   bundle.known_true_rank_position = nil
   bundle.known_true_base_score = nil

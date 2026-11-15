@@ -322,6 +322,21 @@ RUN_CASES = apply_local_case_config(RUN_CASES, LOCAL_CASE_CONFIG_PATH)
 local original_print = print
 local active_log_lines = nil
 local console_print_total_ms = 0
+local active_screening_timer = nil
+
+local function start_screening_timer()
+  -- getTickCount measures elapsed time, including collector waits. Legacy
+  -- os.clock-based timings keep their existing meanings.
+  local timer = {start_ms = getTickCount(), output_ms = 0}
+  active_screening_timer = timer
+  return timer
+end
+
+local function finish_screening_timer(timer)
+  local end_ms = getTickCount()
+  active_screening_timer = nil
+  return math.max(0, math.floor(end_ms - timer.start_ms - timer.output_ms + 0.5))
+end
 
 local function stringify(...)
   local parts = {}
@@ -332,12 +347,16 @@ local function stringify(...)
 end
 
 print = function(...)
+  local output_start_ms = active_screening_timer and getTickCount() or nil
   if active_log_lines ~= nil then
     active_log_lines[#active_log_lines + 1] = stringify(...)
   end
   local print_start_ms = os.clock() * 1000
   original_print(...)
   console_print_total_ms = console_print_total_ms + math.floor(((os.clock() * 1000) - print_start_ms) + 0.5)
+  if output_start_ms ~= nil then
+    active_screening_timer.output_ms = active_screening_timer.output_ms + getTickCount() - output_start_ms
+  end
 end
 
 local function ensure_directory(path)
@@ -849,19 +868,51 @@ local function build_no_probe_snapshot_intersection_analysis(no_probe_a, no_prob
   }
 end
 
+local function collector_failure(summary)
+  if type(summary) ~= "table" then
+    return "collector_missing_summary", "required collector summary is missing or unusable"
+  end
+  if summary.error ~= nil then
+    local failure_class = summary.failure_class
+    if failure_class == nil or failure_class == "collector_runtime_empty" then
+      failure_class = "collector_error"
+    end
+    return failure_class, summary.error
+  end
+  if summary.failure_class ~= nil or summary.run_valid == false then
+    return summary.failure_class or "collector_invalid_result", summary.error
+  end
+  local raw_count = summary.raw_count
+  if type(raw_count) ~= "number" or raw_count ~= raw_count
+      or raw_count < 0 or raw_count == math.huge or raw_count % 1 ~= 0 then
+    return "collector_invalid_raw_count", "raw_count must be a finite non-negative integer; got " .. tostring(raw_count)
+  end
+  if raw_count == 0 then
+    return "collector_runtime_empty", nil
+  end
+  return nil, nil
+end
+
 local function build_runtime_empty_diagnostics(group, mode_names)
   mode_names = mode_names or {"no_probe_A", "with_probe", "no_probe_B"}
   local empty_modes = {}
-  local all_present = true
-  local all_empty = true
+  local all_empty = #mode_names > 0
   local mode_empty = {}
+  local failure_class = nil
+  local errors = {}
 
   for _, mode_name in ipairs(mode_names) do
     local summary = group and group[mode_name] or nil
-    local is_empty = summary ~= nil and summary.raw_count == 0
+    local mode_failure, mode_error = collector_failure(summary)
+    local is_empty = mode_failure == "collector_runtime_empty"
     mode_empty[mode_name] = is_empty
-    if summary == nil then
-      all_present = false
+    -- An actual failure takes precedence over an empty sample, while retaining
+    -- the first meaningful failure class and every underlying error detail.
+    if mode_failure ~= nil and (failure_class == nil or failure_class == "collector_runtime_empty") then
+      failure_class = mode_failure
+    end
+    if mode_error ~= nil then
+      errors[#errors + 1] = mode_name .. ": " .. tostring(mode_error)
     end
     if is_empty then
       empty_modes[#empty_modes + 1] = mode_name
@@ -870,29 +921,22 @@ local function build_runtime_empty_diagnostics(group, mode_names)
     end
   end
 
-  local collector_empty = all_present and all_empty
+  if #mode_names == 0 then
+    failure_class = "collector_missing_summary"
+    errors[1] = "no required collector modes were supplied"
+  end
+  local collector_empty = all_empty
   return {
-    run_valid = not collector_empty,
-    failure_class = collector_empty and "collector_runtime_empty" or nil,
+    run_valid = failure_class == nil,
+    failure_class = failure_class,
+    error = #errors > 0 and table.concat(errors, "\n") or nil,
     collector_empty = collector_empty,
     empty_modes = (#empty_modes > 0) and table.concat(empty_modes, ", ") or "none",
-    recommendation = collector_empty and "INVALID_RUNTIME_SAMPLE" or nil,
+    recommendation = failure_class ~= nil and "INVALID_RUNTIME_SAMPLE" or nil,
     no_probe_A_collector_empty = mode_empty.no_probe_A,
     with_probe_collector_empty = mode_empty.with_probe,
     no_probe_B_collector_empty = mode_empty.no_probe_B,
   }
-end
-
-local function collect_mode_names(mode_entries)
-  local names = {}
-  for _, mode_entry in ipairs(mode_entries or {}) do
-    if type(mode_entry) == "table" then
-      names[#names + 1] = mode_entry.name or mode_entry.mode
-    else
-      names[#names + 1] = tostring(mode_entry)
-    end
-  end
-  return names
 end
 
 local function apply_runtime_empty_diagnostics(summary, diagnostics)
@@ -902,12 +946,41 @@ local function apply_runtime_empty_diagnostics(summary, diagnostics)
 
   summary.run_valid = diagnostics.run_valid
   summary.failure_class = diagnostics.failure_class
+  summary.error = diagnostics.error
   summary.collector_empty = diagnostics.collector_empty
   summary.empty_modes = diagnostics.empty_modes
   summary.recommendation = diagnostics.recommendation
   summary.no_probe_A_collector_empty = diagnostics.no_probe_A_collector_empty
   summary.with_probe_collector_empty = diagnostics.with_probe_collector_empty
   summary.no_probe_B_collector_empty = diagnostics.no_probe_B_collector_empty
+end
+
+local function validate_collector_bundle(bundle, mode_name)
+  if type(bundle) ~= "table" then
+    bundle = {failure_class = "collector_missing_summary", error = "collector returned no usable bundle"}
+  end
+  local failure_class, err = collector_failure(bundle)
+  if failure_class == nil and (type(bundle.result) ~= "table" or type(bundle.result.ranked) ~= "table") then
+    failure_class = "collector_invalid_result"
+    err = "collector returned no usable final ranking"
+  end
+  bundle.failure_class = failure_class
+  bundle.error = err
+  apply_runtime_empty_diagnostics(bundle, build_runtime_empty_diagnostics({[mode_name] = bundle}, {mode_name}))
+  if type(bundle.result) ~= "table" then
+    bundle.result = {}
+  end
+  if bundle.run_valid == false then
+    bundle.screening_compute_ms = nil
+  end
+  return bundle
+end
+
+local function build_case_runtime_diagnostics(group)
+  local quick = group.no_probe_A and group.no_probe_A.validation_profile == "quick"
+  local required_modes = quick and {"no_probe_A"}
+    or {"no_probe_A", "with_probe", "no_probe_B", "stable_no_probe_intersection"}
+  return build_runtime_empty_diagnostics(group, required_modes)
 end
 
 local function get_case_mode_entries(case_cfg)
@@ -1387,8 +1460,6 @@ end
 local function emit_compact_bundle_report(case_cfg, mode_cfg, bundle, policy)
   local result = (bundle and bundle.result) or {}
   local best = result and result.best or nil
-  local collector_empty = bundle and bundle.raw_count == 0
-  local run_valid = bundle and bundle.raw_count ~= nil and bundle.raw_count ~= 0
   local rank_position = pick_known_true_field(bundle, result, "known_true_rank_position")
 
   print("=== compact_report ===")
@@ -1409,9 +1480,11 @@ local function emit_compact_bundle_report(case_cfg, mode_cfg, bundle, policy)
   print_hex_kv("target_value_addr", case_cfg.target_value_addr)
   print_hex_kv("target_value_pattern", case_cfg.target_value_pattern)
   print_kv("target_value_float", case_cfg.target_value_float)
-  print_kv("run_valid", run_valid)
-  print_kv("failure_class", collector_empty and "collector_runtime_empty" or nil)
-  print_kv("collector_empty", collector_empty)
+  print_kv("run_valid", bundle.run_valid)
+  print_kv("failure_class", bundle.failure_class)
+  print_kv("error", bundle.error)
+  print_kv("collector_empty", bundle.collector_empty)
+  print_kv("screening_compute_ms", bundle.screening_compute_ms)
   print_kv("true_in_raw", bundle and bundle.true_in_raw)
   print_kv("true_in_unique", bundle and bundle.true_in_unique)
   print_kv("true_in_filtered", bundle and bundle.true_in_filtered)
@@ -1457,6 +1530,11 @@ local function emit_bundle_report(case_cfg, mode_cfg, bundle, policy)
   print_kv("probe_full_foundlist", mode_cfg.probe_full_foundlist)
 
   print("=== collector_stats ===")
+  print_kv("run_valid", bundle.run_valid)
+  print_kv("failure_class", bundle.failure_class)
+  print_kv("error", bundle.error)
+  print_kv("collector_empty", bundle.collector_empty)
+  print_kv("screening_compute_ms", bundle.screening_compute_ms)
   print_kv("raw_count", bundle and bundle.raw_count)
   print_kv("scanned_count", bundle and bundle.scanned_count)
   print_kv("unique_count", bundle and bundle.unique_count)
@@ -1521,6 +1599,13 @@ local function build_run_summary(case_cfg, mode_cfg, bundle, log_path, filter_de
     profile_note = case_cfg.validation_profile == "quick" and "smoke_test_only" or "baseline_eligible",
     session_id = case_cfg.session_id,
     mode = mode_cfg.mode,
+    run_valid = bundle.run_valid,
+    failure_class = bundle.failure_class,
+    error = bundle.error,
+    collector_empty = bundle.collector_empty,
+    empty_modes = bundle.empty_modes,
+    recommendation = bundle.recommendation,
+    screening_compute_ms = bundle.screening_compute_ms,
     probe_full_foundlist = mode_cfg.probe_full_foundlist,
     known_true_addr = case_cfg.known_true_addr,
     target_value_addr = case_cfg.target_value_addr,
@@ -1621,6 +1706,8 @@ local function print_run_summary(summary)
   print_kv("mode", summary.mode)
   print_kv("run_valid", summary.run_valid)
   print_kv("failure_class", summary.failure_class)
+  print_kv("error", summary.error)
+  print_kv("screening_compute_ms", summary.screening_compute_ms)
   print_kv("collector_empty", summary.collector_empty)
   print_kv("empty_modes", summary.empty_modes)
   print_kv("recommendation", summary.recommendation)
@@ -1739,6 +1826,8 @@ local function render_summary_file(batch_id, summaries)
     lines[#lines + 1] = "probe_full_foundlist = " .. tostring(summary.probe_full_foundlist)
     lines[#lines + 1] = "run_valid = " .. tostring(summary.run_valid)
     lines[#lines + 1] = "failure_class = " .. tostring(summary.failure_class)
+    lines[#lines + 1] = "error = " .. tostring(summary.error)
+    lines[#lines + 1] = "screening_compute_ms = " .. tostring(summary.screening_compute_ms)
     lines[#lines + 1] = "collector_empty = " .. tostring(summary.collector_empty)
     lines[#lines + 1] = "empty_modes = " .. tostring(summary.empty_modes)
     lines[#lines + 1] = "recommendation = " .. tostring(summary.recommendation)
@@ -1844,12 +1933,13 @@ local function render_summary_file(batch_id, summaries)
   lines[#lines + 1] = "=== Delayed Snapshot Intersection Summary ==="
   lines[#lines + 1] = ""
   for key, group in pairs(groups) do
-    local analysis = build_no_probe_snapshot_intersection_analysis(group.no_probe_A, group.no_probe_B)
-    if analysis ~= nil then
-      local runtime_empty_diagnostics = build_runtime_empty_diagnostics(group)
+    local analysis = build_no_probe_snapshot_intersection_analysis(group.no_probe_A, group.no_probe_B) or {}
+    do
+      local runtime_empty_diagnostics = build_case_runtime_diagnostics(group)
       lines[#lines + 1] = "--- " .. tostring(key) .. " ---"
       lines[#lines + 1] = "run_valid = " .. tostring(runtime_empty_diagnostics.run_valid)
       lines[#lines + 1] = "failure_class = " .. tostring(runtime_empty_diagnostics.failure_class)
+      lines[#lines + 1] = "error = " .. tostring(runtime_empty_diagnostics.error)
       lines[#lines + 1] = "collector_empty = " .. tostring(runtime_empty_diagnostics.collector_empty)
       lines[#lines + 1] = "empty_modes = " .. tostring(runtime_empty_diagnostics.empty_modes)
       lines[#lines + 1] = "recommendation = " .. tostring(runtime_empty_diagnostics.recommendation)
@@ -1886,6 +1976,8 @@ local function emit_compact_stable_intersection_report(case_cfg, summary, policy
   print_kv("mode", "stable_no_probe_intersection")
   print_kv("run_valid", summary.run_valid)
   print_kv("failure_class", summary.failure_class)
+  print_kv("error", summary.error)
+  print_kv("screening_compute_ms", summary.screening_compute_ms)
   print_kv("collector_empty", summary.collector_empty)
   print_kv("recommendation", summary.recommendation)
   print_hex_kv("known_true_addr", case_cfg.known_true_addr)
@@ -1926,6 +2018,8 @@ local function emit_stable_intersection_report(case_cfg, bundle, summary, policy
   -- [stable-intersection-report]
   print_kv("run_valid", summary.run_valid)
   print_kv("failure_class", summary.failure_class)
+  print_kv("error", summary.error)
+  print_kv("screening_compute_ms", summary.screening_compute_ms)
   print_kv("collector_empty", summary.collector_empty)
   print_kv("empty_modes", summary.empty_modes)
   print_kv("recommendation", summary.recommendation)
@@ -2022,6 +2116,8 @@ local function build_stable_intersection_summary(case_cfg, bundle, log_path, ana
     target_value_float = case_cfg.target_value_float,
     run_valid = get_runtime_diagnostic(runtime_diagnostics, "run_valid"),
     failure_class = get_runtime_diagnostic(runtime_diagnostics, "failure_class"),
+    error = get_runtime_diagnostic(runtime_diagnostics, "error"),
+    screening_compute_ms = get_runtime_diagnostic(runtime_diagnostics, "run_valid") == true and bundle.screening_compute_ms or nil,
     collector_empty = get_runtime_diagnostic(runtime_diagnostics, "collector_empty"),
     empty_modes = get_runtime_diagnostic(runtime_diagnostics, "empty_modes"),
     recommendation = get_runtime_diagnostic(runtime_diagnostics, "recommendation"),
@@ -2117,13 +2213,17 @@ local function build_stable_intersection_summary(case_cfg, bundle, log_path, ana
   }
 end
 
-local function run_stable_intersection_mode(case_cfg, no_probe_a, with_probe, no_probe_b, batch_id, runtime_diagnostics)
+local function run_stable_intersection_mode(case_cfg, no_probe_a, with_probe, no_probe_b, batch_id)
   local total_start_ms = now_ms()
-  local stable_intersection_build_start_ms = now_ms()
-  local analysis = build_no_probe_snapshot_intersection_analysis(no_probe_a, no_probe_b)
-  local stable_intersection_build_ms = elapsed_ms(stable_intersection_build_start_ms)
-  if analysis == nil then
-    return nil
+  local analysis = {}
+  local runtime_diagnostics = nil
+  local stable_intersection_build_ms = nil
+  local screening_compute_ms = nil
+  local function stable_diagnostics(bundle)
+    return build_runtime_empty_diagnostics({
+      no_probe_A = no_probe_a, with_probe = with_probe, no_probe_B = no_probe_b,
+      stable_no_probe_intersection = bundle,
+    }, {"no_probe_A", "with_probe", "no_probe_B", "stable_no_probe_intersection"})
   end
 
   local runner_setup_start_ms = now_ms()
@@ -2149,6 +2249,12 @@ local function run_stable_intersection_mode(case_cfg, no_probe_a, with_probe, no
     local module_load_start_ms = now_ms()
     load_modules()
     runner_setup_ms = runner_setup_ms + elapsed_ms(module_load_start_ms)
+    -- Stable includes this analysis and its own two fresh collection/filter
+    -- passes, intersection, selection and final rank; never add A/W/B timings.
+    local screening_timer = start_screening_timer()
+    local stable_intersection_build_start_ms = now_ms()
+    analysis = build_no_probe_snapshot_intersection_analysis(no_probe_a, no_probe_b) or {}
+    stable_intersection_build_ms = elapsed_ms(stable_intersection_build_start_ms)
     local stable_start_ms = now_ms()
     local bundle = MVP0FoundList.run({
       max_candidates = case_cfg.max_candidates,
@@ -2163,8 +2269,14 @@ local function run_stable_intersection_mode(case_cfg, no_probe_a, with_probe, no
       delayed_recheck_enabled = false,
       probe_full_foundlist = false,
       known_true_addr = case_cfg.known_true_addr,
+      on_rank_complete = function()
+        screening_compute_ms = finish_screening_timer(screening_timer)
+      end,
     })
     stable_intersection_ms = elapsed_ms(stable_start_ms)
+    bundle = validate_collector_bundle(bundle, "stable_no_probe_intersection")
+    bundle.screening_compute_ms = bundle.run_valid and screening_compute_ms or nil
+    runtime_diagnostics = stable_diagnostics(bundle)
 
     local summary = build_stable_intersection_summary(case_cfg, bundle, log_path, analysis, no_probe_b, runtime_diagnostics, {
       mode_config_ms = 0,
@@ -2206,8 +2318,14 @@ local function run_stable_intersection_mode(case_cfg, no_probe_a, with_probe, no
     }
   end, debug.traceback)
 
+  active_screening_timer = nil
   if not ok then
+    runtime_diagnostics = stable_diagnostics({failure_class = "collector_exception", error = bundle_or_err})
     print("=== run_error ===")
+    print_kv("run_valid", false)
+    print_kv("failure_class", runtime_diagnostics.failure_class)
+    print_kv("error", runtime_diagnostics.error)
+    print_kv("screening_compute_ms", nil)
     print(bundle_or_err)
   end
 
@@ -2266,7 +2384,7 @@ local function run_stable_intersection_mode(case_cfg, no_probe_a, with_probe, no
       with_probe_collector_empty = get_runtime_diagnostic(runtime_diagnostics, "with_probe_collector_empty"),
       no_probe_B_collector_empty = get_runtime_diagnostic(runtime_diagnostics, "no_probe_B_collector_empty"),
       log_path = log_path,
-      error = bundle_or_err,
+      error = get_runtime_diagnostic(runtime_diagnostics, "error"),
       stable_intersection_enabled = true,
       stable_no_probe_intersection_enabled = true,
       stable_intersection_snapshot_A_filtered_count = no_probe_a and no_probe_a.filtered_count or nil,
@@ -2355,11 +2473,12 @@ local function render_diagnostic_diff_file(batch_id, summaries)
       local delta_candidates = collect_dominant_delta_candidates(full_only_w, full_only_b, 32)
       local interpretation_hint = build_interpretation_hints(full_only_w, full_only_b, page_top_with_probe, page_top_no_probe_b, delta_candidates)
       local no_probe_snapshot_analysis = build_no_probe_snapshot_intersection_analysis(no_probe_a, no_probe_b)
-      local runtime_empty_diagnostics = build_runtime_empty_diagnostics(group)
+      local runtime_empty_diagnostics = build_case_runtime_diagnostics(group)
 
       lines[#lines + 1] = "--- " .. tostring(key) .. " ---"
       lines[#lines + 1] = "run_valid = " .. tostring(runtime_empty_diagnostics.run_valid)
       lines[#lines + 1] = "failure_class = " .. tostring(runtime_empty_diagnostics.failure_class)
+      lines[#lines + 1] = "error = " .. tostring(runtime_empty_diagnostics.error)
       lines[#lines + 1] = "collector_empty = " .. tostring(runtime_empty_diagnostics.collector_empty)
       lines[#lines + 1] = "empty_modes = " .. tostring(runtime_empty_diagnostics.empty_modes)
       lines[#lines + 1] = "recommendation = " .. tostring(runtime_empty_diagnostics.recommendation)
@@ -2534,6 +2653,7 @@ local function render_diagnostic_diff_file(batch_id, summaries)
         lines[#lines + 1] = "runner_setup_ms = " .. tostring(stable_summary.runner_setup_ms)
         lines[#lines + 1] = "mode_config_ms = " .. tostring(stable_summary.mode_config_ms)
         lines[#lines + 1] = "collector_call_ms = " .. tostring(stable_summary.collector_call_ms)
+        lines[#lines + 1] = "screening_compute_ms = " .. tostring(stable_summary.screening_compute_ms)
         lines[#lines + 1] = "collector_ms = " .. tostring(stable_summary.collector_ms)
         lines[#lines + 1] = "filter_ms = " .. tostring(stable_summary.filter_ms)
         lines[#lines + 1] = "prescore_ms = " .. tostring(stable_summary.prescore_ms)
@@ -2560,11 +2680,12 @@ local function render_diagnostic_diff_file(batch_id, summaries)
       end
       lines[#lines + 1] = ""
     elseif no_probe_a ~= nil then
-      local runtime_empty_diagnostics = build_runtime_empty_diagnostics(group, {"no_probe_A"})
+      local runtime_empty_diagnostics = build_case_runtime_diagnostics(group)
 
       lines[#lines + 1] = "--- " .. tostring(key) .. " ---"
       lines[#lines + 1] = "run_valid = " .. tostring(runtime_empty_diagnostics.run_valid)
       lines[#lines + 1] = "failure_class = " .. tostring(runtime_empty_diagnostics.failure_class)
+      lines[#lines + 1] = "error = " .. tostring(runtime_empty_diagnostics.error)
       lines[#lines + 1] = "collector_empty = " .. tostring(runtime_empty_diagnostics.collector_empty)
       lines[#lines + 1] = "empty_modes = " .. tostring(runtime_empty_diagnostics.empty_modes)
       lines[#lines + 1] = "recommendation = " .. tostring(runtime_empty_diagnostics.recommendation)
@@ -2599,6 +2720,7 @@ local function render_diagnostic_diff_file(batch_id, summaries)
       append_execution_lines(lines, no_probe_a)
       lines[#lines + 1] = "mode_total_ms = " .. tostring(no_probe_a.mode_total_ms)
       lines[#lines + 1] = "collector_call_ms = " .. tostring(no_probe_a.collector_call_ms)
+      lines[#lines + 1] = "screening_compute_ms = " .. tostring(no_probe_a.screening_compute_ms)
       lines[#lines + 1] = "prescore_ms = " .. tostring(no_probe_a.prescore_ms)
       lines[#lines + 1] = "report_render_ms = " .. tostring(no_probe_a.report_render_ms)
       lines[#lines + 1] = "total_ms = " .. tostring(no_probe_a.total_ms)
@@ -2662,6 +2784,7 @@ local function run_case_mode(case_cfg, mode_entry, batch_id)
   local runner_setup_ms = elapsed_ms(runner_setup_start_ms)
 
   local collector_ms = nil
+  local screening_compute_ms = nil
   local report_render_ms = nil
   local console_print_ms = nil
   local compact_report_enabled = nil
@@ -2673,6 +2796,7 @@ local function run_case_mode(case_cfg, mode_entry, batch_id)
     runner_setup_ms = runner_setup_ms + elapsed_ms(module_load_start_ms)
 
     local collector_start_ms = now_ms()
+    local screening_timer = start_screening_timer()
     local bundle = MVP0FoundList.run({
       max_candidates = case_cfg.max_candidates,
       scan_budget = case_cfg.scan_budget,
@@ -2684,8 +2808,13 @@ local function run_case_mode(case_cfg, mode_entry, batch_id)
       stable_filter_intersection_enabled = case_cfg.stable_filter_intersection_enabled,
       probe_full_foundlist = mode_cfg.probe_full_foundlist,
       known_true_addr = case_cfg.known_true_addr,
+      on_rank_complete = function()
+        screening_compute_ms = finish_screening_timer(screening_timer)
+      end,
     })
     collector_ms = elapsed_ms(collector_start_ms)
+    bundle = validate_collector_bundle(bundle, mode_cfg.mode)
+    bundle.screening_compute_ms = bundle.run_valid and screening_compute_ms or nil
 
     local report_console_start_ms = console_print_total_ms
     local report_render_start_ms = now_ms()
@@ -2706,8 +2835,13 @@ local function run_case_mode(case_cfg, mode_entry, batch_id)
     return bundle
   end, debug.traceback)
 
+  active_screening_timer = nil
   if not ok then
     print("=== run_error ===")
+    print_kv("run_valid", false)
+    print_kv("failure_class", "collector_exception")
+    print_kv("error", bundle_or_err)
+    print_kv("screening_compute_ms", nil)
     print(bundle_or_err)
   end
 
@@ -2780,6 +2914,10 @@ local function run_case_mode(case_cfg, mode_entry, batch_id)
       total_ms = total_ms,
       log_size_bytes = log_size_bytes,
       log_path = log_path,
+      run_valid = false,
+      failure_class = "collector_exception",
+      collector_empty = false,
+      recommendation = "INVALID_RUNTIME_SAMPLE",
       error = bundle_or_err,
     })
   end
@@ -2828,7 +2966,6 @@ local function main()
 
   for _, case_cfg in ipairs(RUN_CASES) do
     local mode_entries, skipped_modes = get_case_mode_entries(case_cfg)
-    local active_mode_names = collect_mode_names(mode_entries)
     case_cfg.skipped_modes = skipped_modes
 
     local case_summaries = {}
@@ -2839,18 +2976,13 @@ local function main()
       case_summaries[summary.mode] = summary
     end
 
-    local runtime_empty_diagnostics = build_runtime_empty_diagnostics(case_summaries, active_mode_names)
-    apply_runtime_empty_diagnostics(case_summaries.no_probe_A, runtime_empty_diagnostics)
-    apply_runtime_empty_diagnostics(case_summaries.with_probe, runtime_empty_diagnostics)
-    apply_runtime_empty_diagnostics(case_summaries.no_probe_B, runtime_empty_diagnostics)
-
     if case_cfg.validation_profile == "quick" and case_summaries.no_probe_A ~= nil then
       local execution_result = evaluate_value_execution(case_cfg, case_summaries.no_probe_A)
       apply_execution_fields(case_summaries.no_probe_A, execution_result)
     end
 
     if case_cfg.validation_profile ~= "quick" then
-      local stable_summary = run_stable_intersection_mode(case_cfg, case_summaries.no_probe_A, case_summaries.with_probe, case_summaries.no_probe_B, batch_id, runtime_empty_diagnostics)
+      local stable_summary = run_stable_intersection_mode(case_cfg, case_summaries.no_probe_A, case_summaries.with_probe, case_summaries.no_probe_B, batch_id)
       apply_validation_profile_fields(stable_summary, case_cfg, skipped_modes)
       if stable_summary ~= nil then
         summaries[#summaries + 1] = stable_summary

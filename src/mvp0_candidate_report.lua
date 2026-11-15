@@ -2977,7 +2977,7 @@ function MVP0.render_report(rank, input_payload, recommendation)
   return table.concat(lines, "\n")
 end
 
-function MVP0.run(input_payload)
+function MVP0.run(input_payload, on_rank_complete)
   local candidates = {}
   for _, value_addr in ipairs(input_payload.candidate_value_addrs) do
     candidates[#candidates + 1] = MVP0.build_candidate(value_addr)
@@ -2989,6 +2989,10 @@ function MVP0.run(input_payload)
   end
 
   local ranked = MVP0.rank_candidates(scored)
+  -- End screening before recommendation/report construction or output.
+  if on_rank_complete ~= nil then
+    on_rank_complete()
+  end
   ranked.recommendation = MVP0.recommend_action(ranked)
   ranked.final_decision = ranked.recommendation
   ranked.report_text = MVP0.render_report(ranked, input_payload, ranked.recommendation)
