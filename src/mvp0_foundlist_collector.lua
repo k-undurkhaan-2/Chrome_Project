@@ -1963,6 +1963,8 @@ local function run_stable_no_probe_intersection(opts)
   snapshot_a_opts.delayed_recheck_enabled = false
   snapshot_a_opts.probe_full_foundlist = false
   snapshot_a_opts.session_mode = 'no_probe'
+  -- Only complete filtered lists feed the intersection; prescore its result once.
+  snapshot_a_opts.use_prescore_selection = false
 
   local snapshot_a_start_ms = now_ms()
   local snapshot_a = MVP0FoundList.collect(snapshot_a_opts)
@@ -1979,6 +1981,7 @@ local function run_stable_no_probe_intersection(opts)
   snapshot_b_opts.delayed_recheck_enabled = false
   snapshot_b_opts.probe_full_foundlist = false
   snapshot_b_opts.session_mode = 'no_probe'
+  snapshot_b_opts.use_prescore_selection = false
 
   local snapshot_b_start_ms = now_ms()
   local snapshot_b = MVP0FoundList.collect(snapshot_b_opts)
