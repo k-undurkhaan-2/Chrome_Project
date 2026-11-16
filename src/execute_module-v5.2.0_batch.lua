@@ -5,6 +5,7 @@ local ACTIVE_PROJECT_ROOT = [[D:\armedforces.io-v2]]
 local REPORT_MODULE_PATH = [[D:\armedforces.io-v2\src\mvp0_candidate_report.lua]]
 local COLLECTOR_MODULE_PATH = [[D:\armedforces.io-v2\src\mvp0_foundlist_collector.lua]]
 local VALUE_EXECUTOR_MODULE_PATH = [[D:\armedforces.io-v2\src\mvp0_value_executor.lua]]
+local SINGLE_HANDOFF_MODULE_PATH = [[D:\armedforces.io-v2\src\mvp0_single_handoff.lua]]
 local OUTPUT_DIR = [[D:\armedforces.io-v2\log\auto_output]]
 local LOCAL_CASE_CONFIG_PATH = [[D:\armedforces.io-v2\src\run_case_config.local.lua]]
 
@@ -330,6 +331,24 @@ local RUN_CASES = {
 RUN_CASES = apply_local_case_config(RUN_CASES, LOCAL_CASE_CONFIG_PATH)
 
 local original_print = print
+
+-- Reuse the one config load without changing the published Full/write parser.
+-- Only literal booleans are accepted: strings/numbers cannot enable H1.
+local function apply_single_handoff_config(cases, loaded)
+  for _, cfg in ipairs(cases) do cfg.single_handoff_enabled = false end
+  if type(loaded) == "table" and loaded.single_handoff_enabled ~= nil then
+    if type(loaded.single_handoff_enabled) ~= "boolean" then
+      error("single_handoff_enabled must be a boolean")
+    end
+    cases[1].single_handoff_enabled = loaded.single_handoff_enabled
+  end
+end
+apply_single_handoff_config(RUN_CASES, loaded_restore_config)
+
+local function single_handoff_active(cfg)
+  return cfg.validation_profile == "single" and cfg.single_handoff_enabled == true
+end
+
 local active_log_lines = nil
 local console_print_total_ms = 0
 local active_screening_timer = nil
@@ -1019,6 +1038,9 @@ local function validate_single_configuration(case_cfg)
       and (case_cfg.execution_mode ~= "disabled" or case_cfg.write_enabled ~= false) then
     error('validation_profile=single requires execution_mode="disabled" and write_enabled=false')
   end
+  if case_cfg.single_handoff_enabled ~= nil and type(case_cfg.single_handoff_enabled) ~= "boolean" then
+    error("single_handoff_enabled must be a boolean")
+  end
 end
 
 local function get_case_mode_entries(case_cfg)
@@ -1061,6 +1083,54 @@ local function write_text_file(path, text)
   end
   fh:write(text)
   fh:close()
+end
+
+-- H1 publication is Windows-only, like this runner. Windows CRT rename refuses
+-- an existing destination (unlike POSIX rename). Reserve a private directory
+-- with mkdir, verify closed staged bytes, then rename without replacing files.
+-- All staging and final paths stay under OUTPUT_DIR; no process APIs are used.
+local function write_single_new_file(filename, text)
+  if type(filename) ~= "string" or not filename:match("^[A-Za-z0-9_-]+%.[A-Za-z0-9]+$")
+      or type(text) ~= "string" or #text == 0 then return nil, "output_name_invalid" end
+  if type(package) ~= "table" or type(package.config) ~= "string" or package.config:sub(1, 1) ~= "\\"
+      or type(os.rename) ~= "function" or type(os.execute) ~= "function"
+      or type(os.remove) ~= "function" or type(io) ~= "table" or type(io.open) ~= "function" then
+    return nil, "output_atomic_publication_unavailable"
+  end
+  local path = OUTPUT_DIR .. "\\" .. filename
+  local pending = path .. ".pending"
+  local staged = pending .. "\\content.tmp"
+  local owned, handle = false, nil
+  local ok, failure = pcall(function()
+    local existing, _, code = io.open(path, "rb")
+    if existing then existing:close(); return "output_exists" end
+    if code ~= 2 then return "output_check_failed" end
+    if os.execute('mkdir "' .. pending .. '" >nul 2>&1') ~= true then
+      return "output_reservation_failed"
+    end
+    owned = true
+    handle = io.open(staged, "wb")
+    if not handle then return "output_open_failed" end
+    if not handle:write(text) then return "output_write_failed" end
+    local closed = handle:close()
+    handle = nil
+    if not closed then return "output_close_failed" end
+    handle = io.open(staged, "rb")
+    if not handle then return "output_verify_failed" end
+    local actual = handle:read(#text + 1)
+    closed = handle:close()
+    handle = nil
+    if not closed or actual ~= text then return "output_verify_failed" end
+    if not os.rename(staged, path) then return "output_publish_failed" end
+  end)
+  if handle then pcall(handle.close, handle) end
+  if owned then
+    pcall(os.remove, staged)
+    pcall(os.execute, 'rmdir "' .. pending .. '" >nul 2>&1')
+  end
+  if not ok then return nil, "output_io_exception" end
+  if failure then return nil, failure end
+  return true
 end
 
 local function print_func_source(name, fn)
@@ -1516,6 +1586,19 @@ function load_value_executor()
     error("MVP0ValueExecutor module did not load from: " .. tostring(VALUE_EXECUTOR_MODULE_PATH))
   end
   return MVP0ValueExecutor
+end
+
+local function append_single_handoff_diagnostics(lines, summaries)
+  for _, summary in ipairs(summaries) do
+    if summary.single_handoff_status ~= nil then
+      lines[#lines + 1] = "=== single_handoff_validation ==="
+      lines[#lines + 1] = "single_source_log_filename = " .. tostring(summary.single_source_log_filename)
+      lines[#lines + 1] = "single_handoff_status = " .. summary.single_handoff_status
+      lines[#lines + 1] = "single_handoff_failure_class = " .. tostring(summary.single_handoff_failure_class)
+      lines[#lines + 1] = "single_source_log_failure_class = " .. tostring(summary.single_source_log_failure_class)
+      lines[#lines + 1] = "single_handoff_publication_note = publication follows both batch reports; check console and companion file"
+    end
+  end
 end
 
 local function get_filter_debug_snapshot()
@@ -2082,6 +2165,7 @@ local function render_summary_file(batch_id, summaries)
     end
   end
 
+  append_single_handoff_diagnostics(lines, summaries)
   return table.concat(lines, "\r\n")
 end
 
@@ -2858,6 +2942,7 @@ local function render_diagnostic_diff_file(batch_id, summaries)
     end
   end
 
+  append_single_handoff_diagnostics(lines, summaries)
   return table.concat(lines, "\r\n")
 end
 
@@ -2902,6 +2987,27 @@ local function single_blind_view(source)
     end
   end
   return view
+end
+
+local function prepare_single_handoff(summary, result, case_cfg, batch_id, log_published, log_failure)
+  if not single_handoff_active(case_cfg) then return end
+  summary.single_source_batch_id = batch_id
+  summary.single_source_log_failure_class = log_failure
+  local log_filename = type(summary.log_path) == "string" and summary.log_path:match("([^\\/]+)$") or nil
+  summary.single_source_log_filename = log_filename and log_filename:match("^[A-Za-z0-9_-]+%.log$") and log_filename or nil
+  local ok, text, failure, filename = pcall(function()
+    local handoff = dofile(SINGLE_HANDOFF_MODULE_PATH)
+    return handoff.render(single_blind_view(summary), type(result) == "table" and single_blind_view(result), {
+      batch_id = batch_id, case_id = case_cfg.case_id, session_id = case_cfg.session_id,
+      log_filename = log_filename,
+      log_size_bytes = summary.log_size_bytes, log_published = log_published,
+    })
+  end)
+  summary.single_handoff_status = ok and text and "VALIDATED_PENDING_OUTPUT" or "REJECTED"
+  summary.single_handoff_failure_class = not ok and "handoff_builder_failed" or failure
+  if ok and text then
+    summary.single_handoff_text, summary.single_handoff_filename = text, filename
+  end
 end
 
 local function run_case_mode(case_cfg, mode_entry, batch_id)
@@ -3020,7 +3126,12 @@ local function run_case_mode(case_cfg, mode_entry, batch_id)
   local log_text = table.concat(active_log_lines, "\r\n") .. "\r\n"
   local log_size_bytes = #log_text
   local write_start_ms = now_ms()
-  write_text_file(log_path, log_text)
+  local log_published, log_failure
+  if single_handoff_active(case_cfg) then
+    log_published, log_failure = write_single_new_file(log_path:match("([^\\/]+)$"), log_text)
+  else
+    write_text_file(log_path, log_text)
+  end
   local write_log_ms = elapsed_ms(write_start_ms)
   local file_write_ms = write_log_ms
   active_log_lines = nil
@@ -3096,6 +3207,7 @@ local function run_case_mode(case_cfg, mode_entry, batch_id)
       apply_validation_profile_fields(summary, case_cfg, case_cfg.skipped_modes)
       apply_default_execution_fields(summary, case_cfg)
     end
+    prepare_single_handoff(summary, nil, case_cfg, batch_id, log_published, log_failure)
     return summary
   end
 
@@ -3125,6 +3237,7 @@ local function run_case_mode(case_cfg, mode_entry, batch_id)
   local diagnostic_render_start_ms = now_ms()
   print_run_summary(summary)
   summary.diagnostic_render_ms = elapsed_ms(diagnostic_render_start_ms)
+  prepare_single_handoff(summary, bundle_or_err.result, case_cfg, batch_id, log_published, log_failure)
   return summary
 end
 
@@ -3190,6 +3303,10 @@ local function main()
 
   local batch_id = os.date("%Y%m%d-%H%M%S")
   local summaries = {}
+  local handoff_batch = false
+  for _, case_cfg in ipairs(RUN_CASES) do
+    if single_handoff_active(case_cfg) then handoff_batch = true end
+  end
 
   for _, case_cfg in ipairs(RUN_CASES) do
     if case_cfg.validation_profile ~= "single"
@@ -3223,9 +3340,37 @@ local function main()
   end
 
   local summary_path = string.format("%s\\%s__summary.txt", OUTPUT_DIR, batch_id)
-  write_text_file(summary_path, render_summary_file(batch_id, summaries))
   local diagnostic_diff_path = string.format("%s\\%s__diagnostic_diff.txt", OUTPUT_DIR, batch_id)
-  write_text_file(diagnostic_diff_path, render_diagnostic_diff_file(batch_id, summaries))
+  if handoff_batch then
+    local summary_ok, summary_failure = write_single_new_file(batch_id .. "__summary.txt", render_summary_file(batch_id, summaries))
+    local diff_ok, diff_failure = write_single_new_file(batch_id .. "__diagnostic_diff.txt", render_diagnostic_diff_file(batch_id, summaries))
+    for _, summary in ipairs(summaries) do
+      if summary.single_handoff_text then
+        local published, failure
+        if summary_ok and diff_ok then
+          published, failure = write_single_new_file(summary.single_handoff_filename, summary.single_handoff_text)
+        else
+          failure = "handoff_batch_output_failed"
+        end
+        summary.single_handoff_status = published and "PUBLISHED_NOT_AUTHORIZED" or "REJECTED"
+        summary.single_handoff_failure_class = failure
+        summary.single_handoff_text = nil
+      end
+      if summary.single_handoff_status then
+        print("=== single_handoff_publication ===")
+        print_kv("single_source_log_filename", summary.single_source_log_filename)
+        print_kv("single_handoff_status", summary.single_handoff_status)
+        print_kv("single_handoff_failure_class", summary.single_handoff_failure_class)
+        print_kv("single_source_log_failure_class", summary.single_source_log_failure_class)
+        print_kv("single_handoff_summary_failure_class", summary_failure)
+        print_kv("single_handoff_diagnostic_failure_class", diff_failure)
+        print_kv("single_handoff_filename", summary.single_handoff_status == "PUBLISHED_NOT_AUTHORIZED" and summary.single_handoff_filename or nil)
+      end
+    end
+  else
+    write_text_file(summary_path, render_summary_file(batch_id, summaries))
+    write_text_file(diagnostic_diff_path, render_diagnostic_diff_file(batch_id, summaries))
+  end
 
   print("=== batch_output ===")
   print_kv("summary_path", summary_path)
