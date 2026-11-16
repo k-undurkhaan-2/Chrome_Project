@@ -339,14 +339,74 @@ def test_full_profile_missing_mode_and_quick_profile_are_distinct(runtime):
     assert api.aggregate(lua.table_from({MODES[0]: summary})).run_valid is True
 
 
+def _with_write_b1_safety_hunks(expected):
+    """Project only the reviewed WRITE-B1 guarded-region additions."""
+    additions = {
+        "execution_preconditions_ok": (
+            ("execution_identity_ok", "false"), ("write_ready", "false"),
+            ("write_readiness_failure_class", "nil"), ("execution_success", "false"),
+        ),
+        "write_attempted": (("write_api_ok", "false"),),
+        "write_ok": (
+            ("restore_attempted", "false"), ("restore_write_ok", "false"),
+            ("restore_readback_ok", "false"),
+        ),
+    }
+    replacements = []
+    for anchor, fields in additions.items():
+        for template in (
+            '    {name} = {value},\n',
+            '  print_kv("{name}", source and source.{name})\n',
+            '  lines[#lines + 1] = "{name} = " .. tostring(source and source.{name})\n',
+        ):
+            old = template.format(name=anchor, value="false")
+            new = old + "".join(template.format(name=name, value=value) for name, value in fields)
+            replacements.append((old, new))
+    replacements.extend((
+        ('    executor_version = "guarded_write_v2",', '    executor_version = "guarded_write_v3",'),
+        ('  if summary == nil then\n    return nil\n',
+         '  if type(summary) ~= "table" then\n    return nil\n'),
+        (
+            '  local rank_b = rank_position(no_probe_b)\n  return {\n',
+            '''  local rank_b = rank_position(no_probe_b)
+  local source = type(no_probe_a) == "table" and no_probe_a or {}
+  local context_ok = source.case_id ~= nil and source.session_id ~= nil
+  for _, summary in pairs({A = no_probe_a or false, W = with_probe or false, B = no_probe_b or false}) do
+    if type(summary) ~= "table" or summary.run_valid ~= true
+        or summary.error ~= nil or summary.failure_class ~= nil or summary.collector_empty == true
+        or summary.validation_profile ~= "full"
+        or summary.case_id ~= source.case_id
+        or summary.session_id ~= source.session_id then
+      context_ok = false
+    end
+  end
+  return {
+    case_id = source.case_id,
+    session_id = source.session_id,
+    validation_profile = source.validation_profile,
+''',
+        ),
+        ('    ok = rank_a == 1 and rank_w == 1 and rank_b == 1,',
+         '    ok = context_ok and rank_a == 1 and rank_w == 1 and rank_b == 1,'),
+    ))
+    for old, new in replacements:
+        # Idempotence supports the exact pending source as a synthetic fixture.
+        if new not in expected:
+            assert expected.count(old) == 1
+            expected = expected.replace(old, new, 1)
+        assert expected.count(new) == 1
+    return expected
+
+
 def test_scoring_collection_policy_and_write_controls_are_unchanged():
     def previous(path):
         return subprocess.check_output(
-            ["git", "show", f"HEAD:{path.relative_to(ROOT).as_posix()}"],
+            ["git", "show", f"6cc848069e9001f98a8fe520182abc1e042d6671:{path.relative_to(ROOT).as_posix()}"],
             cwd=ROOT, text=True, encoding="utf-8",
         )
 
     def section(source, start, end):
+        assert source.count(start) == source.count(end) == 1
         return source.split(start, 1)[1].split(end, 1)[0]
 
     report = REPORT.read_text(encoding="utf-8")
@@ -359,16 +419,19 @@ def test_scoring_collection_policy_and_write_controls_are_unchanged():
 
     assert collection_policy(collector) == collection_policy(previous(COLLECTOR))
     batch = BATCH.read_text(encoding="utf-8")
-    # Permit only the authorized normalization addition; retain byte-for-byte
-    # checks on presets, config parsing, defaults, and all write/restore guards.
+    # The immutable signed Single checkpoint keeps this guard independent of
+    # HEAD changes. Compare presets/config without removing the Single arm.
+    published_batch = previous(BATCH)
     single_branch = 'if profile == "full" or profile == "quick" or profile == "single" then'
-    assert batch.count(single_branch) == 1
-    compatible_batch = batch.replace(
-        single_branch, 'if profile == "full" or profile == "quick" then', 1,
-    )
-    for start, end in (
-        ("local MODE_PRESETS", "local original_print"),
-        ("local function build_default_execution_result", "function load_value_executor"),
-    ):
-        assert section(compatible_batch, start, end) == section(previous(BATCH), start, end)
+    assert batch.count(single_branch) == published_batch.count(single_branch) == 1
+    start, end = "local MODE_PRESETS", "local original_print"
+    assert section(batch, start, end) == section(published_batch, start, end)
+
+    # Accept the checkpoint region or its complete, exact pending WRITE-B1
+    # projection. Partial additions or changed safety controls fail in either
+    # the isolated TRUTH-01 tree or the shared development worktree.
+    start, end = "local function build_default_execution_result", "function load_value_executor"
+    actual = section(batch, start, end)
+    expected = section(published_batch, start, end)
+    assert actual in (expected, _with_write_b1_safety_hunks(expected))
     assert 'execution_mode = "disabled"' in batch and 'write_enabled = false' in batch

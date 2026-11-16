@@ -18,9 +18,10 @@ SKIPPED = "with_probe, no_probe_B, stable_no_probe_intersection"
 FULL_MODES = ["no_probe_A", "with_probe", "no_probe_B", "stable_no_probe_intersection"]
 
 
-def runtime(profile="single", *, scenario="identical", count=120, budget=2000, truth=None):
+def runtime(profile="single", *, scenario="identical", count=120, budget=2000, truth=None,
+            batch_source=None):
     lua = new_runtime(COLLECTOR.read_text(encoding="utf-8"), scenario, count)
-    source = BATCH.read_text(encoding="utf-8")
+    source = BATCH.read_text(encoding="utf-8") if batch_source is None else batch_source
     lua.compile(source)
     startup = "RUN_CASES = apply_local_case_config(RUN_CASES, LOCAL_CASE_CONFIG_PATH)"
     assert source.count(startup) == 1
@@ -222,12 +223,17 @@ def test_single_mode_entry_cannot_bypass_no_probe_boundary(entry):
 def test_single_and_full_a_have_identical_admission_scores_ties_and_ranking(scenario, count, budget, truth):
     runs = []
     for profile in ("single", "full"):
-        lua, api, cfg = runtime(profile, scenario=scenario, count=count, budget=budget, truth=truth)
+        # Single must ignore even a supplied label. Compare its complete raw
+        # collector output with the unchanged Full A path receiving no label;
+        # Full/Quick truth diagnostics are checked separately, including main().
+        lua, api, cfg = runtime(profile, scenario=scenario, count=count, budget=budget,
+                                truth=truth if profile == "single" else None)
         summary = api.mode(cfg, "no_probe_A", "synthetic-single")
         assert summary.run_valid is True, summary.error
         g = lua.globals()
         bundle = g.captured_runs[1].bundle
         assert len(g.captured_runs) == len(g.snapshots) == 1
+        assert g.captured_runs[1].options.known_true_addr is None
         assert_no_truth_probe(bundle)
         assert bundle.selected_count == min(100, bundle.filtered_count)
         assert len(bundle.result.ranked) == bundle.selected_count
@@ -258,10 +264,13 @@ def test_truth_is_optional_and_cannot_change_candidate_admission_or_ranking(coun
         runs.append((plain(bundle.candidate_value_addrs), plain(bundle.result.ranked),
                      plain(lua.globals().MVP0FoundList.LAST_FILTER_DEBUG.matched_addresses)))
         assert_no_truth_probe(bundle)
-        if truth is None or truth == 0x7FFFFFFF:
-            assert summary.known_true_rank_position is None
+        assert summary.known_true_rank_position is None
+        assert summary.known_true_addr is None and summary.true_in_selected is None
+        assert summary.known_true_addr_source == "not_evaluated"
         if count == 1500 and truth == TRUTH:
-            assert bundle.true_in_filtered is True and bundle.true_in_selected is False
+            assert TRUTH in array(lua.globals().MVP0FoundList.LAST_FILTER_DEBUG.matched_addresses)
+            assert TRUTH not in array(bundle.candidate_value_addrs)
+            assert bundle.true_in_filtered is False and bundle.true_in_selected is False
             assert summary.known_true_rank_position is None
     assert runs[0] == runs[1] == runs[2]
 
@@ -366,7 +375,7 @@ def test_single_timing_and_saved_outputs_exclude_reporting_and_file_delays(level
         g.report_cost, g.output_cost, g.file_cost = report_cost, output_cost, file_cost
         api.main()
         summary = g.captured_summaries[1]
-        assert summary.run_valid is True and summary.known_true_rank_position == 1
+        assert summary.run_valid is True and summary.known_true_rank_position is None
         assert summary.best_candidate_addr == TRUTH
         assert summary.screening_compute_ms > 0
         assert summary.collector_call_ms > summary.screening_compute_ms
@@ -385,7 +394,7 @@ def test_single_timing_and_saved_outputs_exclude_reporting_and_file_delays(level
                 f"screening_compute_ms = {summary.screening_compute_ms}",
                 "execution_mode = disabled", "write_enabled = false", "write_attempted = false",
                 "execution_arm_valid = false", "execution_preconditions_ok = false", "rank_guard_ok = false",
-                "known_true_rank_position = 1",
+                "known_true_rank_position = nil", "known_true_addr_source = not_evaluated",
             ):
                 assert expected in text
             assert "[with_probe]" not in text and "[no_probe_B]" not in text

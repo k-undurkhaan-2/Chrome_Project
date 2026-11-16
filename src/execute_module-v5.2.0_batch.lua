@@ -2791,8 +2791,28 @@ local function resolve_mode_config(mode_entry)
   }
 end
 
+-- Single removes oracle labels before collection and before publishing results.
+-- Copies preserve the caller's config and the finalized candidate/ranking data.
+local function single_blind_view(source)
+  local view = {}
+  for key, value in pairs(source) do
+    local truth_field = type(key) == "string" and (
+      key:match("^known_true_") or key:match("^true_in_")
+      or key == "true_foundlist_index" or key == "truth_probe_logs"
+    )
+    if not truth_field then
+      view[key] = value
+    end
+  end
+  return view
+end
+
 local function run_case_mode(case_cfg, mode_entry, batch_id)
   validate_single_configuration(case_cfg)
+  if case_cfg.validation_profile == "single" then
+    case_cfg = single_blind_view(case_cfg)
+    case_cfg.known_true_addr_source = "not_evaluated"
+  end
   local total_start_ms = now_ms()
   local mode_config_start_ms = now_ms()
   local mode_cfg = resolve_mode_config(mode_entry)
@@ -2803,6 +2823,9 @@ local function run_case_mode(case_cfg, mode_entry, batch_id)
   if case_cfg.validation_profile == "single"
       and (mode_cfg.mode ~= "no_probe_A" or mode_cfg.probe_full_foundlist ~= false) then
     error("validation_profile=single requires no_probe_A with probe_full_foundlist=false")
+  end
+  if case_cfg.validation_profile == "single" then
+    mode_cfg.probe_full_foundlist = false
   end
   local mode_config_ms = elapsed_ms(mode_config_start_ms)
 
@@ -2852,6 +2875,10 @@ local function run_case_mode(case_cfg, mode_entry, batch_id)
     collector_ms = elapsed_ms(collector_start_ms)
     bundle = validate_collector_bundle(bundle, mode_cfg.mode, case_cfg.validation_profile)
     bundle.screening_compute_ms = bundle.run_valid and screening_compute_ms or nil
+    if case_cfg.validation_profile == "single" then
+      -- Nil truth fields mean not evaluated, never a negative accuracy result.
+      bundle = single_blind_view(bundle)
+    end
 
     local report_console_start_ms = console_print_total_ms
     local report_render_start_ms = now_ms()
