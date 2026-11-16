@@ -425,6 +425,9 @@ local function hex_u64(value)
   if value == nil then
     return "nil"
   end
+  if type(value) ~= "number" or math.tointeger(value) == nil then
+    return tostring(value)
+  end
   return string.format("0x%X", value)
 end
 
@@ -1078,11 +1081,7 @@ local function print_runtime_paths()
 end
 
 local function print_hex_kv(label, value)
-  if value == nil then
-    print_kv(label, nil)
-  else
-    print(string.format("%-30s = 0x%X", label, value))
-  end
+  print_kv(label, hex_u64(value))
 end
 
 local function print_selected_quota_debug(source)
@@ -1145,6 +1144,10 @@ local EXECUTION_FIELD_NAMES = {
   "restore_current_float",
   "restore_current_pattern",
   "execution_preconditions_ok",
+  "execution_identity_ok",
+  "write_ready",
+  "write_readiness_failure_class",
+  "execution_success",
   "execution_failure_class",
   "known_true_match_ok",
   "rank_guard_ok",
@@ -1157,7 +1160,11 @@ local EXECUTION_FIELD_NAMES = {
   "requested_write_value_pattern",
   "write_method",
   "write_attempted",
+  "write_api_ok",
   "write_ok",
+  "restore_attempted",
+  "restore_write_ok",
+  "restore_readback_ok",
   "readback_ok",
   "readback_pattern",
   "readback_float",
@@ -1192,6 +1199,10 @@ local function build_default_execution_result(case_cfg, summary, failure_class)
     restore_current_float = nil,
     restore_current_pattern = nil,
     execution_preconditions_ok = false,
+    execution_identity_ok = false,
+    write_ready = false,
+    write_readiness_failure_class = nil,
+    execution_success = false,
     execution_failure_class = failure_class,
     known_true_match_ok = nil,
     rank_guard_ok = false,
@@ -1204,7 +1215,11 @@ local function build_default_execution_result(case_cfg, summary, failure_class)
     requested_write_value_pattern = case_cfg and case_cfg.write_value_pattern or nil,
     write_method = case_cfg and case_cfg.write_method or "float",
     write_attempted = false,
+    write_api_ok = false,
     write_ok = false,
+    restore_attempted = false,
+    restore_write_ok = false,
+    restore_readback_ok = false,
     readback_ok = false,
     readback_pattern = nil,
     readback_float = nil,
@@ -1212,7 +1227,7 @@ local function build_default_execution_result(case_cfg, summary, failure_class)
     rollback_available = false,
     rollback_value_pattern = nil,
     rollback_value_float = nil,
-    executor_version = "guarded_write_v2",
+    executor_version = "guarded_write_v3",
   }
 end
 
@@ -1234,7 +1249,7 @@ local function apply_default_execution_fields(summary, case_cfg, failure_class)
 end
 
 local function rank_position(summary)
-  if summary == nil then
+  if type(summary) ~= "table" then
     return nil
   end
   return tonumber(summary.known_true_rank_position)
@@ -1244,11 +1259,25 @@ local function build_execution_rank_guard(no_probe_a, with_probe, no_probe_b)
   local rank_a = rank_position(no_probe_a)
   local rank_w = rank_position(with_probe)
   local rank_b = rank_position(no_probe_b)
+  local source = type(no_probe_a) == "table" and no_probe_a or {}
+  local context_ok = source.case_id ~= nil and source.session_id ~= nil
+  for _, summary in pairs({A = no_probe_a or false, W = with_probe or false, B = no_probe_b or false}) do
+    if type(summary) ~= "table" or summary.run_valid ~= true
+        or summary.error ~= nil or summary.failure_class ~= nil or summary.collector_empty == true
+        or summary.validation_profile ~= "full"
+        or summary.case_id ~= source.case_id
+        or summary.session_id ~= source.session_id then
+      context_ok = false
+    end
+  end
   return {
+    case_id = source.case_id,
+    session_id = source.session_id,
+    validation_profile = source.validation_profile,
     rank_A = rank_a,
     rank_W = rank_w,
     rank_B = rank_b,
-    ok = rank_a == 1 and rank_w == 1 and rank_b == 1,
+    ok = context_ok and rank_a == 1 and rank_w == 1 and rank_b == 1,
   }
 end
 
@@ -1300,6 +1329,10 @@ local function print_execution_fields(source)
   print_kv("restore_current_float", source and source.restore_current_float)
   print_hex_kv("restore_current_pattern", source and source.restore_current_pattern)
   print_kv("execution_preconditions_ok", source and source.execution_preconditions_ok)
+  print_kv("execution_identity_ok", source and source.execution_identity_ok)
+  print_kv("write_ready", source and source.write_ready)
+  print_kv("write_readiness_failure_class", source and source.write_readiness_failure_class)
+  print_kv("execution_success", source and source.execution_success)
   print_kv("execution_failure_class", source and source.execution_failure_class)
   print_kv("known_true_match_ok", source and source.known_true_match_ok)
   print_kv("rank_guard_ok", source and source.rank_guard_ok)
@@ -1312,7 +1345,11 @@ local function print_execution_fields(source)
   print_hex_kv("requested_write_value_pattern", source and source.requested_write_value_pattern)
   print_kv("write_method", source and source.write_method)
   print_kv("write_attempted", source and source.write_attempted)
+  print_kv("write_api_ok", source and source.write_api_ok)
   print_kv("write_ok", source and source.write_ok)
+  print_kv("restore_attempted", source and source.restore_attempted)
+  print_kv("restore_write_ok", source and source.restore_write_ok)
+  print_kv("restore_readback_ok", source and source.restore_readback_ok)
   print_kv("readback_ok", source and source.readback_ok)
   print_hex_kv("readback_pattern", source and source.readback_pattern)
   print_kv("readback_float", source and source.readback_float)
@@ -1346,6 +1383,10 @@ local function append_execution_lines(lines, source)
   lines[#lines + 1] = "restore_current_float = " .. tostring(source and source.restore_current_float)
   lines[#lines + 1] = "restore_current_pattern = " .. tostring(hex_u64(source and source.restore_current_pattern))
   lines[#lines + 1] = "execution_preconditions_ok = " .. tostring(source and source.execution_preconditions_ok)
+  lines[#lines + 1] = "execution_identity_ok = " .. tostring(source and source.execution_identity_ok)
+  lines[#lines + 1] = "write_ready = " .. tostring(source and source.write_ready)
+  lines[#lines + 1] = "write_readiness_failure_class = " .. tostring(source and source.write_readiness_failure_class)
+  lines[#lines + 1] = "execution_success = " .. tostring(source and source.execution_success)
   lines[#lines + 1] = "execution_failure_class = " .. tostring(source and source.execution_failure_class)
   lines[#lines + 1] = "known_true_match_ok = " .. tostring(source and source.known_true_match_ok)
   lines[#lines + 1] = "rank_guard_ok = " .. tostring(source and source.rank_guard_ok)
@@ -1358,7 +1399,11 @@ local function append_execution_lines(lines, source)
   lines[#lines + 1] = "requested_write_value_pattern = " .. tostring(hex_u64(source and source.requested_write_value_pattern))
   lines[#lines + 1] = "write_method = " .. tostring(source and source.write_method)
   lines[#lines + 1] = "write_attempted = " .. tostring(source and source.write_attempted)
+  lines[#lines + 1] = "write_api_ok = " .. tostring(source and source.write_api_ok)
   lines[#lines + 1] = "write_ok = " .. tostring(source and source.write_ok)
+  lines[#lines + 1] = "restore_attempted = " .. tostring(source and source.restore_attempted)
+  lines[#lines + 1] = "restore_write_ok = " .. tostring(source and source.restore_write_ok)
+  lines[#lines + 1] = "restore_readback_ok = " .. tostring(source and source.restore_readback_ok)
   lines[#lines + 1] = "readback_ok = " .. tostring(source and source.readback_ok)
   lines[#lines + 1] = "readback_pattern = " .. tostring(hex_u64(source and source.readback_pattern))
   lines[#lines + 1] = "readback_float = " .. tostring(source and source.readback_float)
