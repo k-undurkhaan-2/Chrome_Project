@@ -8,6 +8,16 @@ local VALUE_EXECUTOR_MODULE_PATH = [[D:\armedforces.io-v2\src\mvp0_value_executo
 local OUTPUT_DIR = [[D:\armedforces.io-v2\log\auto_output]]
 local LOCAL_CASE_CONFIG_PATH = [[D:\armedforces.io-v2\src\run_case_config.local.lua]]
 
+-- Retain restore-only metadata from the same config load. The shared Full/Single
+-- config parser and guarded-write/reporting controls remain unchanged.
+local loaded_restore_config
+local function dofile(path)
+  if path ~= LOCAL_CASE_CONFIG_PATH then return _G.dofile(path) end
+  local loaded = _G.dofile(path)
+  loaded_restore_config = loaded
+  return loaded
+end
+
 local MODE_PRESETS = {
   no_probe = {
     mode = "no_probe",
@@ -1121,6 +1131,22 @@ end
 
 local load_value_executor
 
+local RESTORE_EVIDENCE_FIELD_NAMES = {
+  "restore_source_case_id",
+  "restore_source_session_id",
+  "restore_source_evidence_ok",
+  "restore_source_write_request_id",
+  "restore_identity_basis",
+  "restore_process_measured",
+  "restore_process_pid",
+  "restore_process_started_at_utc",
+  "restore_process_executable",
+  "restore_process_scene",
+  "restore_process_confirmed_at_utc",
+  "restore_request_reserved",
+  "executor_error",
+}
+
 local EXECUTION_FIELD_NAMES = {
   "execution_enabled",
   "execution_mode",
@@ -1174,6 +1200,9 @@ local EXECUTION_FIELD_NAMES = {
   "rollback_value_float",
   "executor_version",
 }
+for _, name in ipairs(RESTORE_EVIDENCE_FIELD_NAMES) do
+  EXECUTION_FIELD_NAMES[#EXECUTION_FIELD_NAMES + 1] = name
+end
 
 local function build_default_execution_result(case_cfg, summary, failure_class)
   return {
@@ -1875,7 +1904,27 @@ local function print_run_summary(summary)
   print_kv("log_path", summary.log_path)
 end
 
+local function render_restore_only(batch_id, summaries, title)
+  local lines = {title, "batch_id = " .. tostring(batch_id), "output_dir = " .. OUTPUT_DIR}
+  for _, summary in ipairs(summaries) do
+    if summary.mode ~= "restore_only" then error("restore_only cannot be mixed with screening") end
+    lines[#lines + 1] = string.format("--- %s / restore_only ---", tostring(summary.session_id))
+    for _, name in ipairs({"mode", "case_id", "session_id", "validation_profile", "baseline_eligible",
+        "profile_note", "run_valid", "screening_performed", "log_path"}) do
+      lines[#lines + 1] = name .. " = " .. tostring(summary[name])
+    end
+    append_execution_lines(lines, summary)
+    for _, name in ipairs(RESTORE_EVIDENCE_FIELD_NAMES) do
+      lines[#lines + 1] = name .. " = " .. tostring(summary[name])
+    end
+  end
+  return table.concat(lines, "\r\n") .. "\r\n"
+end
+
 local function render_summary_file(batch_id, summaries)
+  if summaries[1] and summaries[1].mode == "restore_only" then
+    return render_restore_only(batch_id, summaries, "=== Batch Summary ===")
+  end
   local lines = {}
   lines[#lines + 1] = "=== Batch Summary ==="
   lines[#lines + 1] = "batch_id = " .. tostring(batch_id)
@@ -2500,6 +2549,9 @@ local function run_stable_intersection_mode(case_cfg, no_probe_a, with_probe, no
 end
 
 local function render_diagnostic_diff_file(batch_id, summaries)
+  if summaries[1] and summaries[1].mode == "restore_only" then
+    return render_restore_only(batch_id, summaries, "=== Restore-only Diagnostic Diff ===")
+  end
   local groups = {}
   local lines = {}
 
@@ -3076,10 +3128,56 @@ local function run_case_mode(case_cfg, mode_entry, batch_id)
   return summary
 end
 
+local function apply_restore_case_fields(case_cfg)
+  if case_cfg.case_config_loaded == true then
+    if type(loaded_restore_config) ~= "table" then error("restore_config_metadata_missing") end
+    -- The explicit restore case has its own id and links to the source session.
+    if loaded_restore_config.session_id ~= nil then case_cfg.session_id = loaded_restore_config.session_id end
+    for _, name in ipairs({"restore_source_case_id", "restore_source_session_id", "restore_process_attestation"}) do
+      case_cfg[name] = loaded_restore_config[name]
+    end
+  end
+end
+
+local function run_restore_only(case_cfg, batch_id)
+  apply_restore_case_fields(case_cfg)
+  local summary = {
+    mode = "restore_only", case_id = case_cfg.case_id, session_id = case_cfg.session_id,
+    validation_profile = case_cfg.validation_profile, baseline_eligible = false,
+    profile_note = "restore_only_not_screening", run_valid = false, screening_performed = false,
+    log_path = string.format("%s\\%s__%s__%s__restore_only.log", OUTPUT_DIR, batch_id,
+      sanitize_token(case_cfg.session_id), sanitize_token(case_cfg.case_id)),
+  }
+  -- Preserve source evidence and earlier previews, even within the same second.
+  if batch_id == case_cfg.restore_source_batch_id then error("restore_output_collides_with_source") end
+  for _, path in ipairs({summary.log_path, OUTPUT_DIR .. "\\" .. batch_id .. "__summary.txt",
+      OUTPUT_DIR .. "\\" .. batch_id .. "__diagnostic_diff.txt"}) do
+    if type(io) ~= "table" or type(io.open) ~= "function" then error("restore_output_check_failed") end
+    local ok, handle, _, code = pcall(io.open, path, "rb")
+    if handle and ok then
+      pcall(handle.close, handle)
+      error("restore_output_exists")
+    end
+    if not ok or code ~= 2 then error("restore_output_check_failed") end
+  end
+  -- No module/collector/ranking load and no manufactured screening summary.
+  local result = evaluate_value_execution(case_cfg, nil, nil)
+  apply_execution_fields(summary, result)
+  local text = render_restore_only(batch_id, {summary}, "=== Restore-only Execution ===")
+  print(text)
+  write_text_file(summary.log_path, text)
+  return summary
+end
+
 local function main()
   -- Reject every incompatible single case before any collection or UI action.
   for _, case_cfg in ipairs(RUN_CASES) do
     validate_single_configuration(case_cfg)
+    if case_cfg.validation_profile ~= "single"
+        and case_cfg.execution_addr_source == "restore_source_batch_execution_addr"
+        and #RUN_CASES ~= 1 then
+      error("restore_only requires exactly one case and cannot be mixed with screening")
+    end
   end
   if type(getLuaEngine) == "function" then
     local engine = getLuaEngine()
@@ -3094,27 +3192,32 @@ local function main()
   local summaries = {}
 
   for _, case_cfg in ipairs(RUN_CASES) do
-    local mode_entries, skipped_modes = get_case_mode_entries(case_cfg)
-    case_cfg.skipped_modes = skipped_modes
+    if case_cfg.validation_profile ~= "single"
+        and case_cfg.execution_addr_source == "restore_source_batch_execution_addr" then
+      summaries[#summaries + 1] = run_restore_only(case_cfg, batch_id)
+    else
+      local mode_entries, skipped_modes = get_case_mode_entries(case_cfg)
+      case_cfg.skipped_modes = skipped_modes
 
-    local case_summaries = {}
-    for _, mode_entry in ipairs(mode_entries) do
-      local summary = run_case_mode(case_cfg, mode_entry, batch_id)
-      apply_validation_profile_fields(summary, case_cfg, skipped_modes)
-      summaries[#summaries + 1] = summary
-      case_summaries[summary.mode] = summary
-    end
+      local case_summaries = {}
+      for _, mode_entry in ipairs(mode_entries) do
+        local summary = run_case_mode(case_cfg, mode_entry, batch_id)
+        apply_validation_profile_fields(summary, case_cfg, skipped_modes)
+        summaries[#summaries + 1] = summary
+        case_summaries[summary.mode] = summary
+      end
 
-    if case_cfg.validation_profile == "quick" and case_summaries.no_probe_A ~= nil then
-      local execution_result = evaluate_value_execution(case_cfg, case_summaries.no_probe_A)
-      apply_execution_fields(case_summaries.no_probe_A, execution_result)
-    end
+      if case_cfg.validation_profile == "quick" and case_summaries.no_probe_A ~= nil then
+        local execution_result = evaluate_value_execution(case_cfg, case_summaries.no_probe_A)
+        apply_execution_fields(case_summaries.no_probe_A, execution_result)
+      end
 
-    if case_cfg.validation_profile ~= "quick" and case_cfg.validation_profile ~= "single" then
-      local stable_summary = run_stable_intersection_mode(case_cfg, case_summaries.no_probe_A, case_summaries.with_probe, case_summaries.no_probe_B, batch_id)
-      apply_validation_profile_fields(stable_summary, case_cfg, skipped_modes)
-      if stable_summary ~= nil then
-        summaries[#summaries + 1] = stable_summary
+      if case_cfg.validation_profile ~= "quick" and case_cfg.validation_profile ~= "single" then
+        local stable_summary = run_stable_intersection_mode(case_cfg, case_summaries.no_probe_A, case_summaries.with_probe, case_summaries.no_probe_B, batch_id)
+        apply_validation_profile_fields(stable_summary, case_cfg, skipped_modes)
+        if stable_summary ~= nil then
+          summaries[#summaries + 1] = stable_summary
+        end
       end
     end
   end
