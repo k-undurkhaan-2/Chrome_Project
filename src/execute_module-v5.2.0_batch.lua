@@ -6,6 +6,7 @@ local REPORT_MODULE_PATH = [[D:\armedforces.io-v2\src\mvp0_candidate_report.lua]
 local COLLECTOR_MODULE_PATH = [[D:\armedforces.io-v2\src\mvp0_foundlist_collector.lua]]
 local VALUE_EXECUTOR_MODULE_PATH = [[D:\armedforces.io-v2\src\mvp0_value_executor.lua]]
 local SINGLE_HANDOFF_MODULE_PATH = [[D:\armedforces.io-v2\src\mvp0_single_handoff.lua]]
+local HANDOFF_VERIFY_MODULE_PATH = [[D:\armedforces.io-v2\src\mvp0_single_handoff_verify.lua]]
 local OUTPUT_DIR = [[D:\armedforces.io-v2\log\auto_output]]
 local LOCAL_CASE_CONFIG_PATH = [[D:\armedforces.io-v2\src\run_case_config.local.lua]]
 
@@ -344,6 +345,19 @@ local function apply_single_handoff_config(cases, loaded)
   end
 end
 apply_single_handoff_config(RUN_CASES, loaded_restore_config)
+
+-- H2 shares the existing config load, but has a separate, default-off entry.
+local function apply_handoff_verify_config(cases, loaded)
+  for _, cfg in ipairs(cases) do cfg.handoff_verify_only = false end
+  if type(loaded) == "table" and loaded.handoff_verify_only ~= nil then
+    if type(loaded.handoff_verify_only) ~= "boolean" then
+      error("handoff_verify_only must be a boolean")
+    end
+    cases[1].handoff_verify_only = loaded.handoff_verify_only
+    cases[1].handoff_verify_request = loaded.handoff_verify_request
+  end
+end
+apply_handoff_verify_config(RUN_CASES, loaded_restore_config)
 
 local function single_handoff_active(cfg)
   return cfg.validation_profile == "single" and cfg.single_handoff_enabled == true
@@ -3282,7 +3296,68 @@ local function run_restore_only(case_cfg, batch_id)
   return summary
 end
 
+-- This adapter reads only exact basenames selected by the independent module.
+-- Its bounded binary reads never enumerate the evidence directory.
+local function read_handoff_source(filename, limit)
+  local handle
+  local ok, content, failure = pcall(function()
+    local message, code
+    handle, message, code = io.open(OUTPUT_DIR .. "\\" .. filename, "rb")
+    if not handle then return nil, code == 2 and "source_missing" or "source_unreadable" end
+    local bytes = handle:read(limit + 1)
+    local closed = handle:close()
+    handle = nil
+    if not closed or type(bytes) ~= "string" then return nil, "source_io_failed" end
+    if #bytes > limit then return nil, "source_oversized" end
+    return bytes
+  end)
+  if handle then pcall(handle.close, handle) end
+  if not ok then return nil, "source_io_exception" end
+  return content, failure
+end
+
+local function run_handoff_verify(case_cfg)
+  local ok, verifier = pcall(dofile, HANDOFF_VERIFY_MODULE_PATH)
+  if not ok or type(verifier) ~= "table" or type(verifier.run) ~= "function" then
+    error("handoff_verify_module_unavailable")
+  end
+  local result = verifier.run(case_cfg, loaded_restore_config, {
+    batch_id = "h2-" .. os.date("!%Y%m%d-%H%M%S"),
+    now_utc = function() return os.date("!%Y-%m-%dT%H:%M:%SZ") end,
+    read_source = read_handoff_source,
+    readInteger = readInteger, readFloat = readFloat,
+  })
+  local published, failure
+  if result.output_filename then
+    published, failure = write_single_new_file(result.output_filename, verifier.render(result))
+  else
+    failure = "verification_output_identity_invalid"
+  end
+  print("=== handoff_verification_publication ===")
+  print_kv("verification_status", result.verification_status)
+  print_kv("verification_failure_class", result.failure_class)
+  print_kv("verification_publication_status", published and "PUBLISHED_NOT_AUTHORIZED" or "REJECTED")
+  print_kv("verification_publication_failure_class", failure)
+  print_kv("verification_filename", published and result.output_filename or nil)
+  print_kv("candidate_value_consistent", result.candidate_value_consistent)
+  print_kv("authorization_status", "NOT_AUTHORIZED")
+  return result, failure
+end
+
 local function main()
+  -- Route H2 before every UI, directory, collector, executor and restore action.
+  for _, case_cfg in ipairs(RUN_CASES) do
+    if case_cfg.handoff_verify_only ~= nil and type(case_cfg.handoff_verify_only) ~= "boolean" then
+      error("handoff_verify_only must be a boolean")
+    end
+    if case_cfg.handoff_verify_only == true then
+      if #RUN_CASES ~= 1 then error("handoff_verify_requires_exactly_one_case") end
+      for key in pairs(RUN_CASES) do
+        if key ~= 1 then error("handoff_verify_requires_exactly_one_case") end
+      end
+      return run_handoff_verify(case_cfg)
+    end
+  end
   -- Reject every incompatible single case before any collection or UI action.
   for _, case_cfg in ipairs(RUN_CASES) do
     validate_single_configuration(case_cfg)
