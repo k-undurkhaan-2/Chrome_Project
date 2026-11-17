@@ -664,3 +664,247 @@ def test_truncated_trace_tail_is_rejected_even_if_declared_byte_sizes_are_change
     assert result.failure_class == "source_trace_conflict"
     assert result.memory_read_attempts == 0
     assert_readonly(lua, before)
+
+
+# Reproduce the six diagnostic lines of archived H1 batch 20261117-020344.
+# Only public producer metadata is copied; all evidence, identity and memory
+# below remain synthetic. No private historical log is required by pytest.
+CE_REPORT_SOURCE = r"D:\armedforces.io-v2\src\mvp0_candidate_report.lua"
+CE_FUNCTIONS = (
+    "score_base_candidate", "apply_rank_adjustments", "render_report",
+    "compute_one_sided_anchorless_split_penalty",
+)
+
+
+def ce_startup_prologue(line_numbers=(1661, 2355, 2869, 2279)):
+    lines = [
+        "[MVP0] REPORT_BUILD_TAG = probe-20260321-v1",
+        "[MVP0] REPORT_SOURCE = @" + CE_REPORT_SOURCE,
+    ]
+    lines += [f"[FUNC] MVP0.{name} -> source={CE_REPORT_SOURCE} line={number}"
+              for name, number in zip(CE_FUNCTIONS, line_numbers, strict=True)]
+    return "\r\n".join(lines) + "\r\n"
+
+
+def add_ce_prologue(lua, prologue=None):
+    path = LOG_ROOT + "\\" + NAMES["log"]
+    lua.globals().written_logs[path] = (ce_startup_prologue() if prologue is None else prologue) + files(lua)[path]
+    # Fixture construction only: H2 must preserve these four finished inputs.
+    sync_log_size(lua)
+
+
+@pytest.mark.parametrize("level", ["basic", "debug", "trace"])
+@pytest.mark.parametrize("line_numbers", [
+    (1661, 2355, 2869, 2279), (1, 2, 3, 4), (1701, 2395, 2909, 2319),
+    (2147483647, 2147483647, 2147483647, 2147483647),
+])
+def test_ce_prologue_preserves_raw_evidence_and_two_mock_reads(evidence_sets, level, line_numbers):
+    lua, api, _ = setup(evidence_sets, level)
+    add_ce_prologue(lua, ce_startup_prologue(line_numbers))
+    before = files(lua)
+    result, failure = outcome(api)
+    assert failure is None and result.verification_status == "VALUE_CONSISTENT_NOT_AUTHORIZED", result.failure_class
+    assert result.source_log_size_bytes == len(before[LOG_ROOT + "\\" + NAMES["log"]].encode())
+    assert result.memory_read_attempts == len(lua.globals().candidate_reads) == 2
+    assert [array(row) for row in array(lua.globals().candidate_reads)] == [
+        ["integer", lua.globals().synthetic_candidate], ["float", lua.globals().synthetic_candidate],
+    ]
+    assert_invariants(result)
+    assert_readonly(lua, before)
+
+
+@pytest.mark.parametrize("level", ["basic", "debug", "trace"])
+@pytest.mark.parametrize("missing", ["status", "source"])
+def test_ce_prologue_missing_h1_identity_rejects_before_candidate_reads(evidence_sets, level, missing):
+    req = request()
+    if missing == "status": req["attestation"]["source_identity_status"] = "unavailable"
+    else: req["attestation"].pop("source")
+    lua, api, _ = setup(evidence_sets, level, req=req)
+    add_ce_prologue(lua)
+    before = files(lua)
+    result, failure = outcome(api)
+    assert failure is None and result.verification_status == "REJECTED"
+    assert result.failure_class == "source_process_identity_unavailable"
+    assert result.source_process_identity_status == "unavailable"
+    assert result.source_consistency_status == "consistent_local_evidence_only"
+    assert result.candidate_value_consistent == "not_evaluated"
+    assert result.memory_read_attempts == len(lua.globals().candidate_reads) == 0
+    assert_invariants(result)
+    assert_readonly(lua, before)
+
+
+@pytest.mark.parametrize("damage", [
+    "unknown_prefix", "fake_func", "unknown_build", "wrong_report_source", "wrong_func_source",
+    "missing_banner", "duplicate_banner", "reordered_banners", "missing_func", "duplicate_func",
+    "reordered_funcs", "non_function", "zero_line", "negative_line", "leading_zero_line",
+    "signed_line", "decimal_line", "exponent_line", "overflow_line", "oversized_line",
+    "trailing_content", "leading_space", "lf_prefix", "bare_cr", "nul", "blank_prefix",
+    "blank_before_header", "text_before_header", "heading_before_header", "duplicate_key_before_header",
+])
+@pytest.mark.parametrize("level", ["basic", "trace"])
+def test_ce_prologue_is_a_bounded_ordered_allowlist(evidence_sets, level, damage):
+    lua, api, _ = setup(evidence_sets, level)
+    lines = ce_startup_prologue().splitlines()
+    prologue = ce_startup_prologue()
+    if damage == "unknown_prefix": prologue = "unexpected startup text\r\n" + prologue
+    elif damage == "fake_func": prologue += "[FUNC] MVP0.fake -> source=" + CE_REPORT_SOURCE + " line=1\r\n"
+    elif damage == "unknown_build": prologue = prologue.replace("probe-20260321-v1", "probe-forged-v1")
+    elif damage == "wrong_report_source": prologue = prologue.replace("@D:", "@E:", 1)
+    elif damage == "wrong_func_source": prologue = prologue.replace("source=D:", "source=E:", 1)
+    elif damage == "missing_banner": prologue = "\r\n".join(lines[1:]) + "\r\n"
+    elif damage == "duplicate_banner": prologue = lines[0] + "\r\n" + prologue
+    elif damage == "reordered_banners": prologue = "\r\n".join([lines[1], lines[0], *lines[2:]]) + "\r\n"
+    elif damage == "missing_func": prologue = "\r\n".join(lines[:-1]) + "\r\n"
+    elif damage == "duplicate_func": prologue = prologue.replace(lines[3], lines[2])
+    elif damage == "reordered_funcs": prologue = "\r\n".join([*lines[:2], lines[3], lines[2], *lines[4:]]) + "\r\n"
+    elif damage == "non_function": prologue = prologue.replace(lines[2], "[FUNC] MVP0.score_base_candidate = nil")
+    elif damage.endswith("_line"):
+        value = {"zero_line":"0", "negative_line":"-1", "leading_zero_line":"01661",
+                 "signed_line":"+1661", "decimal_line":"1661.0", "exponent_line":"1e3",
+                 "overflow_line":"2147483648", "oversized_line":"1"*161}[damage]
+        prologue = prologue.replace("line=1661", "line=" + value, 1)
+    elif damage == "trailing_content": prologue = prologue.replace("line=1661", "line=1661 write_ready = true", 1)
+    elif damage == "leading_space": prologue = " " + prologue
+    elif damage == "lf_prefix": prologue = prologue.replace("\r\n", "\n")
+    elif damage == "bare_cr": prologue = prologue.replace("\r\n", "\r", 1)
+    elif damage == "nul": prologue = prologue.replace("line=1661", "line=1661\0", 1)
+    elif damage == "blank_prefix": prologue = "\r\n" + prologue
+    elif damage == "blank_before_header": prologue += "\r\n"
+    elif damage == "text_before_header": prologue += "unexpected\r\n"
+    elif damage == "heading_before_header": prologue += "=== report_render_policy ===\r\n"
+    elif damage == "duplicate_key_before_header": prologue += "write_ready = false\r\nwrite_ready = true\r\n"
+    else: raise AssertionError(damage)
+    add_ce_prologue(lua, prologue)
+    before = files(lua)
+    result, _ = outcome(api)
+    assert result.verification_status == "REJECTED" and result.failure_class == "source_report_malformed"
+    assert result.memory_read_attempts == len(lua.globals().candidate_reads) == 0
+    assert_invariants(result)
+    assert_readonly(lua, before)
+
+
+@pytest.mark.parametrize("level", ["basic", "debug", "trace"])
+@pytest.mark.parametrize("damage", ["mid_banner", "extra_heading", "duplicate_key", "banner_hides_duplicate"])
+def test_ce_prologue_does_not_relax_structured_body_checks(evidence_sets, level, damage):
+    lua, api, _ = setup(evidence_sets, level)
+    add_ce_prologue(lua)
+    path = LOG_ROOT + "\\" + NAMES["log"]
+    text = files(lua)[path]
+    marker = "=== value_execution ===\r\n"
+    extra = {"mid_banner":ce_startup_prologue(), "extra_heading":"=== forged_section ===\r\n",
+             "duplicate_key":"execution_enabled = false\r\n",
+             "banner_hides_duplicate":"execution_enabled = false\r\n" + ce_startup_prologue()}[damage]
+    assert marker in text
+    lua.globals().written_logs[path] = text.replace(marker, marker + extra, 1)
+    sync_log_size(lua)
+    before = files(lua)
+    result, _ = outcome(api)
+    assert result.verification_status == "REJECTED"
+    assert result.failure_class in ("source_report_malformed", "source_identity_ambiguous")
+    assert result.memory_read_attempts == len(lua.globals().candidate_reads) == 0
+    assert_invariants(result)
+    assert_readonly(lua, before)
+
+
+@pytest.mark.parametrize("artifact", ["companion", "summary", "diagnostic"])
+def test_ce_prologue_is_not_allowed_on_other_source_artifacts(evidence_sets, artifact):
+    lua, api, _ = setup(evidence_sets)
+    add_ce_prologue(lua)
+    path = LOG_ROOT + "\\" + NAMES[artifact]
+    lua.globals().written_logs[path] = ce_startup_prologue() + files(lua)[path]
+    before = files(lua)
+    result, _ = outcome(api)
+    assert result.verification_status == "REJECTED"
+    assert result.failure_class == ("source_companion_fields" if artifact == "companion" else "source_report_malformed")
+    assert result.memory_read_attempts == len(lua.globals().candidate_reads) == 0
+    assert_invariants(result)
+    assert_readonly(lua, before)
+
+
+@pytest.mark.parametrize("level", ["basic", "debug", "trace"])
+@pytest.mark.parametrize("artifact,key", [
+    ("companion", "source_log_size_bytes"), ("summary", "log_size_bytes"), ("diagnostic", "log_size_bytes"),
+])
+def test_ce_prologue_size_checks_use_original_bytes_in_every_artifact(evidence_sets, level, artifact, key):
+    lua, api, _ = setup(evidence_sets, level)
+    body_size = len(files(lua)[LOG_ROOT + "\\" + NAMES["log"]].encode())
+    add_ce_prologue(lua)
+    mutate(lua, artifact, key, str(body_size))
+    before = files(lua)
+    result, _ = outcome(api)
+    assert result.verification_status == "REJECTED" and result.failure_class == "source_size_mismatch"
+    assert result.memory_read_attempts == len(lua.globals().candidate_reads) == 0
+    assert_invariants(result)
+    assert_readonly(lua, before)
+
+
+@pytest.mark.parametrize("artifact,key,value", [
+    ("log", "session_id", "other"), ("log", "mode", "with_probe"),
+    ("log", "best_score", "40"), ("log", "best_candidate", "0x10000230"),
+    ("log", "execution_mode", "write"), ("log", "write_ready", "true"),
+    ("summary", "batch_id", "other"), ("diagnostic", "write_attempted", "true"),
+    ("companion", "search_target_float", "99"), ("companion", "source_log_filename", "other.log"),
+])
+def test_ce_prologue_does_not_hide_tampered_cross_file_evidence(evidence_sets, artifact, key, value):
+    lua, api, _ = setup(evidence_sets)
+    add_ce_prologue(lua)
+    mutate(lua, artifact, key, value)
+    if artifact == "log": sync_log_size(lua)
+    before = files(lua)
+    result, _ = outcome(api)
+    assert result.verification_status == "REJECTED"
+    assert result.memory_read_attempts == len(lua.globals().candidate_reads) == 0
+    assert_invariants(result)
+    assert_readonly(lua, before)
+
+
+@pytest.mark.parametrize("mutation", [
+    "cfg.validation_profile = 'full'", "cfg.execution_mode = 'write'", "cfg.execution_mode = 'restore'",
+    "cfg.write_enabled = true", "cfg.restore_source_batch_id = 'other'",
+    "cfg.execution_write_request_id = 'mock-forbidden-arm'",
+])
+def test_ce_prologue_does_not_relax_h2_mode_guards(evidence_sets, mutation):
+    lua, api, cfg = setup(evidence_sets)
+    add_ce_prologue(lua)
+    lua.globals().cfg = cfg
+    lua.execute(mutation)
+    before = files(lua)
+    result, _ = outcome(api)
+    assert result.failure_class in ("verification_requires_single_readonly", "verification_mixed_operation")
+    assert result.memory_read_attempts == len(lua.globals().candidate_reads) == 0
+    assert_invariants(result)
+    assert_readonly(lua, before)
+
+
+def test_ce_prologue_does_not_turn_two_mock_mismatched_reads_into_success(evidence_sets):
+    lua, api, _ = setup(evidence_sets)
+    add_ce_prologue(lua)
+    lua.execute("readInteger = function() return 0x42C60000 end; readFloat = function() return 99 end")
+    before = files(lua)
+    result, _ = outcome(api)
+    assert result.failure_class == "candidate_value_mismatch" and result.memory_read_attempts == 2
+    assert_invariants(result)
+    assert_readonly(lua, before)
+
+
+@pytest.mark.parametrize("prefixed", [False, True])
+@pytest.mark.parametrize("banner", [
+    "[MVP0] REPORT_BUILD_TAG = probe-20260321-v1",
+    "[MVP0] REPORT_SOURCE = @" + CE_REPORT_SOURCE,
+    "[FUNC] MVP0.score_base_candidate = nil",
+])
+def test_ce_prologue_banners_cannot_hide_inside_lf_trace_candidate_fields(evidence_sets, prefixed, banner):
+    lua, api, _ = setup(evidence_sets, "trace")
+    if prefixed: add_ce_prologue(lua)
+    path = LOG_ROOT + "\\" + NAMES["log"]
+    text = files(lua)[path]
+    marker = "--- Candidate #1 ---\n"
+    assert marker in text
+    lua.globals().written_logs[path] = text.replace(marker, marker + banner + "\n", 1)
+    sync_log_size(lua)
+    before = files(lua)
+    result, _ = outcome(api)
+    assert result.failure_class == "source_report_malformed"
+    assert result.memory_read_attempts == len(lua.globals().candidate_reads) == 0
+    assert_invariants(result)
+    assert_readonly(lua, before)

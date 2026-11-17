@@ -170,6 +170,43 @@ local function document(text, title)
   return sections
 end
 
+-- Only the source log may carry load_modules() diagnostics. Strip a derived
+-- view, never evidence.log: all size/binding checks still use the original bytes.
+local function source_log_view(text)
+  local function starts_report(offset)
+    local compact, trace = "=== compact_report ===\r\n", "=== run_config ===\r\n"
+    return text:sub(offset, offset + #compact - 1) == compact
+      or text:sub(offset, offset + #trace - 1) == trace
+  end
+  if starts_report(1) then return text end
+  local report_source = [[D:\armedforces.io-v2\src\mvp0_candidate_report.lua]]
+  local banners = {
+    "[MVP0] REPORT_BUILD_TAG = probe-20260321-v1",
+    "[MVP0] REPORT_SOURCE = @" .. report_source,
+  }
+  local functions = {"score_base_candidate", "apply_rank_adjustments", "render_report",
+    "compute_one_sided_anchorless_split_penalty"}
+  local offset = 1
+  for i = 1, 6 do
+    local ending = text:find("\r\n", offset, true)
+    if not ending or ending - offset > 160 then return nil end
+    local line = text:sub(offset, ending - 1)
+    if i <= 2 then
+      if line ~= banners[i] then return nil end
+    else
+      local prefix = "[FUNC] MVP0." .. functions[i - 2] .. " -> source=" .. report_source .. " line="
+      if line:sub(1, #prefix) ~= prefix then return nil end
+      local number = line:sub(#prefix + 1)
+      -- Lua's file-defined function line is a positive int, not a fixed build
+      -- offset. Bound/canonicalize it without trusting it as source identity.
+      if #number > 10 or not number:match("^[1-9][0-9]*$") or tonumber(number) > 0x7FFFFFFF then return nil end
+    end
+    offset = ending + 2
+  end
+  if not starts_report(offset) then return nil end
+  return text:sub(offset)
+end
+
 local function eq_fields(fields, expected)
   if type(fields) ~= "table" then return false end
   for key, value in pairs(expected) do if fields[key] ~= value then return false end end
@@ -253,8 +290,11 @@ local function trace_evidence(body, c, source)
 end
 
 local function reconcile(evidence, c, source, names)
-  local log, trace = evidence.log, nil
-  if log:sub(-2) ~= "\r\n" then return "source_report_malformed" end
+  local log, trace = source_log_view(evidence.log), nil
+  if not log or log:sub(-2) ~= "\r\n" then return "source_report_malformed" end
+  -- Diagnostics are allowed only in the initial prologue, including in trace
+  -- bodies whose ranker fields would otherwise accept a banner as a new key.
+  if log:find("\n%[MVP0%]") or log:find("\n%[FUNC%]") then return "source_report_malformed" end
   if log:find("=== report_text ===\r\n", 1, true) then
     local prefix, body, suffix = log:match("^(.-)=== report_text ===\r\n(.-)\r\n(=== single_detect_only ===\r\n.*)$")
     if not prefix or not trace_evidence(body, c, source) then return "source_trace_conflict" end

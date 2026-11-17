@@ -77,6 +77,44 @@ The trace ranker report legitimately uses LF inside the CRLF outer log; H2 check
 its summary, recommendation and dense, unique, sorted candidate entries. LF is
 not accepted in the companion or the surrounding structured reports.
 
+Only the H1 `no_probe_A.log` may begin with the CE diagnostics emitted by
+`load_modules()`. Header-first logs remain valid. When present, the prologue is
+exactly six CRLF-terminated lines, in this order (no leading/intervening blank
+lines, additional text, or extra diagnostics):
+
+1. `[MVP0] REPORT_BUILD_TAG = probe-20260321-v1`
+2. `[MVP0] REPORT_SOURCE = @D:\armedforces.io-v2\src\mvp0_candidate_report.lua`
+3. `[FUNC] MVP0.score_base_candidate -> source=<report-source> line=<line>`
+4. `[FUNC] MVP0.apply_rank_adjustments -> source=<report-source> line=<line>`
+5. `[FUNC] MVP0.render_report -> source=<report-source> line=<line>`
+6. `[FUNC] MVP0.compute_one_sided_anchorless_split_penalty -> source=<report-source> line=<line>`
+
+`<report-source>` is exactly `D:\armedforces.io-v2\src\mvp0_candidate_report.lua`
+(without `@` in the function diagnostics). `<line>` is canonical positive ASCII
+decimal, 1 through 2147483647, at most ten digits, with no leading zero, sign,
+whitespace or suffix. Function line numbers may change between builds. Each
+diagnostic line is at most 160 bytes excluding CRLF. The next line must be
+`=== compact_report ===` for basic/debug or `=== run_config ===` for trace;
+the existing report grammar and checks still apply. Unknown, missing, duplicated,
+reordered, malformed or oversized diagnostics are rejected. Banners inside the
+structured body cannot reset sections or hide duplicate keys.
+
+H2 removes this prefix only from a derived source-log parser view. It never
+normalizes or rewrites the four original artifacts, and compares the companion,
+summary and diagnostic byte-size declarations against the entire original log,
+including the prologue. For the archived `20261117-020344` parsing sample, this
+means 5,251 original bytes, a 558-byte prologue and a 4,693-byte parser view.
+The allowance does not apply to the companion, summary, diagnostic, H2 result,
+or restore-source parser. The trace LF-within-CRLF rule remains unchanged.
+
+These startup diagnostics are untrusted format metadata. Their paths, build tag
+and line numbers establish no source authenticity, process identity, historical
+continuity or write permission. The archived batch still lacks contemporaneous
+H1 process-identity evidence and must reach `source_process_identity_unavailable`
+before either candidate read. Portable regression tests reproduce the six-line
+format with synthetic artifacts and explicitly mock identity/memory; optional
+historical-byte replay is read-only and kept outside the repository.
+
 H1's `VALIDATED_PENDING_OUTPUT` in summary/diagnostic is the expected historical
 publication ordering. It is accepted only alongside the physical, validated
 companion. It is never evidence of publication by itself. H1's compact log uses
