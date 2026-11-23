@@ -262,7 +262,7 @@ def l12_evidence(session):
         retained = plain(api.evidence())
         w.config_missing = sub == "MISSING"
         w.cfg.write_enabled = sub != "DISABLED"
-        w.cfg.scan.scan_budget = 129 if sub == "INVALID" else 128
+        w.cfg.scan.scan_budget = 65537 if sub == "INVALID" else 128
         accepted, diagnostic = api.start()
         after = plain(guard.snapshot())["attempted_calls"]; guard.restore()
         session.recorder.rejection(run_id="rejected-" + sub, scenario="L12-" + sub,

@@ -502,12 +502,26 @@ def verify_streams(streams, policy, *, requested=None, sidecar_reference=None, s
                     if not es or not populations or not modes:
                         ok = False; continue
                     need(all(_counter(e, "adapter_write_attempts") == 0 for e in es), "L09_WRITE")
-                    need(populations[0]["raw_match_count"] == count and populations[0]["hard_limit"] == populations[0]["configured_limit"] == 128
+                    population = populations[0]
+                    r1 = population.get("native_count_limited") is False
+                    budgets = (population.get("raw_admission_budget") == population.get("ranking_budget") == 128 if r1
+                               else population.get("hard_limit") == population.get("configured_limit") == 128)
+                    need(population["raw_match_count"] == count and budgets
                          and modes[0]["data"]["synthetic_match_count"] == count, "L09_POPULATION_OR_CAP")
                     if mode == "ambiguous": need(any(e.get("qualified_count") == 2 for e in events(sub, "ranking_summary")), "L09_NOT_TWO_QUALIFIERS")
                     if mode == "incomplete": need(any(e.get("read_failure") is True for e in events(sub, "candidate_population")), "L09_INCOMPLETE_NOT_OBSERVED")
                     if mode == "invalid": need(any(e.get("qualified_count") == 0 for e in events(sub, "ranking_summary")), "L09_INVALID_NOT_OBSERVED")
-                    if mode == "129_plus": need(bool(events(sub, "scan_population_blocked")), "L09_OVERFLOW_NOT_BLOCKED")
+                    if mode == "129_plus":
+                        if r1:
+                            need(any(e.get("raw_count") == 129 and e.get("scanned_count") == 128
+                                 and e.get("ranked_count") == 128 and e.get("coverage") == "sampled_or_reduced"
+                                 and e.get("collection_complete") is False for e in events(sub, "candidate_population")),
+                                 "L09_REDUCED_COVERAGE")
+                            need(any(e.get("global_uniqueness_proven") is False for e in events(sub, "ranking_summary"))
+                                 and any("INCOMPLETE_CANDIDATE_POPULATION" in e.get("reason", "")
+                                     for e in events(sub, "cleanup_complete")), "L09_UNPROVEN_UNIQUENESS")
+                        else:
+                            need(bool(events(sub, "scan_population_blocked")), "L09_OVERFLOW_NOT_BLOCKED")
                 prove(case, ok)
             elif case == "L03":
                 prove(case, any(e.get("raw_match_count") == 1 and e.get("scan_complete") is True for e in events(case, "scan_population_complete"))

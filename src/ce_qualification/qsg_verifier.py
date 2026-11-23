@@ -280,11 +280,25 @@ def verify(bundle, expected_digest, *, requested=("L04",), sidecar_directory=Non
                     modes=[r for r in target if r['kind']=='mode' and r['scenario']==sub and r['data']['mode']==mode]
                     if not es or not pops or not modes:
                         complete=False; continue
-                    need(pops[0]['raw_match_count']==count and pops[0]['hard_limit']==pops[0]['configured_limit']==128
+                    population=pops[0]
+                    r1=population.get('native_count_limited') is False
+                    budgets=(population.get('raw_admission_budget')==population.get('ranking_budget')==128 if r1
+                             else population.get('hard_limit')==population.get('configured_limit')==128)
+                    need(population['raw_match_count']==count and budgets
                         and modes[0]['data']['synthetic_match_count']==count, 'L09_POPULATION')
                     need(all(e['counters']['adapter_write_attempts']==0 for e in es), 'L09_WRITE')
                     if mode=='ambiguous': need(any(e.get('qualified_count')==2 for e in case_events(sub,'ranking_summary')), 'L09_AMBIGUITY')
-                    if mode=='129_plus': need(bool(case_events(sub,'scan_population_blocked')), 'L09_OVERFLOW')
+                    if mode=='129_plus':
+                        if r1:
+                            need(any(e.get('raw_count')==129 and e.get('scanned_count')==128
+                                and e.get('ranked_count')==128 and e.get('coverage')=='sampled_or_reduced'
+                                and e.get('collection_complete') is False for e in case_events(sub,'candidate_population')),
+                                'L09_REDUCED_COVERAGE')
+                            need(any(e.get('global_uniqueness_proven') is False for e in case_events(sub,'ranking_summary'))
+                                and any('INCOMPLETE_CANDIDATE_POPULATION' in e.get('reason','')
+                                    for e in case_events(sub,'cleanup_complete')), 'L09_UNPROVEN_UNIQUENESS')
+                        else:
+                            need(bool(case_events(sub,'scan_population_blocked')), 'L09_OVERFLOW')
                     if mode=='incomplete': need(any(e.get('read_failure') is True for e in case_events(sub,'candidate_population')), 'L09_INCOMPLETE')
                     if mode=='invalid': need(any(e.get('qualified_count')==0 for e in case_events(sub,'ranking_summary')), 'L09_INVALID')
                 prove(case,complete)

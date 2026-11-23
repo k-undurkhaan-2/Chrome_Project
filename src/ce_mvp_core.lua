@@ -29,6 +29,7 @@ local ROOT = keys([[target_pid screening_profile value_type write_value write_en
   log_limit log_path diagnostics]])
 local SCAN = keys([[mode start_address stop_address target_value_float target_value_pattern
   scan_budget max_candidates filter_target_match use_prescore_selection
+  collection_batch_size collection_slice_ms
   process_candidate_limit process_chunk_candidates process_slice_ms]])
 local EXT = keys('h3_a3_store h3_a4_approval strict_attachment')
 local DIAG = keys('enabled session_token event_limit cleanup_start_probe')
@@ -82,17 +83,21 @@ function M.validate(input)
   s.target_value_float, s.target_bits = M.float32(s.target_value_float)
   if not integer(s.target_value_pattern, 0, 0xFFFFFFFF)
       or s.target_value_pattern ~= s.target_bits then fail('SCAN_PATTERN_MISMATCH') end
-  -- Complete bounded population, never a sampled top-N masquerading as unique.
-  if not integer(s.scan_budget, 1, 128) or s.max_candidates ~= s.scan_budget
+  -- Legacy intake and ranked selection are independent of native FoundList.Count.
+  -- Keep the collector's defaults; incomplete coverage never authorizes a write.
+  if s.scan_budget==nil then s.scan_budget=2000 end
+  if s.max_candidates==nil then s.max_candidates=20 end
+  if not integer(s.scan_budget, 1, 65536) or not integer(s.max_candidates, 1, 128)
+      or s.max_candidates>s.scan_budget
       or s.filter_target_match ~= true or s.use_prescore_selection ~= true then
     fail('INVALID_SCAN_SETTINGS')
   end
-  for k,rule in pairs({process_candidate_limit={8192,1,8192},
-      process_chunk_candidates={8,1,32},process_slice_ms={10,1,25}}) do
-    if s.mode=='process' then
-      if s[k]==nil then s[k]=rule[1] end
-      if not integer(s[k],rule[2],rule[3]) then fail('INVALID_PROCESS_BUDGET') end
-    elseif s[k]~=nil then fail('PROCESS_BUDGET_REQUIRES_PROCESS_MODE') end
+  if s.process_candidate_limit~=nil or s.process_chunk_candidates~=nil or s.process_slice_ms~=nil then
+    fail('OBSOLETE_PROCESS_BUDGET_USE_LEGACY_INTAKE_SETTINGS')
+  end
+  for k,rule in pairs({collection_batch_size={256,16,2048},collection_slice_ms={10,1,25}}) do
+    if s[k]==nil then s[k]=rule[1] end
+    if not integer(s[k],rule[2],rule[3]) then fail('INVALID_COLLECTION_BUDGET') end
   end
   c.diagnostics = {enabled=false}
   if input.diagnostics ~= nil then

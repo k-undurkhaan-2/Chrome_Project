@@ -204,74 +204,95 @@ function M.new(cfg, ce, load_module, observation_source, execution)
     if not within(n) then fail('FOUND_ADDRESS_OUT_OF_RANGE') end
     return n
   end
-  local read_count = 0
-  local function process_time()
+  local function abort(code)
+    poison=code -- legacy pcall readers must not swallow a safety failure
+    fail(code)
+  end
+  local function collection_time()
     checked()
     local task,now=active_scan,a.now()
-    if not whole(now) or now<0 or now>math.maxinteger or now<task.last_tick then fail('CLOCK_UNCERTAIN') end
+    if not task then abort('SCAN_STATE_INVALID') end
+    if not whole(now) or now<0 or now>math.maxinteger or now<task.last_tick then abort('CLOCK_UNCERTAIN') end
     task.last_tick=now
-    if now-task.started_tick>=cfg.scan_timeout_ms then fail('SCAN_TIMEOUT') end
+    if now-task.started_tick>=cfg.scan_timeout_ms then abort('SCAN_TIMEOUT') end
     return now
   end
-  local function process_checkpoint(force)
-    local now=process_time()
-    if force or now-active_scan.slice_started>=cfg.scan.process_slice_ms then
+  local function checkpoint()
+    local now=collection_time()
+    local task=active_scan
+    task.operations=task.operations+1
+    if task.operations>=cfg.scan.collection_batch_size or now-task.slice_started>=cfg.scan.collection_slice_ms then
       coroutine.yield()
-      active_scan.slice_started=process_time()
+      task.operations=0; task.slice_started=collection_time()
     end
   end
-  local function slice()
-    if cfg.scan.mode=='process' then process_checkpoint(false); return end
-    read_count = read_count+1
-    if read_count%16==0 then coroutine.yield() end
-    checked()
-  end
   env.readInteger = function(addr)
-    slice()
-    local bits = a.read_bits(addr)
-    if bits==nil then active_scan.read_failure=true end
+    checkpoint()
+    local ok,bits = pcall(a.read_bits,addr)
+    if not ok or bits==nil then active_scan.read_failure=true end
+    if not ok then error(bits,0) end
     return bits
   end
   env.readFloat = function(addr)
-    slice(); observe(nil, nil, 'adapter_read_calls'); local value = f.readFloat(addr)
+    checkpoint(); checked(); observe(nil, nil, 'adapter_read_calls')
+    local ok,value = pcall(f.readFloat,addr)
+    if not ok then active_scan.read_failure=true; error(value,0) end
     if type(value)~='number' or value~=value or math.abs(value)==math.huge then active_scan.read_failure=true end
     return value
   end
   env.getCurrentMemscan = function() return active_scan.object end
   env.createFoundList = function(ms)
     checked()
-    if not active_scan or not active_scan.done or ms~=active_scan.object then fail('FOUNDLIST_BEFORE_DONE') end
-    local fl = f.createFoundList(ms); active_scan.foundlist=fl
-    local proxy = {Address=setmetatable({}, {__index=function(_, index)
-      return env.getAddress(fl.Address[index])
-    end})}
-    function proxy.initialize()
-      fl.initialize()
-      observe('scan_population', {raw_match_count=fl.Count, count_source='CE FoundList.Count',
-        collection_complete=false,completeness_reason='not yet validated',hard_limit=128,
-        configured_limit=cfg.scan.scan_budget})
-      if not whole(fl.Count) or fl.Count<0 then fail('INVALID_FOUNDLIST_COUNT') end
-      if fl.Count>cfg.scan.scan_budget then
-        observe('scan_population_blocked', {raw_match_count=fl.Count,collection_complete=false,
-          completeness_reason='over budget; progress/collection intentionally not evaluated',hard_limit=128})
-        fail('CANDIDATE_BUDGET_EXCEEDED')
-      end
-      local progress = ms.getProgress()
+    local task=active_scan
+    if not task or not task.done or ms~=task.object or task.foundlist then fail('FOUNDLIST_BEFORE_DONE') end
+    local fl = f.createFoundList(ms); task.foundlist=fl
+    local total,indices,addresses=nil,{},{}
+    local function verify_population()
+      checkpoint()
+      if fl.Count~=total then abort('FOUNDLIST_COUNT_CHANGED') end
+      local progress=ms.getProgress()
       observe('scan_progress', {progress_results=type(progress)=='table' and progress.ResultsFound or nil,
         total_addresses=type(progress)=='table' and progress.TotalAddressesToScan or nil,
         scanned_addresses=type(progress)=='table' and progress.CurrentlyScanned or nil})
       if type(progress)~='table' or not whole(progress.TotalAddressesToScan)
-          or not whole(progress.CurrentlyScanned) or progress.TotalAddressesToScan<0
-          or progress.CurrentlyScanned<progress.TotalAddressesToScan
-          or progress.ResultsFound~=fl.Count then fail('SCAN_COMPLETION_UNCERTAIN') end
-      proxy.Count=fl.Count
-      observe('scan_population_complete', {raw_match_count=fl.Count,scan_complete=true,
-        collection_complete=false,completeness_reason='scan verified; collection pending'})
+          or progress.TotalAddressesToScan<0 or progress.TotalAddressesToScan>math.maxinteger
+          or progress.CurrentlyScanned~=progress.TotalAddressesToScan
+          or progress.ResultsFound~=total then abort('SCAN_COMPLETION_UNCERTAIN') end
+      scope.scan_complete=true
+    end
+    task.verify_population=verify_population
+    local proxy = {Address=setmetatable({}, {__index=function(_, index)
+      checkpoint()
+      if fl.Count~=total then abort('FOUNDLIST_COUNT_CHANGED') end
+      if not whole(index) or index<0 or index>=total then abort('INVALID_FOUNDLIST_INDEX') end
+      local addr=env.getAddress(fl.Address[index])
+      if indices[index] and indices[index]~=addr then abort('FOUNDLIST_ADDRESS_CHANGED') end
+      if addresses[addr] and addresses[addr]~=index+1 then abort('DUPLICATE_FOUND_ADDRESS') end
+      if not indices[index] then scope.raw_inspected_count=scope.raw_inspected_count+1 end
+      indices[index],addresses[addr]=addr,index+1
+      return addr
+    end})}
+    function proxy.initialize()
+      fl.initialize()
+      total=fl.Count; scope.raw_match_count=total
+      observe('scan_population', {raw_match_count=total,count_source='CE FoundList.Count',
+        collection_complete=false,raw_admission_budget=cfg.scan.scan_budget,
+        ranking_budget=cfg.scan.max_candidates,native_count_limited=false})
+      if not whole(total) or total<0 or total>math.maxinteger then abort('INVALID_FOUNDLIST_COUNT') end
+      verify_population()
+      proxy.Count=total -- same native pool and zero-based indices; never truncate
+      scope.collection_phase='legacy_collection'
+      observe('scan_population_complete', {raw_match_count=total,scan_complete=true,
+        collection_complete=false,completeness_reason='scan verified; legacy collection pending'})
     end
     function proxy.destroy()
-      active_scan.foundlist=nil
-      local ok=pcall(function() fl.destroy() end)
-      if not ok then cleanup_uncertain=true; fail('FOUNDLIST_CLEANUP_FAILED') end
+      verify_population()
+      -- Legacy destroys its view; native ownership stays with adapter disposal.
+      for index,addr in pairs(indices) do
+        checkpoint()
+        if env.getAddress(fl.Address[index])~=addr then abort('FOUNDLIST_ADDRESS_CHANGED') end
+      end
+      verify_population()
     end
     return proxy
   end
@@ -280,21 +301,37 @@ function M.new(cfg, ce, load_module, observation_source, execution)
   local collector = load_module('mvp0_foundlist_collector.lua', env)
   local score = report.score_candidate
   report.score_candidate = function(...)
-    if cfg.scan.mode=='process' then process_checkpoint(false) else coroutine.yield(); checked() end
+    checkpoint()
     return score(...)
   end
   local function choose(bundle)
-    observe('candidate_population', {raw_count=bundle.raw_count,scanned_count=bundle.scanned_count,
-      filtered_count=bundle.filtered_count,selected_count=bundle.selected_count,
-      collection_complete=bundle.scanned_count==bundle.raw_count
-        and bundle.selected_count==bundle.filtered_count,read_failure=active_scan.read_failure==true})
-    if bundle.scanned_count~=bundle.raw_count or bundle.selected_count~=bundle.filtered_count then
-      fail('INCOMPLETE_CANDIDATE_POPULATION')
-    end
-    if active_scan.read_failure then fail('SCREENING_READ_FAILED') end
-    local r = bundle.result
+    local r=bundle.result
     if type(r)~='table' or type(r.ranked)~='table' then fail('INVALID_RANK_RESULT') end
+    scope.raw_admitted_count=bundle.scanned_count
+    scope.collected_count=bundle.scanned_count -- alias, not native Count
+    scope.unique_count=bundle.unique_count
+    scope.filtered_count=bundle.filtered_count
+    scope.prescored_count=bundle.prescored_count or 0
+    scope.selected_count=bundle.selected_count
+    scope.ranked_count=#r.ranked; scope.evaluated_count=#r.ranked
+    scope.raw_admission_strategy=bundle.raw_admission_strategy
+    scope.selection_strategy=bundle.selection_strategy
+    scope.raw_admission_complete=bundle.scanned_count==bundle.raw_count
+    scope.ranking_complete=bundle.selected_count==bundle.filtered_count and #r.ranked==bundle.selected_count
+    scope.collection_complete=scope.raw_admission_complete and scope.ranking_complete
+    scope.coverage=scope.collection_complete and 'full_population' or 'sampled_or_reduced'
+    scope.collection_phase='legacy_complete'
+    scope.scope_complete=scope.collection_complete and not active_scan.read_failure
+    observe('candidate_population', {raw_count=bundle.raw_count,scanned_count=bundle.scanned_count,
+      raw_inspected_count=scope.raw_inspected_count,unique_count=bundle.unique_count,
+      filtered_count=bundle.filtered_count,prescored_count=scope.prescored_count,
+      selected_count=bundle.selected_count,ranked_count=#r.ranked,coverage=scope.coverage,
+      collection_complete=scope.collection_complete,read_failure=active_scan.read_failure==true})
+    if bundle.raw_count~=scope.raw_match_count then abort('FOUNDLIST_COUNT_CHANGED') end
+    if active_scan.read_failure then fail('SCREENING_READ_FAILED') end
     if #r.ranked==0 then
+      if not scope.collection_complete then fail('INCOMPLETE_CANDIDATE_POPULATION') end
+      scope.qualified_count=0
       observe('ranking_summary', {ranked_count=0,qualified_count=0,recommendation='NONE'})
       return nil
     end
@@ -306,10 +343,18 @@ function M.new(cfg, ce, load_module, observation_source, execution)
       local decision=report.recommend_action(single)
       if single.best.hard_pass and decision.recommendation=='ACCEPT' then qualified=qualified+1 end
     end
+    scope.qualified_count=qualified
+    scope.ranking_best_address=r.best.candidate.value_addr
+    scope.ranking_second_address=r.second and r.second.candidate.value_addr
+    scope.ranking_best_score=r.best.final_score; scope.ranking_best_family_size=r.best.template_family_size
+    scope.ranking_score_gap=r.score_gap; scope.ranking_confidence=r.confidence
+    scope.ranking_recommendation=r.recommendation.recommendation
     observe('ranking_summary', {ranked_count=#r.ranked,qualified_count=qualified,
+      coverage=scope.coverage,global_uniqueness_proven=false,
       recommendation=r.recommendation.recommendation,manual_review=r.recommendation.manual_review_required,
       best_score=r.best.final_score,hard_pass=r.best.hard_pass,confidence=r.confidence,
       address=r.best.candidate.value_addr})
+    if not scope.collection_complete then fail('INCOMPLETE_CANDIDATE_POPULATION') end
     if qualified>1 then fail('AMBIGUOUS_CANDIDATES') end
     if qualified~=1 or not r.best.hard_pass or r.recommendation.recommendation~='ACCEPT'
         or r.recommendation.manual_review_required then fail('CANDIDATE_NOT_QUALIFIED') end
@@ -321,135 +366,7 @@ function M.new(cfg, ce, load_module, observation_source, execution)
       if u32(row[key])==nil then fail('CANDIDATE_UNREADABLE') end
       candidate.fields[key]=row[key]
     end
-    return candidate
-  end
-  -- Complete process path: bounded compact snapshots, complete global family
-  -- context, then exact global best/second. No raw quota or prescore sampling.
-  local function choose_complete(task)
-    local ms=task.object
-    local fl=f.createFoundList(ms); task.foundlist=fl
-    fl.initialize()
-    local total=fl.Count
-    scope.raw_match_count=total
-    observe('scan_population', {raw_match_count=total,count_source='CE FoundList.Count',
-      collection_complete=false,hard_limit=8192,configured_limit=cfg.scan.process_candidate_limit})
-    if not whole(total) or total<0 or total>math.maxinteger then fail('INVALID_FOUNDLIST_COUNT') end
-    if total>cfg.scan.process_candidate_limit then
-      observe('scan_population_blocked', {raw_match_count=total,collection_complete=false,
-        completeness_reason='process snapshot resource limit; no subset evaluated',
-        hard_limit=8192,configured_limit=cfg.scan.process_candidate_limit})
-      fail('PROCESS_CANDIDATE_LIMIT_EXCEEDED')
-    end
-    local function verify_population()
-      process_checkpoint(false)
-      if not task.done or fl.Count~=total then fail('FOUNDLIST_COUNT_CHANGED') end
-      local progress=ms.getProgress()
-      if type(progress)~='table' or not whole(progress.TotalAddressesToScan)
-          or progress.TotalAddressesToScan<0 or progress.TotalAddressesToScan>math.maxinteger
-          or progress.CurrentlyScanned~=progress.TotalAddressesToScan
-          or progress.ResultsFound~=total then fail('SCAN_COMPLETION_UNCERTAIN') end
-      scope.scan_complete=true
-    end
-    local function snapshot(addr)
-      process_checkpoint(false)
-      local map=mapping(addr)
-      if not map then fail('CANDIDATE_MAPPING_INVALID') end
-      local row=report.build_candidate(addr)
-      if task.read_failure then fail('SCREENING_READ_FAILED') end
-      for key in pairs(FIELDS) do
-        if u32(row[key])==nil then fail('SCREENING_READ_FAILED') end
-      end
-      if row.f28~=cfg.scan.target_bits or type(row.f28_float)~='number'
-          or string.unpack('<I4',string.pack('<f',row.f28_float))~=cfg.scan.target_bits
-          or mapping(addr)~=map then fail('CANDIDATE_MEMORY_DRIFT') end
-      return row,map
-    end
-    local function same_snapshot(old,row,map)
-      if old.mapping~=map or old.row.f28~=row.f28 then fail('CANDIDATE_MEMORY_DRIFT') end
-      for key in pairs(FIELDS) do
-        if old.row[key]~=row[key] then fail('CANDIDATE_MEMORY_DRIFT') end
-      end
-    end
-    verify_population()
-    local snapshots,seen={},{}
-    local context={clone_family_counts={},clone_family_meta={}}
-    local qualified,unique_address=0,nil
-    scope.collection_phase='collecting'
-    for index=0,total-1 do
-      process_checkpoint(false)
-      if fl.Count~=total then fail('FOUNDLIST_COUNT_CHANGED') end
-      local addr=env.getAddress(fl.Address[index])
-      if seen[addr] then fail('DUPLICATE_FOUND_ADDRESS') end
-      seen[addr]=true
-      local row,map=snapshot(addr)
-      local saved={row=row,mapping=map}
-      same_snapshot(saved,snapshot(addr)) -- reject drift during the first read
-      local scored=report.score_candidate(row,cfg.scan.target_bits)
-      local single=report.rank_candidates({scored})
-      if single.best.hard_pass and report.recommend_action(single).recommendation=='ACCEPT' then
-        qualified=qualified+1; unique_address=addr
-      end
-      local one=report.build_ranking_context({scored})
-      local family=scored.clone_family_id
-      context.clone_family_counts[family]=(context.clone_family_counts[family] or 0)+one.clone_family_counts[family]
-      context.clone_family_meta[family]=one.clone_family_meta[family]
-      saved.template_family_id,saved.clone_family_id=scored.template_family_id,scored.clone_family_id
-      snapshots[index+1]=saved
-      scope.collected_count=index+1; scope.qualified_count=qualified
-      if (index+1)%cfg.scan.process_chunk_candidates==0 then process_checkpoint(true) end
-    end
-    verify_population()
-    scope.collection_phase='global_ranking'
-    local best,second
-    for index=1,total do
-      local saved=snapshots[index]
-      -- A changed entry, missing index, mapping or context invalidates the whole
-      -- pool. Previously observed rows are never quietly filtered away.
-      if env.getAddress(fl.Address[index-1])~=saved.row.value_addr then fail('FOUNDLIST_ADDRESS_CHANGED') end
-      same_snapshot(saved,snapshot(saved.row.value_addr))
-      local scored=report.score_candidate(saved.row,cfg.scan.target_bits)
-      scored.mapping=saved.mapping
-      scored.template_family_id,scored.clone_family_id=saved.template_family_id,saved.clone_family_id
-      report.apply_rank_adjustments(scored,context)
-      if report.compare_final_candidates(scored,best) then second,best=best,scored
-      elseif report.compare_final_candidates(scored,second) then second=scored end
-      scope.evaluated_count=index
-      if index%cfg.scan.process_chunk_candidates==0 then process_checkpoint(true) end
-    end
-    verify_population()
-    if scope.collected_count~=total or scope.evaluated_count~=total then fail('INCOMPLETE_CANDIDATE_POPULATION') end
-    task.foundlist=nil
-    if not pcall(function() fl.destroy() end) then cleanup_uncertain=true; fail('FOUNDLIST_CLEANUP_FAILED') end
-    scope.collection_complete=true; scope.scope_complete=true; scope.collection_phase='complete'
-    -- Same gap/confidence definition as the unchanged array ranker. All ranking
-    -- adjustments and comparisons above use its original functions directly.
-    local gap=best and (second and best.score-second.score or best.score) or 0
-    local confidence=gap>=report.CONFIG.confidence.high_gap and 'HIGH'
-      or (gap>=report.CONFIG.confidence.medium_gap and 'MEDIUM' or 'LOW')
-    local rank={best=best,second=second,score_gap=gap,confidence=confidence,manual_review=confidence=='LOW'}
-    local decision=report.recommend_action(rank)
-    scope.ranking_best_address=best and best.candidate.value_addr
-    scope.ranking_second_address=second and second.candidate.value_addr
-    scope.ranking_best_score=best and best.final_score
-    scope.ranking_best_family_size=best and best.template_family_size
-    scope.ranking_score_gap=rank.score_gap; scope.ranking_confidence=rank.confidence
-    observe('candidate_population', {raw_count=total,scanned_count=scope.collected_count,
-      filtered_count=total,selected_count=total,evaluated_count=scope.evaluated_count,
-      collection_complete=true,read_failure=false})
-    observe('ranking_summary', {ranked_count=total,qualified_count=qualified,
-      recommendation=decision.recommendation,manual_review=decision.manual_review_required,
-      best_score=best and best.final_score,hard_pass=best and best.hard_pass,confidence=rank.confidence,
-      score_gap=rank.score_gap,address=best and best.candidate.value_addr})
-    if total==0 then return nil end
-    if qualified>1 then fail('AMBIGUOUS_CANDIDATES') end
-    if qualified~=1 or not best.hard_pass or decision.recommendation~='ACCEPT'
-        or decision.manual_review_required or best.candidate.value_addr~=unique_address then
-      fail('CANDIDATE_NOT_QUALIFIED')
-    end
-    local row=best.candidate
-    local candidate={address=row.value_addr,fields={},mapping=mapping(row.value_addr)}
-    if not candidate.mapping or candidate.mapping~=best.mapping then fail('CANDIDATE_MAPPING_INVALID') end
-    for key in pairs(FIELDS) do candidate.fields[key]=row[key] end
+    scope.global_uniqueness_proven=true
     return candidate
   end
   function a.begin_scan()
@@ -458,16 +375,13 @@ function M.new(cfg, ce, load_module, observation_source, execution)
     scope.scope_complete=false
     resolve_scope()
     local task = {done=false, disposed=false}; active_scan=task
-    if cfg.scan.mode=='process' then
-      local now=a.now()
-      if not whole(now) or now<0 or now>math.maxinteger then fail('CLOCK_UNCERTAIN') end
-      task.started_tick,task.last_tick,task.slice_started=now,now,now
-      scope.scan_complete=false; scope.collection_complete=false
-      scope.raw_match_count=nil; scope.collected_count=0; scope.evaluated_count=0; scope.qualified_count=0
-      scope.collection_phase='scanning'; scope.process_candidate_limit=cfg.scan.process_candidate_limit
-      scope.ranking_best_address=nil; scope.ranking_second_address=nil; scope.ranking_best_score=nil
-      scope.ranking_best_family_size=nil; scope.ranking_score_gap=nil; scope.ranking_confidence=nil
-    end
+    local now=a.now()
+    if not whole(now) or now<0 or now>math.maxinteger then fail('CLOCK_UNCERTAIN') end
+    task.started_tick,task.last_tick,task.slice_started=now,now,now; task.operations=0
+    scope.scan_complete=false; scope.collection_complete=false; scope.global_uniqueness_proven=false
+    scope.raw_match_count=nil; scope.raw_inspected_count=0; scope.collected_count=0; scope.evaluated_count=0
+    scope.qualified_count=0; scope.collection_phase='scanning'
+    scope.raw_admission_budget=cfg.scan.scan_budget; scope.ranking_budget=cfg.scan.max_candidates
     local ms=f.createMemScan(); task.object=ms
     if cfg.scan.mode=='process' then
       if type(ms.setSpecialScanOptionsOverride)~='function' then fail('PROCESS_SCAN_POLICY_UNAVAILABLE') end
@@ -483,7 +397,8 @@ function M.new(cfg, ce, load_module, observation_source, execution)
     -- Dword discovery of the exact Float32 bits avoids CE's decimal scan rounding.
     -- Candidate interpretation, qualification and the only write API remain Float32.
     observe('scan_invocation', {search_bits=cfg.scan.target_bits,
-      hard_limit=cfg.scan.mode=='process' and cfg.scan.process_candidate_limit or 128}, 'adapter_scan_invocations')
+      search_mode='float32_bits_via_dword_hex',raw_admission_budget=cfg.scan.scan_budget,
+      ranking_budget=cfg.scan.max_candidates}, 'adapter_scan_invocations')
     ms.firstScan(f.soExactValue, f.vtDword, f.rtRounded,
       string.format('%08X',cfg.scan.target_bits), '', start_address,
       stop_address, '+W-X-C', f.fsmAligned, '4', true, false, false, false)
@@ -496,20 +411,18 @@ function M.new(cfg, ce, load_module, observation_source, execution)
     if not task.worker then
       observe('scan_done_observed', nil, 'scan_completions')
       task.worker=coroutine.create(function()
-        if cfg.scan.mode=='process' then return choose_complete(task) end
         local bundle=collector.run({max_candidates=cfg.scan.max_candidates,
           scan_budget=cfg.scan.scan_budget, target_value_pattern=cfg.scan.target_bits,
           target_value_float=cfg.scan.target_value_float, filter_target_match=true,
           use_prescore_selection=true, probe_full_foundlist=false,
           stable_filter_intersection_enabled=false, session_id='ce-native-single'})
-        checked(); return choose(bundle)
+        checked(); task.verify_population(); return choose(bundle)
       end)
     end
     local ok, result = coroutine.resume(task.worker)
     if poison then fail(poison) end
     if not ok then fail('SCREENING_CALLBACK:' .. tostring(result)) end
     if coroutine.status(task.worker)=='dead' then
-      scope.scope_complete=true
       if execution and result then
         bound_candidate={address=result.address,mapping=result.mapping,fields={}}
         for k,v in pairs(result.fields) do bound_candidate.fields[k]=v end
@@ -528,7 +441,7 @@ function M.new(cfg, ce, load_module, observation_source, execution)
     local errors={}
     if task.foundlist then
       local fl=task.foundlist; task.foundlist=nil
-      if not pcall(function() fl.destroy() end) then errors[#errors+1]='foundlist' end
+      if not pcall(function() fl.destroy() end) then errors[#errors+1]='FOUNDLIST_CLEANUP_FAILED' end
     end
     if task.object then
       local ms=task.object; task.object=nil
@@ -536,7 +449,7 @@ function M.new(cfg, ce, load_module, observation_source, execution)
       if not pcall(function() ms.OnScanDone=nil; ms.destroy() end) then errors[#errors+1]='memscan' end
     end
     if #errors>0 then
-      cleanup_uncertain=true; scope.scope_complete=false
+      cleanup_uncertain=true; scope.scope_complete=false; scope.global_uniqueness_proven=false
       fail('SCAN_CLEANUP_FAILED:' .. table.concat(errors,','))
     end
     observe('scan_disposed', {dispose_call_returned=true}, 'scan_disposals')

@@ -5,6 +5,9 @@ No test opens a native process, loads a Win32 DLL or invokes the live helper.
 """
 from importlib import import_module
 import ast
+import json
+import platform
+import time
 from pathlib import Path
 import shutil
 import subprocess
@@ -25,7 +28,7 @@ SOURCES = {name: (SRC / name).read_text(encoding="utf-8")
 def runtime(request):
     # Missing interpreters are failures, not synthetic compatibility skips.
     module = import_module("lupa." + request.param)
-    lua = module.LuaRuntime(unpack_returned_tuples=True)
+    lua = module.LuaRuntime(unpack_returned_tuples=True, max_memory=256 * 1024 * 1024)
     assert lua.eval("_VERSION") == {"lua53": "Lua 5.3", "lua54": "Lua 5.4"}[request.param]
     factory = lua.execute((ROOT / "tests/fixtures/ce_mvp_mock.lua").read_text(encoding="utf-8"))
     w = factory.new(lua.table_from(SOURCES))
@@ -53,8 +56,8 @@ def good(w):
     ("w.cfg.write_enabled='true'", "WRITE_DISABLED"),
     ("w.cfg.value_type='double'", "UNSUPPORTED_VALUE_TYPE"),
     ("w.cfg.screening_profile='full'", "UNSUPPORTED_PROFILE"),
-    ("w.cfg.scan.scan_budget=129", "INVALID_SCAN_SETTINGS"),
-    ("w.cfg.scan.max_candidates=1", "INVALID_SCAN_SETTINGS"),
+    ("w.cfg.scan.scan_budget=65537", "INVALID_SCAN_SETTINGS"),
+    ("w.cfg.scan.max_candidates=129", "INVALID_SCAN_SETTINGS"),
     ("w.cfg.scan.filter_target_match=false", "INVALID_SCAN_SETTINGS"),
     ("w.cfg.scan.use_prescore_selection=false", "INVALID_SCAN_SETTINGS"),
     ("w.cfg.scan.target_value_pattern=0", "SCAN_PATTERN_MISMATCH"),
@@ -214,7 +217,7 @@ def test_no_matches_are_bounded_and_backoff_is_exponential(runtime):
 
 @pytest.mark.parametrize("kind,reason", [
     ("ambiguous", "AMBIGUOUS_CANDIDATES"), ("weak", "CANDIDATE_NOT_QUALIFIED"),
-    ("overflow", "CANDIDATE_BUDGET_EXCEEDED"), ("incomplete", "SCAN_COMPLETION_UNCERTAIN"),
+    ("overflow", "INCOMPLETE_CANDIDATE_POPULATION"), ("incomplete", "SCAN_COMPLETION_UNCERTAIN"),
     ("read_fault", "SCREENING_READ_FAILED"), ("callback", "SCREENING_CALLBACK"),
     ("timeout", "SCAN_TIMEOUT"),
 ])
@@ -495,7 +498,7 @@ def test_actual_loader_and_ct_start_stop_scripts_under_mock_ce(runtime, tmp_path
     guard.install()
     w.cfg.write_enabled = False
     assert "WRITE_DISABLED" in api.start()[1]
-    w.cfg.write_enabled = True; w.cfg.scan.scan_budget = 129
+    w.cfg.write_enabled = True; w.cfg.scan.scan_budget = 65537
     assert "INVALID_SCAN_SETTINGS" in api.start()[1]
     w.cfg.scan.scan_budget = 128
     assert all(value == 0 for _, value in guard.snapshot().attempted_calls.items())
@@ -613,7 +616,7 @@ def test_fixture_command_transitions_are_bounded_and_drift_is_value_only():
 
 @pytest.mark.parametrize("mode,count,reason", [
     ("baseline_unique", 1, None), ("zero_match", 0, "RESCAN_LIMIT_EXHAUSTED"),
-    ("ambiguous", 2, "AMBIGUOUS_CANDIDATES"), ("over_limit", 129, "CANDIDATE_BUDGET_EXCEEDED"),
+    ("ambiguous", 2, "AMBIGUOUS_CANDIDATES"), ("over_limit", 129, "INCOMPLETE_CANDIDATE_POPULATION"),
     ("incomplete_structure", 1, "SCREENING_READ_FAILED"),
     ("invalid_structure", 1, "CANDIDATE_NOT_QUALIFIED"),
 ])
@@ -624,7 +627,7 @@ def test_actual_fixture_layout_through_unchanged_collector_and_ranker(runtime, m
     w.use_layout(lua.table_from(p["pages"]), lua.table_from(p["words"]))
     w.start(); w.until_state("ERROR" if reason else "MONITORING")
     population = events(w, "scan_population")[0]
-    assert population.raw_match_count == count and population.hard_limit == 128
+    assert population.raw_match_count == count and population.native_count_limited is False
     assert len(w.scans[1].addresses) == count
     if reason:
         assert reason in w.loop.status().last_error
@@ -638,9 +641,10 @@ def test_actual_fixture_layout_through_unchanged_collector_and_ranker(runtime, m
     if mode == "ambiguous":
         assert events(w, "ranking_summary")[0].qualified_count == 2
     if mode == "over_limit":
-        blocked = events(w, "scan_population_blocked")[0]
-        assert blocked.raw_match_count == 129 and blocked.collection_complete is False
-        assert events(w, "scan_progress") == []  # no extra native query for telemetry
+        population = events(w, "candidate_population")[0]
+        assert population.raw_count == 129 and population.collection_complete is False
+        assert population.scanned_count == 128 and population.ranked_count == 128
+        assert events(w, "scan_progress")
     if mode == "incomplete_structure":
         assert events(w, "candidate_population")[0].read_failure is True
     if mode == "invalid_structure":
@@ -1115,6 +1119,7 @@ def process_population(lua, w, count, good_indices=()):
     process_scope(w)
     w.cfg.max_rescan_attempts = 0
     w.cfg.scan_timeout_ms = 120000
+    w.record_native_calls = False  # bound the mock guard trace for large inputs
     lua.execute("""
       w.fast_index={}
       function w.populate(count, good)
@@ -1124,7 +1129,7 @@ def process_population(lua, w, count, good_indices=()):
             local fields={0x10011200,0x10013800,0x10042100,0x10060000,0x10025600,0x10028400,0x10086300}
             for j,offset in ipairs({-0x20,-0x10,-8,0x30,0x40,0x48,0x50}) do o.memory[o.addr+offset]=fields[j] end
           end
-          o.size=0x400000
+          o.size=0x2000000
         end
       end
     """)
@@ -1135,34 +1140,44 @@ def process_population(lua, w, count, good_indices=()):
 def test_complete_pool_visits_every_index_and_accepts_a_late_unique_candidate(runtime, count):
     lua, w = runtime
     process_population(lua, w, count, (count,) if count else ())
+    w.cfg.scan.scan_budget = max(128, count)
     lua.execute("w.hook=function(e) if e=='write' then w.at_write=w.loop.status() end end")
-    w.start(); w.until_state("MONITORING" if count else "ERROR")
+    complete = count <= 128
+    w.start(); w.until_state("MONITORING" if count and complete else "ERROR")
     s = w.loop.status()
-    assert s.raw_match_count == s.collected_count == s.evaluated_count == count
-    assert s.scan_complete and s.collection_complete and s.scope_complete
+    assert s.raw_match_count == s.raw_inspected_count == s.raw_admitted_count == count
+    assert s.ranked_count == min(count, 128) and s.scan_complete
+    assert s.collection_complete is complete and s.scope_complete is complete
     assert s.qualified_count == (1 if count else 0)
-    if count:
+    if count and complete:
         assert len(w.writes) == 1 and w.writes[1].addr == 0x100128 + (count - 1) * 0x100
         assert w.at_write.collected_count == w.at_write.evaluated_count == count
         assert s.last_written_bits == s.last_readback_bits == 0x42FA0000
+    elif count:
+        assert s.ranking_best_address == w.objects[count].addr
+        assert "INCOMPLETE_CANDIDATE_POPULATION" in s.last_error
+        assert not s.global_uniqueness_proven and len(w.writes) == 0
     else:
         assert s.last_error == "RESCAN_LIMIT_EXHAUSTED" and len(w.writes) == 0
     w.loop.stop(); w.clean()
 
 
 @pytest.mark.parametrize("count,good_indices,reason", [
-    (129, (1, 129), "AMBIGUOUS_CANDIDATES"),
-    (1001, (9, 1001), "AMBIGUOUS_CANDIDATES"),
+    (129, (1, 129), "INCOMPLETE_CANDIDATE_POPULATION"),
+    (1001, (9, 1001), "INCOMPLETE_CANDIDATE_POPULATION"),
     (128, (), "CANDIDATE_NOT_QUALIFIED"),
 ])
 def test_complete_pool_counts_independent_qualifiers_across_chunks(runtime, count, good_indices, reason):
     lua, w = runtime
     process_population(lua, w, count, good_indices)
+    w.cfg.scan.scan_budget = count
     w.start(); w.until_state("ERROR")
     s = w.loop.status()
     assert reason in s.last_error and len(w.writes) == 0
-    assert s.raw_match_count == s.collected_count == s.evaluated_count == count
-    assert s.scope_complete and s.qualified_count == len(good_indices)
+    assert s.raw_match_count == s.raw_admitted_count == count
+    assert s.ranked_count == min(count, 128)
+    assert s.scope_complete is (count <= 128) and s.qualified_count == len(good_indices)
+    assert not s.global_uniqueness_proven
     w.clean()
 
 
@@ -1176,20 +1191,22 @@ def test_complete_pool_counts_independent_qualifiers_across_chunks(runtime, coun
     ("w.fail.unreadable=w.objects[128].addr-0x20", "SCREENING_READ_FAILED"),
     ("w.objects[128].protect=0x20", "CANDIDATE_MAPPING_INVALID"),
     ("w.objects[128].size=0x7FFFFFFFFFFFFFFF", "CANDIDATE_MAPPING_INVALID"),
-    ("w.objects[128].memory[w.objects[128].addr]=0x42280000", "CANDIDATE_MEMORY_DRIFT"),
+    ("w.objects[128].memory[w.objects[128].addr]=0x42280000", "CANDIDATE_NOT_QUALIFIED"),
 ])
 def test_incomplete_process_population_never_writes(runtime, fault, reason):
     lua, w = runtime
     process_population(lua, w, 128, (128,))
+    w.cfg.scan.collection_batch_size = 16
     w.start()
-    while (w.loop.status().collected_count or 0) < 8:
+    while (w.loop.status().raw_inspected_count or 0) < 8:
         w.step()
         assert w.loop.status().running
-    assert w.loop.status().collected_count < 128
+    assert w.loop.status().raw_inspected_count < 128
     lua.execute(fault)
     if reason != "OPERATOR_STOP": w.until_state("ERROR")
     s = w.loop.status()
-    assert reason in s.stop_reason and len(w.writes) == 0 and not s.scope_complete
+    assert reason in s.stop_reason and len(w.writes) == 0 and not s.global_uniqueness_proven
+    assert not s.running
     w.clean()
 
 
@@ -1198,7 +1215,7 @@ def test_incomplete_process_population_never_writes(runtime, fault, reason):
     ("w.fail.results_count=999", "SCAN_COMPLETION_UNCERTAIN"),
     ("w.fail.no_complete=true;w.cfg.scan_timeout_ms=1000", "SCAN_TIMEOUT"),
     ("w.hook=function(e) if e=='initialize' then w.latest_foundlist.Count=127 end end", "SCAN_COMPLETION_UNCERTAIN"),
-    ("w.hook=function(e) if e=='read' and w.reads==2 then w.objects[1].memory[w.objects[1].addr-0x20]=7 end end", "CANDIDATE_MEMORY_DRIFT"),
+    ("w.hook=function(e) if e=='GetTickCount64' and w.loop.status().state=='CANDIDATE_CHECK' then w.objects[128].memory[w.objects[128].addr-0x20]=7 end end", "CANDIDATE_CHANGED"),
     ("w.fail.destroy_foundlist='throw'", "FOUNDLIST_CLEANUP_FAILED"),
     ("w.fail.destroy_scan='throw'", "SCAN_CLEANUP_FAILED"),
 ])
@@ -1207,22 +1224,27 @@ def test_process_scan_completion_drift_and_cleanup_faults_are_terminal(runtime, 
     process_population(lua, w, 128, (128,)); lua.execute(edit)
     w.start(); w.until_state("ERROR")
     assert reason in w.loop.status().last_error and len(w.writes) == 0
-    assert not w.loop.status().scope_complete
+    assert not w.loop.status().running
     w.clean()
 
 
 @pytest.mark.parametrize("change,reason", [
-    ("w.objects[1].memory[w.objects[1].addr+0x30]=7", "CANDIDATE_MEMORY_DRIFT"),
+    ("w.objects[128].memory[w.objects[128].addr+0x30]=7", "CANDIDATE_CHANGED"),
     ("w.latest_foundlist.Address[0]=w.latest_foundlist.Address[1]", "FOUNDLIST_ADDRESS_CHANGED"),
 ])
 def test_complete_snapshots_are_revalidated_before_global_ranking(runtime, change, reason):
     lua, w = runtime
-    process_population(lua, w, 128, (128,)); w.start()
-    while (w.loop.status().collected_count or 0) < 128:
-        w.step(); assert w.loop.status().running
+    process_population(lua, w, 128, (128,))
+    w.cfg.scan.collection_batch_size = 16
+    w.start()
+    if reason == "CANDIDATE_CHANGED":
+        w.until_state("CANDIDATE_CHECK")
+    else:
+        while (w.loop.status().raw_inspected_count or 0) < 8:
+            w.step(); assert w.loop.status().running
     lua.execute(change); w.until_state("ERROR")
     assert reason in w.loop.status().last_error and len(w.writes) == 0
-    assert not w.loop.status().scope_complete
+    assert not w.loop.status().running
     w.clean()
 
 
@@ -1230,12 +1252,13 @@ def test_complete_snapshots_are_revalidated_before_global_ranking(runtime, chang
 def test_process_snapshot_resource_limit_reports_actual_count_and_never_samples(runtime, count, limit):
     lua, w = runtime
     process_population(lua, w, count, (count,))
-    w.cfg.scan.process_candidate_limit = limit
+    w.cfg.scan.scan_budget = limit
     w.start(); w.until_state("ERROR")
     s = w.loop.status()
-    assert "PROCESS_CANDIDATE_LIMIT_EXCEEDED" in s.last_error
-    assert s.raw_match_count == count and s.collected_count == s.evaluated_count == 0
-    assert not s.scope_complete and w.reads == len(w.writes) == 0
+    assert "INCOMPLETE_CANDIDATE_POPULATION" in s.last_error
+    assert s.raw_match_count == count and s.raw_admitted_count == limit
+    assert s.ranked_count <= 128 and s.coverage == "sampled_or_reduced"
+    assert not s.scope_complete and not s.global_uniqueness_proven and len(w.writes) == 0
     w.clean()
 
 
@@ -1244,7 +1267,7 @@ def test_process_snapshot_resource_limit_reports_actual_count_and_never_samples(
 def test_process_resource_settings_reject_before_attachment(runtime, key, value):
     _, w = runtime
     process_scope(w); w.cfg.scan[key] = value
-    with pytest.raises(Exception, match="INVALID_PROCESS_BUDGET"):
+    with pytest.raises(Exception, match="OBSOLETE_PROCESS_BUDGET_USE_LEGACY_INTAKE_SETTINGS"):
         w.start()
     assert w.open_calls == w.reads == len(w.writes) == 0
 
@@ -1252,7 +1275,7 @@ def test_process_resource_settings_reject_before_attachment(runtime, key, value)
 def test_process_resource_settings_cannot_change_legacy_budget_meaning(runtime):
     _, w = runtime
     w.cfg.scan.process_candidate_limit = 8192
-    with pytest.raises(Exception, match="PROCESS_BUDGET_REQUIRES_PROCESS_MODE"):
+    with pytest.raises(Exception, match="OBSOLETE_PROCESS_BUDGET_USE_LEGACY_INTAKE_SETTINGS"):
         w.start()
     assert w.open_calls == 0
 
@@ -1269,10 +1292,12 @@ def test_process_time_slice_yields_inside_candidate_reads(runtime):
 
 
 @pytest.mark.parametrize("count,kind", [(129, "weak"), (129, "clones"), (129, "mixed"),
-                                       (1001, "mixed"), (1001, "late_unique")])
-def test_complete_stream_matches_full_legacy_collector_and_global_ranker(runtime, count, kind):
+                                       (1001, "mixed"), (1001, "late_unique"), (30001, "mixed")])
+@pytest.mark.parametrize("budgets", [(128, 128), (2000, 20)])
+def test_complete_stream_matches_full_legacy_collector_and_global_ranker(runtime, count, kind, budgets):
     lua, w = runtime
     process_population(lua, w, count, (count,) if kind == "late_unique" else ())
+    w.cfg.scan.scan_budget, w.cfg.scan.max_candidates = budgets
     lua.globals().population_kind = kind
     lua.execute("""
       local patterns={
@@ -1301,10 +1326,10 @@ def test_complete_stream_matches_full_legacy_collector_and_global_ranker(runtime
       end
       local report=w.load('mvp0_candidate_report.lua',env)
       local collector=w.load('mvp0_foundlist_collector.lua',env)
-      local bundle=collector.run({scan_budget=#w.objects,max_candidates=#w.objects,
+      local bundle=collector.run({scan_budget=w.cfg.scan.scan_budget,max_candidates=w.cfg.scan.max_candidates,
         target_value_pattern=0x42C80000,target_value_float=100.0,filter_target_match=true,
         use_prescore_selection=true,probe_full_foundlist=false,stable_filter_intersection_enabled=false})
-      assert(bundle.raw_count==bundle.scanned_count and bundle.filtered_count==bundle.selected_count)
+      assert(bundle.raw_count==#w.objects and bundle.scanned_count==math.min(#w.objects,w.cfg.scan.scan_budget))
       local r=bundle.result; local qualifiers=0
       for _,scored in ipairs(r.ranked) do
         local one=report.rank_candidates({report.score_candidate(scored.candidate,0x42C80000)})
@@ -1313,19 +1338,110 @@ def test_complete_stream_matches_full_legacy_collector_and_global_ranker(runtime
       w.reference={best=r.best.candidate.value_addr,second=r.second and r.second.candidate.value_addr,
         score=r.best.final_score,family=r.best.template_family_size,confidence=r.confidence,
         gap=r.score_gap,recommendation=r.recommendation.recommendation,qualified=qualifiers}
-      -- Reorder the native stream to prove context/order/tie-break invariance.
-      for i=1,math.floor(#w.objects/2) do w.objects[i],w.objects[#w.objects-i+1]=w.objects[#w.objects-i+1],w.objects[i] end
+      -- Native stream keeps the identical order: legacy sampling is order-sensitive.
     """)
     enable_diagnostics(lua)
     w.start()
-    accepted = w.reference.qualified == 1 and w.reference.recommendation == "ACCEPT"
+    complete = count <= min(budgets)
+    accepted = complete and w.reference.qualified == 1 and w.reference.recommendation == "ACCEPT"
     w.until_state("MONITORING" if accepted else "ERROR")
     s = w.loop.status()
-    assert s.scope_complete and s.evaluated_count == s.raw_match_count == count
+    assert s.scope_complete is complete and s.raw_match_count == count
+    assert s.evaluated_count == min(count, budgets[1])
     assert (s.ranking_best_address, s.ranking_second_address, s.ranking_best_score,
             s.ranking_best_family_size, s.ranking_score_gap, s.ranking_confidence, s.qualified_count) == (
         w.reference.best, w.reference.second, w.reference.score, w.reference.family,
         w.reference.gap, w.reference.confidence, w.reference.qualified)
     assert events(w, "ranking_summary")[-1].recommendation == w.reference.recommendation
     assert len(w.writes) == (1 if accepted else 0)
+    w.loop.stop(); w.clean()
+
+
+@pytest.mark.parametrize("count", [0, 1, 128, 129, 19276, 20000, 30000, 30001, 65537])
+def test_r1_native_foundlist_keeps_actual_count_and_legacy_defaults(runtime, count, record_property):
+    lua, w = runtime
+    process_population(lua, w, count, (count,) if count else ())
+    w.cfg.scan.scan_budget = 2000; w.cfg.scan.max_candidates = 20
+    enable_diagnostics(lua)
+    start = time.perf_counter()
+    w.start(); w.until_state("MONITORING" if count == 1 else "ERROR")
+    elapsed = time.perf_counter() - start
+    s = w.loop.status()
+    assert s.raw_match_count == len(w.scans[1].addresses) == count
+    assert s.raw_admitted_count == min(count, 2000)
+    assert s.unique_count == s.filtered_count == s.prescored_count == min(count, 2000)
+    assert s.selected_count == s.ranked_count == min(count, 20)
+    assert s.raw_admitted_count <= s.raw_inspected_count <= min(count, 4048)
+    assert s.scan_complete and s.collection_complete is (count <= 20)
+    assert s.raw_admission_budget == 2000 and s.ranking_budget == 20
+    assert len(w.lines) <= w.cfg.log_limit and len(w.loop.evidence().events) <= 512
+    if count > 20:
+        assert "INCOMPLETE_CANDIDATE_POPULATION" in s.last_error
+        assert s.ranking_best_address == w.objects[count].addr  # last raw hit survives original selection
+        assert not s.global_uniqueness_proven and s.coverage == "sampled_or_reduced"
+        assert len(w.writes) == 0
+    elif count == 1:
+        assert s.global_uniqueness_proven and s.last_readback_bits == 0x42FA0000
+    else:
+        assert s.last_error == "RESCAN_LIMIT_EXHAUSTED" and len(w.writes) == 0
+    assert elapsed < 120 and w.time < w.cfg.scan_timeout_ms
+    record_property("r1_performance", json.dumps({"raw_count": count, "wall_seconds": elapsed,
+        "lua": lua.eval("_VERSION"), "python": platform.python_version(), "platform": platform.system(),
+        "sampled_peak_lua_bytes": int(w.peak_lua_kb * 1024), "lua_memory_ceiling_bytes": 256 * 1024 * 1024,
+        "admitted": s.raw_admitted_count, "inspected": s.raw_inspected_count, "ranked": s.ranked_count,
+        "fake_elapsed_ms": w.time, "native_acceptance": False}))
+    w.loop.stop(); w.clean()
+
+
+@pytest.mark.parametrize("count", [19276, 30001])
+def test_r1_full_raw_admission_keeps_legacy_ranking_budget_and_blocks_subset_write(runtime, count, record_property):
+    lua, w = runtime
+    process_population(lua, w, count, (count,))
+    w.cfg.scan.scan_budget = count; w.cfg.scan.max_candidates = 20
+    start = time.perf_counter()
+    w.start(); w.until_state("ERROR")
+    record_property("r1_full_intake_performance", json.dumps({"raw_count": count,
+        "wall_seconds": time.perf_counter() - start, "lua": lua.eval("_VERSION"),
+        "sampled_peak_lua_bytes": int(w.peak_lua_kb * 1024), "fake_elapsed_ms": w.time,
+        "lua_memory_ceiling_bytes": 256 * 1024 * 1024}))
+    s = w.loop.status()
+    assert s.raw_match_count == s.raw_inspected_count == s.raw_admitted_count == s.filtered_count == count
+    assert s.prescored_count == count and s.ranked_count == 20
+    assert s.raw_admission_complete and not s.ranking_complete and not s.global_uniqueness_proven
+    assert s.ranking_best_address == w.objects[count].addr
+    assert "INCOMPLETE_CANDIDATE_POPULATION" in s.last_error and len(w.writes) == 0
+    w.clean()
+
+
+@pytest.mark.parametrize("raw_budget,rank_budget", [(2000, 20), (65536, 128), (129, 1), (128, 128)])
+def test_r1_independent_legacy_budgets_are_valid_before_any_ce_access(runtime, raw_budget, rank_budget):
+    _, w = runtime
+    w.cfg.scan.scan_budget = raw_budget; w.cfg.scan.max_candidates = rank_budget
+    c = w.core.validate(w.cfg)
+    assert c.scan.scan_budget == raw_budget and c.scan.max_candidates == rank_budget
+    assert w.open_calls == w.reads == len(w.writes) == 0
+
+
+@pytest.mark.parametrize("key,value", [("scan_budget", 0), ("scan_budget", 65537),
+    ("max_candidates", 0), ("max_candidates", 129), ("collection_batch_size", 15),
+    ("collection_batch_size", 2049), ("collection_slice_ms", 0), ("collection_slice_ms", 26)])
+def test_r1_intake_and_cooperative_budgets_fail_closed(runtime, key, value):
+    _, w = runtime
+    w.cfg.scan[key] = value
+    with pytest.raises(Exception, match="INVALID_(SCAN_SETTINGS|COLLECTION_BUDGET)"):
+        w.start()
+    assert w.open_calls == w.reads == len(w.writes) == 0
+
+
+def test_r1_float32_bits_do_not_match_literal_dword_integer_100(runtime):
+    _, w = runtime
+    process_scope(w)
+    expected = w.object(0x100128)
+    integer = w.object(0x101128); integer.memory[integer.addr] = 100
+    w.start(); w.until_state("MONITORING")
+    args = w.scans[1].args
+    assert args[2] == w.ce.vtDword and args[4] == "42C80000" and args[11] is True
+    assert int(args[4], 16) != 100 and w.loop.status().raw_match_count == 1
+    assert len(w.writes) == 1 and w.writes[1].addr == expected.addr
+    assert integer.memory[integer.addr] == 100 and w.loop.status().last_readback_bits == 0x42FA0000
     w.loop.stop(); w.clean()

@@ -15,16 +15,16 @@ return {
     -- stop_address='0x10FFFF'. Legacy paired bounds also mean bounded mode.
     target_value_float = 100.0, -- new/relocated objects must start with this value
     target_value_pattern = 0x42C80000, -- exact bits must agree with rounded value
-    -- Full-population Single, no truth label, no first-match or top-N shortcut.
-    -- Legacy bounded-mode budgets only; process mode never samples this quota.
-    scan_budget = 128,
-    max_candidates = 128, -- must equal scan_budget
+    -- Original Single collector defaults, independent of CE's raw hit count.
+    -- Raw admission 1..65536; final ranking 1..128, at most scan_budget.
+    -- A sampled intake or reduced ranking is reported and BLOCKS ALL WRITES.
+    scan_budget = 2000,
+    max_candidates = 20,
     filter_target_match = true,
     use_prescore_selection = true,
-    -- Process defaults (omit in bounded mode): complete pool or zero writes.
-    -- process_candidate_limit = 8192, -- compact snapshots; hard ceiling 8192
-    -- process_chunk_candidates = 8, -- 1..32, yield after this many candidates
-    -- process_slice_ms = 10, -- 1..25, checked between guarded read/score steps
+    -- Cooperative collection in either scope; no native raw-result count cap.
+    -- collection_batch_size = 256, -- 16..2048 address/read/score checkpoints
+    -- collection_slice_ms = 10, -- 1..25, checked between those operations
   },
   monitor_interval_ms = 1000,
   invalid_confirmations = 2,

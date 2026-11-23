@@ -27,7 +27,7 @@ Inspection of the actual local repository established:
   **existing** current MemScan/FoundList; it does not create the initial scan.
 - `mvp0_foundlist_collector.lua` and `mvp0_candidate_report.lua` perform real CE
   reads, exact-pattern filtering, structural scoring, family adjustments,
-  ranking and recommendation. Those unchanged modules run in a private Lua
+  ranking and recommendation. Their existing algorithms run in a private Lua
   environment using the new adapter's owned scan and guarded read functions.
 - `mvp0_value_executor.lua` is the existing Full/arm/restore-oriented guarded
   executor. Single does not call it. A7 does not fabricate Full A/W/B evidence,
@@ -51,10 +51,10 @@ One disabled-then-enabled 50 ms CE timer drives the run. Start on a running
 instance returns `false, ALREADY_RUNNING`. No nested or overlapping scans or
 writes are started. Recursive timer entry is terminal. A scan's `OnScanDone`
 only marks completion; the next timer callback collects results. There is no
-busy loop or `waitTillDone` call. Collection yields every 16 read primitives;
-scoring and the independent uniqueness check yield for each legacy bounded
-candidate. Bounded-mode ranking/report work remains limited to 128 candidates.
-Process mode instead uses cooperative complete-population passes described below.
+busy loop or `waitTillDone` call. Collection checkpoints occur between raw
+address accesses, guarded reads and score operations in both scope modes.
+Legacy ranking/report work remains bounded to at most 128 selected candidates;
+that limit does not cap the native FoundList.
 The configured timeout includes scanning and all cooperative processing.
 
 Stop first marks the run inactive and revokes further guarded operations,
@@ -138,14 +138,12 @@ combined with bounds, and unknown modes fail config validation before attachment
 Status/evidence expose resolved bounds, source, policies, alignment and
 `scope_complete`; resolving the envelope never asserts successful collection.
 
-In legacy bounded mode, FoundList count must agree with scan progress/results
-and fit the configured budget (1..128). `max_candidates` must equal `scan_budget`.
-The collector receives all matches, exact target pattern/float, target filtering
-and prescore selection enabled, no known-true address, no truth probe, and no
-Full/stable-intersection claim. More matches than the budget, incomplete scan
-progress, truncated collection, or failed reads are errors. The adapter never
-silently samples a smaller universe to claim uniqueness. Process mode uses the
-complete-population path below; legacy quota values do not limit that path.
+In both scope modes, the adapter exposes the entire owned native FoundList to
+`MVP0FoundList.run`, with exact target pattern/float, filtering and prescore
+selection enabled, no known-true address, no truth probe, and no Full/stable-
+intersection claim. Count must agree with completed scan progress. The adapter
+never rewrites Count to an intake budget or replaces the underlying scan.
+Incomplete admission/ranking is explicitly labelled and cannot authorize a write.
 
 The real collector and ranker must produce an `ACCEPT`, no-manual-review best
 candidate. Additionally, exactly **one** member of the entire filtered/ranked
@@ -155,85 +153,81 @@ breakers from masking two structurally acceptable objects. More than one such
 object is `AMBIGUOUS_CANDIDATES`. A nonempty but unqualified population stops;
 only an empty population uses the bounded retry policy.
 
-### Complete process population and equivalence contract
+### R1 native FoundList and unchanged legacy Single semantics
 
-Legacy collector inventory: `collect_raw_foundlist_addresses` visits all indices
-only when its budget covers `FoundList.Count`; otherwise it allocates even,
-structural and neighborhood quotas (70/15/15), with scout/signature limits.
-Deduplication then removes repeated addresses. Exact-pattern filtering permits
-retry/delayed rechecks. Prescore selection can apply score ordering, per-region
-diversity and a selected cap. Its `raw_count` is the native total,
-`scanned_count` the admitted raw entries, `filtered_count` the surviving exact
-matches and `selected_count` the downstream subset. The old CE bounded adapter
-requires scanned=raw and selected=filtered. Those modules' legacy collection
-and command flows are unchanged by P2-B.
+R1 supersedes the earlier P2 custom complete-process scorer and its 8192 native
+hit ceiling. The owned asynchronous First Scan uses `soExactValue`, `vtDword`,
+hexadecimal `string.pack('<f', x)` bits, `+W-X-C`, `fsmAligned` and alignment 4.
+Float32 100.0 is `0x42C80000`, not the `0x00000064` searched by CE's decimal
+4-Byte integer 100 UI setting. No implicit integer-search mode is supported.
+See the [CE MemScan API](https://wiki.cheatengine.org/index.php?title=Lua:Class:MemScan).
 
-The process adapter bypasses those admission/selection quotas entirely. It
-uses the same `build_candidate`, `score_candidate`, independent one-row
-`rank_candidates`/`recommend_action`, family-key builder, rank adjustments,
-lexicographic comparator and recommendation thresholds. Both legacy collector
-and report modules remain byte-for-byte unchanged. The adapter merges their
-one-row family contexts and uses the ranker's exact gap/confidence formula with
-its configured thresholds; differential tests compare the resulting summary.
+The ranker source remains byte-identical. The collector has one memory-only
+compatibility change: its temporary prescore entries no longer retain an unused
+complete score tree. All selected keys, flags, candidates and ranking inputs
+remain unchanged. Before/after differential tests compare complete nested
+results, tie vectors, filtering evidence and report text; a 30,001-entry
+prescore regression enforces a fixed 128 MiB Lua ceiling.
 
-For a stationary, readable population of unique exact-pattern addresses with
-valid mapping/context, the process result must equal the legacy collector with
-both budgets covering the entire population: identical independent qualifier
-count, global best/second, best score/family size, score gap, confidence and
-recommendation. No hard-pass or nonwinning row may be removed from the global
-family counts. This contract is checked against the real full collector/ranker
-for weak, clone, mixed and late-unique populations, including >1,000 entries
-and reversed native order, in both Lua 5.3 and 5.4.
+`collect_raw_foundlist_addresses`
+visits all indices when scan_budget covers Count; otherwise it uses its existing
+70/15/15 even/structure/neighborhood quotas and scout/signature constraints.
+Deduplication, exact-pattern filtering with retries, prescoring, diversity,
+family adjustments, ranking, confidence and recommendation thresholds are unchanged.
+The adapter passes the identical stream and budgets to this workflow; it never
+merges locally ranked winners or constructs its own global score.
 
-Pass one visits every native index, rejects duplicates/gaps, double-checks the
-seven structural words, exact search bits/Float32 interpretation and mapping,
-then retains a compact candidate snapshot. It counts independent hard-pass
-ACCEPTs and accumulates family counts/metadata for every row. The family metadata
-fields used by adjustments are encoded in their clone-family key, so incremental
-aggregation is equivalent to the array context regardless of input order.
+| Stage/status | Meaning |
+| --- | --- |
+| raw_match_count | Actual native FoundList.Count; no wrapper raw-hit ceiling |
+| raw_inspected_count | Distinct native indices accessed, including structural scouts |
+| raw_admitted_count / collected_count | Legacy scanned_count: entries admitted under scan_budget |
+| unique_count | Legacy addresses remaining after deduplication |
+| filtered_count | Legacy exact-pattern filtering survivors |
+| prescored_count | Legacy prescore-stage population (pass-through when no reduction is needed) |
+| selected_count | Legacy selection output under max_candidates |
+| ranked_count / evaluated_count | Rows actually ranked by MVP0.run |
+| qualified_count | Independent one-row ACCEPT count among ranked rows, not an unsampled global count |
 
-Pass two verifies every index/address and snapshot again, computes fresh local
-scores, and applies the complete global context. The comparator defines a total
-lexicographic order ending in the unique value address. Maintaining its exact
-first and second rows is therefore equivalent to full sorting for the decision;
-it is not a per-chunk winner heuristic. The rank summary computes the same
-confidence/gap and the unchanged recommendation runs only after all rows have
-been evaluated. Independent qualifiers >1 are always ambiguous, regardless of
-clone penalties, score ties or their positions in different chunks.
+Defaults match the historical collector: scan_budget=2000 and max_candidates=20.
+The adapter permits raw admission 1..65536 and ranking 1..128, with ranking budget
+no greater than admission. These independent CPU/memory/report budgets never
+truncate native Count. The full native pool can exceed 30k, even when intake is
+bounded. A configured full 30k intake still runs the original prescorer before
+bounded final ranking; no algorithmic optimization discards/reorders its input.
 
-The owned native scan must signal completion, and progress must agree exactly
-with its total and FoundList count before, between and after both passes. Counts
-and addresses are rechecked; no failed read, invalid mapping, drift or dropped
-entry is filtered away to manufacture uniqueness. These cases now reject the
-entire process decision. This is deliberately stricter than legacy mismatch
-retries, not an equivalence claim for changing/unreadable data. Final candidate
-mapping, fields, search bits and original process identity are still checked
-before the one write and exact readback. Sampling live memory is not atomic:
-undetected changes between observations remain part of the existing race limits.
+`raw_admission_complete` requires admitted=native. `ranking_complete` requires
+selected=filtered and ranked=selected. `collection_complete` requires both;
+`scope_complete` additionally requires no failed reader. `coverage` is
+full_population or sampled_or_reduced. Reduced coverage always stops with
+`INCOMPLETE_CANDIDATE_POPULATION`, including a sampled ACCEPT. The adapter does
+not infer global uniqueness from prescores or top-N. Only complete coverage,
+exactly one independent qualifier, the original no-manual-review ACCEPT, and
+valid selected mapping/fields can set global_uniqueness_proven. Existing
+prewrite, exact-bit readback and identity gates still apply. This preserves the
+write safety gate; it does not promise that a 30k stable population can be written
+under the default bounded algorithm budgets.
 
-Resources are explicit: `process_candidate_limit` defaults to and cannot exceed
-8192 compact snapshots; it can be lowered to 1. Family tables and duplicate
-tracking are bounded by that same count. Only one transient score plus the best
-two adjusted rows are needed, with no full scored array, sort or report string
-for the process pool. Over-limit FoundLists retain their actual raw count and
-fail `PROCESS_CANDIDATE_LIMIT_EXCEEDED` before evaluating any subset. A finite
-limit is not a completeness guarantee for a larger population.
+The native count/progress is checked on initialization, before/after raw intake
+and after ranking. Observed indices are revalidated before the legacy view is
+released. Duplicates, gaps, count changes, read failures, cancellation, timeout,
+identity loss and cleanup errors stop safely. Native FoundList ownership stays
+with the adapter until deterministic disposal; the collector's destroy closes
+only its view. Failed native cleanup blocks writing and restart.
 
-Processing yields after `process_chunk_candidates` rows (default 8, range 1..32)
-or when the sampled elapsed slice reaches `process_slice_ms` (default 10 ms,
-range 1..25). Clock checks occur between guarded reads/score steps; one fixed-size
-candidate calculation and native calls cannot be preempted. `scan_timeout_ms`
-covers discovery and both passes. Cancellation, stale PID, backward clock,
-timeout or uncertain cleanup give zero writes. Native UI/cancellation latency
-remains unmeasured. Process-only knobs reject in bounded mode, whose 128-entry
-budget/telemetry contract is preserved.
+Collection yields after collection_batch_size=256 address/read/score checkpoints
+(range 16..2048), or collection_slice_ms=10 (range 1..25). Both modes share these
+limits. Native calls, fixed candidate calculations, Lua sorts and bounded report
+rendering cannot be preempted. scan_timeout_ms covers the whole cycle. Sorting
+scales with admitted/scouted candidates; report text scales with at most 128
+ranked rows. No 30k score/report dump is exposed in Status. The removed P2 process
+snapshot settings reject explicitly instead of silently changing their meaning.
 
-Read-only status exposes native raw count, collected/evaluated/independent
-qualified counts, processing phase, resource limit and completeness flags.
-`scope_complete=true` means the declared population was completely evaluated,
-not that it was accepted or authorized for production. A completed ambiguity or
-rejection still writes nothing; incomplete/resource-limited work never claims
-complete coverage. Native CE coverage/acceptance remains pending qualification.
+Differential regressions compare identical native order and intake/ranking
+budgets with the unwrapped legacy workflow; sampling is intentionally order-
+sensitive. No claim of order invariance is made for sampled inputs. Synthetic
+30k timing/memory evidence is not CE-native timing or acceptance. Races between
+identity/memory observations remain part of the existing non-atomic read limits.
 
 The chosen value address must be aligned and its whole `-0x20..+0x53` context
 must lie inside the configured range and a single committed, private,

@@ -58,7 +58,9 @@ function M.new(sources)
   ce.executeCodeLocalEx=function(symbol,...)
     local name=assert(reverse[symbol]); local args={}
     for i=1,select('#',...) do local p=select(i,...); assert(p.type==0); args[i]=p.value end
-    w.native_calls[#w.native_calls+1]={name=name,args=args}; hook(name)
+    w.native_call_count=(w.native_call_count or 0)+1
+    if w.record_native_calls~=false then w.native_calls[#w.native_calls+1]={name=name,args=args} end
+    hook(name)
     if w.fail[name]=='nil' then return nil end
     if name=='GetTickCount64' then return w.time end
     if name=='GetSystemInfo' then
@@ -207,6 +209,8 @@ function M.new(sources)
   w.cfg=w.load('ce_mvp_config.example.lua')
   w.cfg.target_pid=w.pid; w.cfg.write_enabled=true
   w.cfg.scan.start_address=0x100000; w.cfg.scan.stop_address=0x11FFFF
+  -- Historical bounded fixtures rank their complete <=128 populations.
+  w.cfg.scan.scan_budget=128; w.cfg.scan.max_candidates=128
   w.cfg.monitor_interval_ms=100; w.cfg.rescan_backoff_ms=100; w.cfg.max_backoff_ms=800
   w.cfg.min_rescan_spacing_ms=200; w.cfg.scan_timeout_ms=10000; w.cfg.max_rescan_attempts=3
   function w.start()
@@ -223,10 +227,11 @@ function M.new(sources)
         end
       end
       for _,t in ipairs(w.timers) do if t.Enabled and t.OnTimer then t.OnTimer(t) end end
+      w.peak_lua_kb=math.max(w.peak_lua_kb or 0,collectgarbage('count'))
     end
   end
   function w.until_state(state)
-    for _=1,1000 do
+    for _=1,14000 do -- core timeout also bounds full 30k collection
       local s=w.loop.status()
       if s.state==state then return s end
       if not s.running then error('unexpected terminal state: '..s.state..':'..tostring(s.last_error)) end

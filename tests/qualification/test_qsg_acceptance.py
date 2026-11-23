@@ -2,6 +2,7 @@
 from copy import deepcopy
 from importlib import import_module
 from pathlib import Path
+import subprocess
 
 import pytest
 
@@ -21,14 +22,19 @@ def test_normal_trace_matches_preserved_r1_bytes_without_qsg(tmp_path,backend,mo
         sources=dict(SOURCES)
         if baseline:
             for name in ("ce_mvp.lua","ce_mvp_adapter.lua"):
-                sources[name]=(ROOT/'reports/2026-11-20/qsg_r2_20261120T104655Z/baseline'/name).read_text()
+                sources[name]=subprocess.check_output(['git','show',
+                    '33a9b33eecaf8b95b4c85b537c771c75073e538b:src/'+name],cwd=ROOT,text=True,encoding='utf-8')
         lua=import_module('lupa.'+backend).LuaRuntime(unpack_returned_tuples=True)
         factory=lua.execute((ROOT/'tests/fixtures/ce_mvp_mock.lua').read_text())
         w=factory.new(table(lua,sources))
         w.cfg.diagnostics=table(lua,{"enabled":True,"session_token":"SYNTHETIC-normal","event_limit":2048})
         p=layout.plan(mode); w.use_layout(table(lua,p['pages']),table(lua,p['words']))
         w.start(); w.step(100); w.loop.stop(); w.clean()
-        traces.append({"evidence":plain(w.loop.evidence()),"raw":plain(w.writes),"native":plain(w.native_calls),"lines":plain(w.lines)})
+        # R1 changes cooperative scheduling and diagnostics, not safe outcomes.
+        # Compare the same selected addresses/values and successful cleanup.
+        writes=[{k:v for k,v in row.items() if k!='time'} for row in (plain(w.writes) or [])]
+        traces.append({"raw":writes,"cleanup_ok":w.loop.status().cleanup_ok,
+                       "scan_count":len(w.scans),"forbidden":w.forbidden})
     assert traces[0]==traces[1]
 
 
@@ -38,7 +44,13 @@ def test_qualified_l09_five_distinct_layouts_use_full_ranker(tmp_path,mode,expec
     m=Model(tmp_path,backend,phase="L09",mode=mode); m.start(); m.w.step(120)
     assert not m.raw_calls and not m.broker.events('reserve')
     populations=[e for e in plain(m.api.evidence())['events'] if e['event_type']=='scan_population']
-    assert populations and populations[0]['raw_match_count']==expected and populations[0]['hard_limit']==128
+    assert populations and populations[0]['raw_match_count']==expected
+    population=populations[0]
+    if population.get('native_count_limited') is False:
+        assert population['raw_admission_budget']==population['ranking_budget']==128
+        if mode=='over_limit': assert 'INCOMPLETE_CANDIDATE_POPULATION' in m.api.status().stop_reason
+    else:
+        assert population['hard_limit']==128
     if mode=='ambiguous': assert any(e.get('qualified_count')==2 for e in plain(m.api.evidence())['events'])
     if mode=='incomplete_structure': assert 'SCREENING_READ_FAILED' in m.api.status().stop_reason
     if mode=='invalid_structure': assert 'CANDIDATE_NOT_QUALIFIED' in m.api.status().stop_reason
@@ -113,7 +125,7 @@ def test_qualified_public_l12_has_zero_guard_calls_and_retains_prior_evidence(tm
     assert api.configure_execution(table(m.lua,{'mode':'QUALIFICATION','factory':m.factory})) is True
     guard=m.lua.execute((ROOT/'tests/fixtures/ce_mvp_prestart_guard.lua').read_text()).new(env,'synthetic')
     guard.install(); before=plain(api.evidence())
-    m.w.config_missing=sub=='MISSING'; m.w.cfg.write_enabled=sub!='DISABLED'; m.w.cfg.scan.scan_budget=129 if sub=='INVALID' else 128
+    m.w.config_missing=sub=='MISSING'; m.w.cfg.write_enabled=sub!='DISABLED'; m.w.cfg.scan.scan_budget=65537 if sub=='INVALID' else 128
     accepted,error=api.start()
     assert accepted is False
     assert ('ce_mvp_config.local.lua' in error if sub=='MISSING' else error==('WRITE_DISABLED' if sub=='DISABLED' else 'INVALID_SCAN_SETTINGS'))
@@ -194,3 +206,35 @@ def test_verifier_has_no_controller_imports():
     import ast
     tree=ast.parse((ROOT/'src/ce_qualification/qsg_verifier.py').read_text())
     assert all((n.module or '') not in {'qsg_broker','qsg_store','qsg_recorder','budget','target'} for n in ast.walk(tree) if isinstance(n,ast.ImportFrom))
+
+
+@pytest.fixture(scope='module')
+def r1_l09_evidence(tmp_path_factory):
+    from qsg_session import FullSession
+    session=FullSession(tmp_path_factory.mktemp('r1-l09'))
+    bundle=session.execute()
+    result=verify(bundle,digest(bundle),requested=['L09'],sidecar_directory=session.sidecar_directory)
+    assert result['status']=='SYNTHETIC_PASS',result
+    directory=session.sidecar_directory
+    session.close()
+    return bundle,directory
+
+
+@pytest.mark.parametrize('mutation',['raw_count','raw_budget','rank_budget','coverage','complete','ranked','unique'])
+def test_r1_sampled_population_cannot_be_relabelled_as_unique(r1_l09_evidence,mutation):
+    source,directory=r1_l09_evidence
+    bundle=deepcopy(source)
+    diagnostics=[r['data']['diagnostic'] for r in bundle['ce']
+                 if r['kind']=='ce_event' and r['scenario']=='L09-129_plus']
+    kinds={e['event_type']:e for e in diagnostics}
+    if mutation=='raw_count': kinds['scan_population']['raw_match_count']=128
+    if mutation=='raw_budget': kinds['scan_population']['raw_admission_budget']=129
+    if mutation=='rank_budget': kinds['scan_population']['ranking_budget']=129
+    if mutation=='coverage': kinds['candidate_population']['coverage']='full_population'
+    if mutation=='complete': kinds['candidate_population']['collection_complete']=True
+    if mutation=='ranked': kinds['candidate_population']['ranked_count']=129
+    if mutation=='unique': kinds['ranking_summary']['global_uniqueness_proven']=True
+    rechain(bundle['ce'],True)
+    result=verify(bundle,digest(bundle),requested=['L09'],sidecar_directory=directory)
+    assert result['status']!='SYNTHETIC_PASS',result
+    assert set(result['live'].values())=={'NOT_RUN'}

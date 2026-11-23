@@ -19,7 +19,9 @@ configured_limit scan_complete progress_results total_addresses scanned_addresse
 scanned_count filtered_count selected_count read_failure ranked_count qualified_count
 recommendation manual_review best_score hard_pass confidence search_bits write_intent_bits
 api_success readback_bits readback_float float_bits value_bits valid delay_ms cancel_requested
-dispose_call_returned cleanup_ok cleanup_error call_ok accepted""".split())
+dispose_call_returned cleanup_ok cleanup_error call_ok accepted
+raw_admission_budget ranking_budget native_count_limited raw_inspected_count unique_count
+prescored_count coverage global_uniqueness_proven search_mode cycle_id""".split())
 GUARD_NAMES = ("openProcess", "createMemScan", "readInteger", "readFloat", "writeFloat",
                "createTimer", "executeCodeLocalEx", "createMemoryStream")
 

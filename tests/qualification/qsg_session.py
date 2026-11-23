@@ -104,7 +104,7 @@ class FullSession(Model):
         for sub in ['MISSING','DISABLED','INVALID']:
             guard=guard_module.new(self.env,'synthetic'); guard.install()
             before=plain(guard.snapshot())['attempted_calls']; retained=plain(self.api.evidence())
-            self.w.config_missing=sub=='MISSING'; self.w.cfg.write_enabled=sub!='DISABLED'; self.w.cfg.scan.scan_budget=129 if sub=='INVALID' else 128
+            self.w.config_missing=sub=='MISSING'; self.w.cfg.write_enabled=sub!='DISABLED'; self.w.cfg.scan.scan_budget=65537 if sub=='INVALID' else 128
             observation = None
             if self.sidecars is None:
                 accepted,error=self.api.start()
