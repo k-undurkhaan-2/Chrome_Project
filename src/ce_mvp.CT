@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<CheatTable CheatEngineTableVersion="45">
+  <CheatEntries>
+    <CheatEntry>
+      <ID>1</ID>
+      <Description>"H3-A7 Start (uncheck to Stop; see Lua output for status)"</Description>
+      <VariableType>Auto Assembler Script</VariableType>
+      <AssemblerScript><![CDATA[[ENABLE]
+{$lua}
+if syntaxcheck then return end
+local m=dofile([[D:\armedforces.io-v2\src\ce_mvp.lua]])
+local ok,reason=m.start()
+if not ok then error(reason) end
+{$asm}
+[DISABLE]
+{$lua}
+if syntaxcheck then return end
+if H3A7_CE_MVP then H3A7_CE_MVP.stop() end
+{$asm}
+]]></AssemblerScript>
+    </CheatEntry>
+    <CheatEntry>
+      <ID>2</ID>
+      <Description>"H3-A7 Status (toggle to print)"</Description>
+      <VariableType>Auto Assembler Script</VariableType>
+      <AssemblerScript><![CDATA[[ENABLE]
+{$lua}
+if syntaxcheck then return end
+if H3A7_CE_MVP then H3A7_CE_MVP.status() else print('[H3-A7] STOPPED') end
+{$asm}
+[DISABLE]
+{$lua}
+if syntaxcheck then return end
+if H3A7_CE_MVP then H3A7_CE_MVP.status() end
+{$asm}
+]]></AssemblerScript>
+    </CheatEntry>
+  </CheatEntries>
+</CheatTable>

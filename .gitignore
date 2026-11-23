@@ -1,5 +1,7 @@
 src/run_case_config.local.lua
 src/run_case_config.local.lua.bak
+src/ce_mvp_config.local.lua
+src/ce_mvp_config.local.lua.bak
 
 # Python local environments / build and test outputs
 .venv/
