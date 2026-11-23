@@ -111,6 +111,7 @@ function api.status()
       'raw_admitted_count','raw_inspected_count','unique_count','filtered_count','prescored_count',
       'selected_count','ranked_count','raw_admission_budget','ranking_budget','coverage',
       'raw_admission_complete','ranking_complete','global_uniqueness_proven',
+      'decision_scope','write_admission_basis',
       'scan_complete','collection_complete','collection_phase',
       'attachment_handle_status','authorization_status'}) do
     local value=s[k]

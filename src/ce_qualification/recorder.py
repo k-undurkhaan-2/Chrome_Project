@@ -21,7 +21,10 @@ recommendation manual_review best_score hard_pass confidence search_bits write_i
 api_success readback_bits readback_float float_bits value_bits valid delay_ms cancel_requested
 dispose_call_returned cleanup_ok cleanup_error call_ok accepted
 raw_admission_budget ranking_budget native_count_limited raw_inspected_count unique_count
-prescored_count coverage global_uniqueness_proven search_mode cycle_id""".split())
+prescored_count coverage global_uniqueness_proven search_mode cycle_id
+decision_scope write_admission_basis""".split())
+ADMISSION_SCOPES = {"LEGACY_SCOPE_ACCEPT": "LEGACY_SINGLE_SCOPE",
+                    "QSG_FULL_POPULATION_UNIQUE_ACCEPT": "QSG_FULL_POPULATION"}
 GUARD_NAMES = ("openProcess", "createMemScan", "readInteger", "readFloat", "writeFloat",
                "createTimer", "executeCodeLocalEx", "createMemoryStream")
 
@@ -59,6 +62,17 @@ class CERecorder:
         for event in events:
             if set(event) - FIELDS or set(event.get("counters", {})) - COUNTERS:
                 raise EvidenceError("UNREVIEWED_DIAGNOSTIC_FIELD")
+            if event.get("event_type") == "candidate_admitted":
+                basis = event.get("write_admission_basis")
+                coverage, unique = event.get("coverage"), event.get("global_uniqueness_proven")
+                if (not isinstance(basis, str) or basis not in ADMISSION_SCOPES
+                        or event.get("decision_scope") != ADMISSION_SCOPES[basis]
+                        or coverage not in ("full_population", "sampled_or_reduced")
+                        or type(unique) is not bool or (unique and coverage != "full_population")
+                        or (basis == "QSG_FULL_POPULATION_UNIQUE_ACCEPT" and not unique)):
+                    raise EvidenceError("INVALID_ADMISSION_EVIDENCE")
+            elif "write_admission_basis" in event or "decision_scope" in event:
+                raise EvidenceError("INVALID_ADMISSION_EVIDENCE")
             event = deepcopy(event)
             for key in list(event):
                 if key.endswith("_bits"):

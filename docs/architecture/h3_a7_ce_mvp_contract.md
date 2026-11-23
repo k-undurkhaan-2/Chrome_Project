@@ -143,15 +143,25 @@ In both scope modes, the adapter exposes the entire owned native FoundList to
 selection enabled, no known-true address, no truth probe, and no Full/stable-
 intersection claim. Count must agree with completed scan progress. The adapter
 never rewrites Count to an intake budget or replaces the underlying scan.
-Incomplete admission/ranking is explicitly labelled and cannot authorize a write.
+Designed admission/ranking reduction is explicitly labelled; native scan or
+collection failures still prevent writing.
 
-The real collector and ranker must produce an `ACCEPT`, no-manual-review best
-candidate. Additionally, exactly **one** member of the entire filtered/ranked
-population must independently obtain the existing ranker's `ACCEPT` with a
-hard pass when scored alone. This prevents family penalties or address tie
-breakers from masking two structurally acceptable objects. More than one such
-object is `AMBIGUOUS_CANDIDATES`. A nonempty but unqualified population stops;
-only an empty population uses the bounded retry policy.
+P2-R2 REV1 supersedes the old NORMAL full-population/independent-qualifier write
+gate. The unmodified collector and ranker must produce an actual `r.best` with
+`hard_pass=true`, `recommendation='ACCEPT'` and `manual_review_required=false`.
+The best must agree with ranked[1], the recommendation's candidate and the
+collector's selected addresses. Stage counts and result fields must be valid;
+REJECT, REVIEW, contradictory decisions, malformed candidates and failed reads
+permit zero writes. No adapter score threshold replaces the legacy decision.
+The bounded one-row qualifier recount remains diagnostic in NORMAL and does
+not veto an ACCEPT, even when multiple rows independently qualify. A nonempty
+unqualified population stops; an empty population uses the bounded retry policy.
+
+The separately injected QSG QUALIFICATION execution dependency retains the
+original full-coverage and exactly-one-independent-qualifier gates. Reduced
+coverage remains `INCOMPLETE_CANDIDATE_POPULATION`, multiple independent
+qualifiers remain `AMBIGUOUS_CANDIDATES`, and all QSG writer/broker protections
+remain unchanged. Config cannot select or weaken this qualification dependency.
 
 ### R1 native FoundList and unchanged legacy Single semantics
 
@@ -199,14 +209,35 @@ bounded final ranking; no algorithmic optimization discards/reorders its input.
 `raw_admission_complete` requires admitted=native. `ranking_complete` requires
 selected=filtered and ranked=selected. `collection_complete` requires both;
 `scope_complete` additionally requires no failed reader. `coverage` is
-full_population or sampled_or_reduced. Reduced coverage always stops with
-`INCOMPLETE_CANDIDATE_POPULATION`, including a sampled ACCEPT. The adapter does
-not infer global uniqueness from prescores or top-N. Only complete coverage,
-exactly one independent qualifier, the original no-manual-review ACCEPT, and
-valid selected mapping/fields can set global_uniqueness_proven. Existing
-prewrite, exact-bit readback and identity gates still apply. This preserves the
-write safety gate; it does not promise that a 30k stable population can be written
-under the default bounded algorithm budgets.
+full_population or sampled_or_reduced. NORMAL may admit a reduced Scope ACCEPT
+without claiming global uniqueness. Only complete coverage, exactly one
+independent qualifier, the original no-manual-review ACCEPT and valid selected
+mapping/fields can set global_uniqueness_proven within the declared scan scope.
+It is always false for sampled/reduced selection. Existing prewrite, exact-bit
+readback and identity gates still apply to each admitted candidate.
+
+`decision_scope` is `LEGACY_SINGLE_SCOPE` in NORMAL and `QSG_FULL_POPULATION`
+in QUALIFICATION. `write_admission_basis` starts at `NONE` each discovery cycle,
+then becomes `LEGACY_SCOPE_ACCEPT` or `QSG_FULL_POPULATION_UNIQUE_ACCEPT` after
+candidate admission. The `candidate_admitted` diagnostic event and read-only
+Status/evidence snapshots carry the same basis and coverage/uniqueness claims;
+`evidence().scan_scope` is available in bounded and process mode. Admission is
+not write/readback success. Verify the existing operation counters and exact
+bits separately. A reduced 30k pool can reach MONITORING after one normal scoped
+write, while coverage remains sampled_or_reduced and uniqueness remains false.
+The PRE-N passive recorder recognizes the added admission fields and validates
+their mode/coverage/uniqueness consistency. Historical events remain readable;
+QSG broker, writer and independent qualification requirements are unchanged.
+
+REV1 regression assertions intentionally replace the old NORMAL refusal on
+reduced coverage and independent-qualifier veto. Native population, legacy
+budgets, scores, selected best and recommendations are still compared against
+the original pipeline. QSG refusal assertions remain unchanged. The historical
+G1 L09 test harness explicitly selects strict qualification with a write-forbidden
+synthetic port instead of depending on NORMAL's superseded coverage gate; its
+independent verifier is unchanged. Both Legacy
+source files remain byte-identical to the REV1 baseline; this revision changes
+neither collection/scoring/ranking rules nor their 2000/20 defaults.
 
 The native count/progress is checked on initialization, before/after raw intake
 and after ranking. Observed indices are revalidated before the legacy view is

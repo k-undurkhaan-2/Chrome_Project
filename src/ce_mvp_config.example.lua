@@ -17,7 +17,7 @@ return {
     target_value_pattern = 0x42C80000, -- exact bits must agree with rounded value
     -- Original Single collector defaults, independent of CE's raw hit count.
     -- Raw admission 1..65536; final ranking 1..128, at most scan_budget.
-    -- A sampled intake or reduced ranking is reported and BLOCKS ALL WRITES.
+    -- Reduced coverage permits a valid NORMAL Scope ACCEPT, without global proof.
     scan_budget = 2000,
     max_candidates = 20,
     filter_target_match = true,

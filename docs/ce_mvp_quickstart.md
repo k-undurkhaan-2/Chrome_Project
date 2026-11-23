@@ -28,7 +28,8 @@ module finds its configuration and sibling modules relative to its saved path.
    Original Single defaults are `scan_budget=2000` for raw admission and
    `max_candidates=20` for final ranking, in both scope modes. CE's original
    FoundList is not capped at either number. These are independent algorithm
-   budgets; incomplete admission or reduced ranking blocks writing.
+   budgets; the original Scope's valid ACCEPT can authorize a scoped write after
+   reduction. Reduced coverage does not prove global uniqueness.
 5. Adjust monitoring/retry limits if needed. `max_rescan_attempts` is the total
    retry/relocation budget for that Start. After obtaining the applicable target
    authorization, deliberately set `write_enabled=true` and save.
@@ -43,8 +44,9 @@ Automatic scope uses the owned MemScan's `setSpecialScanOptionsOverride` for
 four-byte alignment. It covers eligible readable/writable, non-executable
 private mappings supported by CE's scan policy, not inaccessible or unaligned
 addresses. Selection additionally requires a whole `-0x20..+0x53` context in one
-committed `PAGE_READWRITE` mapping. Unknown scope or incomplete collection cannot
-authorize a write. Native CE scan behavior still requires separate qualification.
+committed `PAGE_READWRITE` mapping. Unknown bounds, incomplete native scanning or
+collection failures cannot authorize a write. Designed legacy admission/ranking
+reduction is allowed. Native CE scan behavior still requires separate qualification.
 
 For a disposable fixture or advanced diagnostics, explicitly opt into a range:
 
@@ -70,12 +72,23 @@ FoundList, including its actual Count and zero-based indices. Native counts
 `max_candidates` (1..128, default 20, no greater than scan_budget) controls final
 ranking/report size. Legacy even/structure/neighborhood admission, exact-value
 filter/retry, prescoring, regional diversity and family ranking are preserved.
-The example retains the collector's defaults. **A sampled/reduced result never
-authorizes a write**, even if its best row is ACCEPT. It stops with
-`INCOMPLETE_CANDIDATE_POPULATION`, retaining the true native count and stage
-counts. In particular, 30k stable matches with the defaults are processed by
-the legacy algorithm but do not establish global uniqueness. Raising admission
-alone cannot prove uniqueness when final ranking still excludes candidates.
+The example retains the collector's defaults. **P2-R2 REV1 uses the original
+Scope's ACCEPT for NORMAL product writing**, including sampled/reduced results.
+The actual ranked best must have `hard_pass=true`, an ACCEPT recommendation and
+`manual_review_required=false`, with consistent result/candidate fields. REJECT,
+REVIEW, malformed results and failed integrity checks permit zero writes. The
+diagnostic one-row qualifier count does not veto the original Scope decision.
+The same explicit write gate, PID/creation identity, mapping, structural and
+original-value checks, retired-address guard and exact Float32 readback apply.
+
+A 30k native pool can therefore produce one scoped write with the default
+2,000 admission / 20 ranking budgets. Evidence retains the actual counts,
+`coverage='sampled_or_reduced'`, `global_uniqueness_proven=false` and
+`write_admission_basis='LEGACY_SCOPE_ACCEPT'`. Selection is order-sensitive and
+does not establish uniqueness outside the Scope's evaluated population. The
+separately injected QSG QUALIFICATION mode keeps its full-coverage and exactly
+one independent qualifier requirements, including `INCOMPLETE_CANDIDATE_POPULATION`
+for reduced coverage; its qualification contract is unchanged.
 
 `collection_batch_size=256` (16..2048 checkpoints) and
 `collection_slice_ms=10` (1..25 ms) bound cooperative work between address/read/
@@ -144,7 +157,7 @@ table and AA syntax checking perform no process/memory operation. After saving
 the explicitly authorized local configuration, show CE's Lua Engine output and
 enable **H3-A7 Start** once. It attaches to the configured PID automatically,
 starts an asynchronous scan, applies the existing Single collector/ranker, writes
-one uniquely qualified candidate, verifies it, and monitors. No Python companion
+the Scope's accepted best candidate once, verifies it, and monitors. No Python companion
 or manual initial scan is required while CE runs.
 
 Expected state sequence:
@@ -173,9 +186,16 @@ admitted count; `evaluated_count` aliases ranked count. `coverage`,
 `raw_admission_complete`, `ranking_complete` and `global_uniqueness_proven`
 distinguish a completed scan from complete decision coverage. Counts need not
 all match because the original filters remain active. Full coverage requires
-all raw entries admitted and every surviving filtered candidate ranked; exactly
-one independent qualifier and an ACCEPT without manual review are also required.
-Complete coverage can still end in an ambiguity/rejection with zero writes. Output
+all raw entries admitted and every surviving filtered candidate ranked. Only
+complete coverage plus exactly one independent qualifier, a valid ACCEPT and
+valid candidate mapping/fields can set `global_uniqueness_proven=true` within
+the declared scan scope. NORMAL does not require that proof to select a write.
+`decision_scope='LEGACY_SINGLE_SCOPE'` and `write_admission_basis='LEGACY_SCOPE_ACCEPT'`
+record scoped admission; the basis starts as `NONE` each cycle. QSG uses
+`decision_scope='QSG_FULL_POPULATION'` and `QSG_FULL_POPULATION_UNIQUE_ACCEPT`.
+The basis records selection, not transaction success: check verified-write
+counters and exact readback too. Both bounded/process `evidence().scan_scope`
+snapshots and `candidate_admitted` events expose these claims. Output
 uses local nonsecret process identifiers, not signed authorization. The optional
 `.log` path is disabled by default; set an absolute path under an existing local
 directory if desired. History/output is bounded; status queries remain available.
@@ -221,11 +241,13 @@ a healthy address causes no new discovery cycle or repeated write.
 | `UNSUPPORTED_ENGINEERING_EXTENSION` | This MVP only implements the disabled extension interfaces. Do not substitute an A4 review-only result. |
 | `CE_API_MISSING`, `WIN32_API_MISSING`, `REQUIRES_CE_*` | Verify CE 7.6 x64/Lua 5.3 and ordinary Windows process access. There is no fallback to weaker identity checks. |
 | `PROCESS_OPEN_FAILED`, `IDENTITY_UNCERTAIN`, `PID_*`, `CE_TARGET_CHANGED` | Stop; confirm the exact intended PID/instance and access. No automated reattachment follows. |
-| `INCOMPLETE_CANDIDATE_POPULATION` | The original algorithm sampled admission or reduced final ranking; native Count is preserved, but global uniqueness is unproven and all writes are blocked. |
+| `INCOMPLETE_CANDIDATE_POPULATION` | QSG QUALIFICATION only: its stricter full-coverage requirement was not met. NORMAL can write a valid scoped ACCEPT with truthful reduced-coverage evidence. |
 | `OBSOLETE_PROCESS_BUDGET_USE_LEGACY_INTAKE_SETTINGS` | Remove the old P2 snapshot knobs and review the independent raw-admission/ranking budgets. |
 | `FOUNDLIST_COUNT_CHANGED`, `FOUNDLIST_ADDRESS_CHANGED`, `DUPLICATE_FOUND_ADDRESS` | The complete stable candidate pool cannot be established; zero writes. |
 | `PROCESS_SCOPE_UNAVAILABLE`, `PROCESS_SCAN_POLICY_UNAVAILABLE` | Windows x64 bounds or the CE scan policy could not be established; zero writes. |
-| `CANDIDATE_NOT_QUALIFIED`, `AMBIGUOUS_CANDIDATES` | Existing structural rules cannot establish a unique acceptable candidate. Inspect the profile/target; never force the first match. |
+| `CANDIDATE_NOT_QUALIFIED` | Original Scope did not return a hard-pass ACCEPT without manual review. No write follows. |
+| `AMBIGUOUS_CANDIDATES` | QSG QUALIFICATION found multiple independent qualifiers. Its stricter contract remains active. |
+| `INVALID_RANK_RESULT`, `INVALID_SCOPE_COUNTS`, `CANDIDATE_NOT_SELECTED` | Result shape, stage counts or selected-candidate linkage is inconsistent; zero writes. |
 | `SCAN_COMPLETION_UNCERTAIN`, `SCREENING_READ_FAILED` | Incomplete scan/read observations. Check CE diagnostics and the stable test layout; no write follows. |
 | `CANDIDATE_CHANGED`, `PREWRITE_CANDIDATE_CHANGED` | Value or structure changed after discovery. The transaction was abandoned. |
 | `RESCAN_BACKOFF` | Waiting before a retry; identity checks continue. |

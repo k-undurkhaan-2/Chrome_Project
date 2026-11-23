@@ -119,6 +119,21 @@ class ScenarioSession:
             return outcome == "SUCCESS"
         # Inject into the MOCK table before adapter construction, never real CE.
         w.ce.writeFloat = lua.eval("function(f) return function(a,v) return f(a,v) end end")(dispatch)
+        if scenario == "L09":
+            # Historical G1 negatives require the strict qualification policy,
+            # not REV1 NORMAL's scoped ACCEPT. This is a write-forbidden test
+            # dependency; the real QSG port/broker is exercised by its own suite.
+            lua.execute("""
+              function w.start()
+                local execution={mode='QUALIFICATION',version='qsg.v1',
+                  assert_ready=function() end,check_local=function() end,
+                  bind_candidate=function() end,readback=function() end,revoke=function() end,
+                  wrap_tick=function(fn) return fn end,
+                  build_writer=function() return {write_float32=function() error('L09_WRITE_FORBIDDEN') end} end}
+                w.adapter=w.adapter_module.new(w.core.validate(w.cfg),w.ce,w.load,'synthetic',execution)
+                w.loop=w.core.new(w.cfg,w.adapter); return w.loop.start()
+              end
+            """)
         api = None
         if loader:
             factory = lua.execute((ROOT / "tests/fixtures/qualification/g1_mock_loader.lua").read_text())

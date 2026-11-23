@@ -84,7 +84,7 @@ function M.validate(input)
   if not integer(s.target_value_pattern, 0, 0xFFFFFFFF)
       or s.target_value_pattern ~= s.target_bits then fail('SCAN_PATTERN_MISMATCH') end
   -- Legacy intake and ranked selection are independent of native FoundList.Count.
-  -- Keep the collector's defaults; incomplete coverage never authorizes a write.
+  -- Keep the collector's defaults; the adapter distinguishes scoped ACCEPT from QSG proof.
   if s.scan_budget==nil then s.scan_budget=2000 end
   if s.max_candidates==nil then s.max_candidates=20 end
   if not integer(s.scan_budget, 1, 65536) or not integer(s.max_candidates, 1, 128)
@@ -185,7 +185,7 @@ function M.new(config, adapter, public_start_probe)
   function api.evidence()
     if not c.diagnostics.enabled then return {enabled=false} end
     return {enabled=true, schema=1, session_token=c.diagnostics.session_token,
-      scan_scope=c.scan.mode=='process' and a.scan_scope and a.scan_scope() or nil,
+      scan_scope=a.scan_scope and a.scan_scope() or nil,
       source=a.observation_source or 'synthetic', configured_pid=c.target_pid,
       state=s.state, running=s.running, cleanup_pending=s.cleanup_pending or false,
       cleanup_ok=not cleanup_failed and not s.cleanup_pending, stop_reason=s.stop_reason,

@@ -3,6 +3,7 @@
 local M = {}
 local function fail(code) error(code, 0) end
 local function whole(v) return type(v)=='number' and v%1==0 end
+local function finite(v) return type(v)=='number' and v==v and math.abs(v)~=math.huge end
 local MAX_ADDRESS = 0x7FFFFFFFFFFF
 local function u32(v)
   if not whole(v) or v < -0x80000000 or v > 0xFFFFFFFF then return nil end
@@ -59,6 +60,7 @@ function M.new(cfg, ce, load_module, observation_source, execution)
       scan_policy=(cfg.scan.mode=='process' and 'MEM_PRIVATE; ' or '') .. '+W-X-C; aligned exact Float32 bits',
       candidate_policy='MEM_COMMIT/MEM_PRIVATE/PAGE_READWRITE; whole -0x20..+0x53 context',
       scope_complete=false,scan_complete=false,collection_complete=false,global_uniqueness_proven=false,
+      decision_scope=execution and 'QSG_FULL_POPULATION' or 'LEGACY_SINGLE_SCOPE',write_admission_basis='NONE',
       raw_admission_complete=false,ranking_complete=false,coverage='pending',collection_phase='idle',
       raw_inspected_count=0,raw_admitted_count=0,collected_count=0,evaluated_count=0,
       unique_count=0,filtered_count=0,prescored_count=0,selected_count=0,ranked_count=0,qualified_count=0,
@@ -313,13 +315,39 @@ function M.new(cfg, ce, load_module, observation_source, execution)
     return score(...)
   end
   local function choose(bundle)
-    local r=bundle.result
+    local r=type(bundle)=='table' and bundle.result
     if type(r)~='table' or type(r.ranked)~='table' then fail('INVALID_RANK_RESULT') end
+    if bundle.raw_count~=scope.raw_match_count then abort('FOUNDLIST_COUNT_CHANGED') end
+    local function count(value, limit)
+      return whole(value) and value>=0 and value<=limit
+    end
+    -- Legacy omits this optional count when no filtered candidates exist.
+    local prescored=bundle.prescored_count
+    if prescored==nil and bundle.filtered_count==0 then prescored=0 end
+    if not count(bundle.scanned_count, math.min(bundle.raw_count,cfg.scan.scan_budget))
+        or not count(bundle.unique_count,bundle.scanned_count)
+        or not count(bundle.filtered_count,bundle.unique_count)
+        or not count(prescored,bundle.filtered_count)
+        or not count(bundle.selected_count,math.min(bundle.filtered_count,cfg.scan.max_candidates))
+        or #r.ranked~=bundle.selected_count
+        or type(bundle.candidate_value_addrs)~='table'
+        or #bundle.candidate_value_addrs~=bundle.selected_count then fail('INVALID_SCOPE_COUNTS') end
+    local decision=r.recommendation
+    if type(decision)~='table' or r.final_decision~=decision
+        or type(decision.manual_review_required)~='boolean'
+        or (decision.recommendation~='ACCEPT' and decision.recommendation~='REVIEW'
+          and decision.recommendation~='REJECT')
+        or r.best~=r.ranked[1] or r.second~=r.ranked[2]
+        or decision.recommended_candidate~=r.best then fail('INVALID_RANK_RESULT') end
+    for _,row in ipairs(r.ranked) do
+      if type(row)~='table' or type(row.candidate)~='table'
+          or type(row.hard_pass)~='boolean' or not finite(row.final_score) then fail('INVALID_RANK_RESULT') end
+    end
     scope.raw_admitted_count=bundle.scanned_count
     scope.collected_count=bundle.scanned_count -- alias, not native Count
     scope.unique_count=bundle.unique_count
     scope.filtered_count=bundle.filtered_count
-    scope.prescored_count=bundle.prescored_count or 0
+    scope.prescored_count=prescored
     scope.selected_count=bundle.selected_count
     scope.ranked_count=#r.ranked; scope.evaluated_count=#r.ranked
     scope.raw_admission_strategy=bundle.raw_admission_strategy
@@ -335,18 +363,18 @@ function M.new(cfg, ce, load_module, observation_source, execution)
       filtered_count=bundle.filtered_count,prescored_count=scope.prescored_count,
       selected_count=bundle.selected_count,ranked_count=#r.ranked,coverage=scope.coverage,
       collection_complete=scope.collection_complete,read_failure=active_scan.read_failure==true})
-    if bundle.raw_count~=scope.raw_match_count then abort('FOUNDLIST_COUNT_CHANGED') end
     if active_scan.read_failure then fail('SCREENING_READ_FAILED') end
     if #r.ranked==0 then
-      if not scope.collection_complete then fail('INCOMPLETE_CANDIDATE_POPULATION') end
+      if execution and not scope.collection_complete then fail('INCOMPLETE_CANDIDATE_POPULATION') end
+      if decision.recommendation~='REJECT' then fail('INVALID_RANK_RESULT') end
       scope.qualified_count=0
       observe('ranking_summary', {cycle_id=cycle_id,ranked_count=0,qualified_count=0,recommendation='NONE'})
       return nil
     end
     local qualified=0
     for _, row in ipairs(r.ranked) do
-      -- Count structural qualifiers independently of population clone penalties.
-      -- Two acceptable objects must not become a unique winner via tie breaking.
+      -- Bounded diagnostic count only in NORMAL; never override Legacy ACCEPT.
+      -- QUALIFICATION retains its separate full-population/one-qualifier gate.
       local single=report.rank_candidates({report.score_candidate(row.candidate,cfg.scan.target_bits)})
       local decision=report.recommend_action(single)
       if single.best.hard_pass and decision.recommendation=='ACCEPT' then qualified=qualified+1 end
@@ -362,19 +390,34 @@ function M.new(cfg, ce, load_module, observation_source, execution)
       recommendation=r.recommendation.recommendation,manual_review=r.recommendation.manual_review_required,
       best_score=r.best.final_score,hard_pass=r.best.hard_pass,confidence=r.confidence,
       address=r.best.candidate.value_addr})
-    if not scope.collection_complete then fail('INCOMPLETE_CANDIDATE_POPULATION') end
-    if qualified>1 then fail('AMBIGUOUS_CANDIDATES') end
-    if qualified~=1 or not r.best.hard_pass or r.recommendation.recommendation~='ACCEPT'
-        or r.recommendation.manual_review_required then fail('CANDIDATE_NOT_QUALIFIED') end
+    if execution then
+      if not scope.collection_complete then fail('INCOMPLETE_CANDIDATE_POPULATION') end
+      if qualified>1 then fail('AMBIGUOUS_CANDIDATES') end
+      if qualified~=1 then fail('CANDIDATE_NOT_QUALIFIED') end
+    end
+    if r.best.hard_pass~=true or decision.recommendation~='ACCEPT'
+        or decision.manual_review_required~=false then fail('CANDIDATE_NOT_QUALIFIED') end
     local row = r.best.candidate
     if not within(row.value_addr) then fail('FOUND_ADDRESS_OUT_OF_RANGE') end
+    local selected=false
+    for _,addr in ipairs(bundle.candidate_value_addrs) do
+      if addr==row.value_addr then selected=true; break end
+    end
+    if not selected then fail('CANDIDATE_NOT_SELECTED') end
+    if u32(row.f28)~=cfg.scan.target_bits or row.f28_float~=cfg.scan.target_value_float then
+      fail('CANDIDATE_NOT_QUALIFIED')
+    end
     local candidate = {address=row.value_addr, fields={}, mapping=mapping(row.value_addr)}
     if not candidate.mapping then fail('CANDIDATE_MAPPING_INVALID') end
     for key in pairs(FIELDS) do
       if u32(row[key])==nil then fail('CANDIDATE_UNREADABLE') end
       candidate.fields[key]=row[key]
     end
-    scope.global_uniqueness_proven=true
+    scope.global_uniqueness_proven=scope.collection_complete and qualified==1
+    scope.write_admission_basis=execution and 'QSG_FULL_POPULATION_UNIQUE_ACCEPT' or 'LEGACY_SCOPE_ACCEPT'
+    observe('candidate_admitted', {cycle_id=cycle_id,address=candidate.address,coverage=scope.coverage,
+      decision_scope=scope.decision_scope,write_admission_basis=scope.write_admission_basis,
+      global_uniqueness_proven=scope.global_uniqueness_proven})
     return candidate
   end
   function a.begin_scan()

@@ -216,8 +216,8 @@ def test_no_matches_are_bounded_and_backoff_is_exponential(runtime):
 
 
 @pytest.mark.parametrize("kind,reason", [
-    ("ambiguous", "AMBIGUOUS_CANDIDATES"), ("weak", "CANDIDATE_NOT_QUALIFIED"),
-    ("overflow", "INCOMPLETE_CANDIDATE_POPULATION"), ("incomplete", "SCAN_COMPLETION_UNCERTAIN"),
+    ("ambiguous", "CANDIDATE_NOT_QUALIFIED"), ("weak", "CANDIDATE_NOT_QUALIFIED"),
+    ("overflow", "CANDIDATE_NOT_QUALIFIED"), ("incomplete", "SCAN_COMPLETION_UNCERTAIN"),
     ("read_fault", "SCREENING_READ_FAILED"), ("callback", "SCREENING_CALLBACK"),
     ("timeout", "SCAN_TIMEOUT"),
 ])
@@ -515,6 +515,9 @@ def test_actual_loader_and_ct_start_stop_scripts_under_mock_ce(runtime, tmp_path
     assert api.start() == (False, "ALREADY_RUNNING")
     w.step(80)
     assert api.status().state == "MONITORING" and len(w.writes) == 1
+    assert api.status().write_admission_basis == "LEGACY_SCOPE_ACCEPT"
+    assert any(line == "[H3-A7] write_admission_basis=LEGACY_SCOPE_ACCEPT" for line in w.lines.values())
+    assert api.evidence().scan_scope.write_admission_basis == "LEGACY_SCOPE_ACCEPT"
     lua.execute(stop_code); w.clean()
     w.objects[1].memory[0x100128] = 0x42C80000
     lua.execute(start_code); w.step(80)
@@ -616,7 +619,7 @@ def test_fixture_command_transitions_are_bounded_and_drift_is_value_only():
 
 @pytest.mark.parametrize("mode,count,reason", [
     ("baseline_unique", 1, None), ("zero_match", 0, "RESCAN_LIMIT_EXHAUSTED"),
-    ("ambiguous", 2, "AMBIGUOUS_CANDIDATES"), ("over_limit", 129, "INCOMPLETE_CANDIDATE_POPULATION"),
+    ("ambiguous", 2, "CANDIDATE_NOT_QUALIFIED"), ("over_limit", 129, "CANDIDATE_NOT_QUALIFIED"),
     ("incomplete_structure", 1, "SCREENING_READ_FAILED"),
     ("invalid_structure", 1, "CANDIDATE_NOT_QUALIFIED"),
 ])
@@ -1136,6 +1139,221 @@ def process_population(lua, w, count, good_indices=()):
     w.populate(count, lua.table_from({i: True for i in good_indices}))
 
 
+def legacy_reference(lua, w):
+    """Run the original Single pipeline over the same fake native scan population."""
+    return lua.execute("""
+      local env={}; for k,v in pairs(_G) do env[k]=v end; env._G=env; env.print=function() end
+      env.readInteger=function(addr) return assert(w.locate(addr)).memory[addr] end
+      env.readFloat=function(addr) return string.unpack('<f',string.pack('<I4',env.readInteger(addr))) end
+      env.getAddress=function(addr) return type(addr)=='number' and addr or tonumber(addr,16) end
+      env.getCurrentMemscan=function() return {} end
+      env.createFoundList=function()
+        local fl={Count=0,Address={}}
+        for _,o in ipairs(w.objects) do
+          if o.mapped and o.protect==4 and o.memory[o.addr]==0x42C80000 then
+            fl.Address[fl.Count]=o.addr; fl.Count=fl.Count+1
+          end
+        end
+        fl.initialize=function() end; fl.destroy=function() end; return fl
+      end
+      local report=w.load('mvp0_candidate_report.lua',env)
+      local collector=w.load('mvp0_foundlist_collector.lua',env)
+      local settings=w.core.validate(w.cfg).scan
+      return collector.run({scan_budget=settings.scan_budget,max_candidates=settings.max_candidates,
+        target_value_pattern=0x42C80000,target_value_float=100.0,filter_target_match=true,
+        use_prescore_selection=true,probe_full_foundlist=false,stable_filter_intersection_enabled=false})
+    """)
+
+
+def mutate_scope_result(lua, mutation):
+    """Fault injection at the collector return boundary; legacy sources stay intact."""
+    lua.execute("""
+      local load_original=w.load
+      w.load=function(name,env)
+        local module=load_original(name,env)
+        if name=='mvp0_foundlist_collector.lua' then
+          local run_original=module.run
+          module.run=function(...)
+            local bundle=run_original(...)
+            local r=bundle.result
+    """ + mutation + """
+            return bundle
+          end
+        end
+        return module
+      end
+    """)
+
+
+@pytest.mark.parametrize("mutation,reason", [
+    ("r.recommendation.recommendation='REJECT'", "CANDIDATE_NOT_QUALIFIED"),
+    ("r.recommendation.recommendation='REVIEW'", "CANDIDATE_NOT_QUALIFIED"),
+    ("r.recommendation.manual_review_required=true", "CANDIDATE_NOT_QUALIFIED"),
+    ("r.recommendation.manual_review_required=nil", "INVALID_RANK_RESULT"),
+    ("r.best.hard_pass=false", "CANDIDATE_NOT_QUALIFIED"),
+    ("r.best.hard_pass=1", "INVALID_RANK_RESULT"),
+    ("bundle.result=nil", "INVALID_RANK_RESULT"),
+    ("r.best=nil", "INVALID_RANK_RESULT"),
+    ("r.best.candidate=nil", "INVALID_RANK_RESULT"),
+    ("r.best.final_score=0/0", "INVALID_RANK_RESULT"),
+    ("r.best=r.second", "INVALID_RANK_RESULT"),
+    ("r.recommendation.recommended_candidate=r.second", "INVALID_RANK_RESULT"),
+    ("r.final_decision={recommendation='REJECT'}", "INVALID_RANK_RESULT"),
+    ("r.best.candidate.value_addr=0x100129", "FOUND_ADDRESS_OUT_OF_RANGE"),
+    ("r.best.candidate.value_addr=0x200128", "CANDIDATE_NOT_SELECTED"),
+    ("r.best.candidate.f58=nil", "CANDIDATE_UNREADABLE"),
+    ("r.best.candidate.f58=7", "CANDIDATE_CHANGED"),
+    ("r.best.candidate.f28=nil", "CANDIDATE_NOT_QUALIFIED"),
+    ("r.best.candidate.f28_float=99", "CANDIDATE_NOT_QUALIFIED"),
+    ("bundle.scanned_count=0", "INVALID_SCOPE_COUNTS"),
+    ("bundle.raw_count=bundle.raw_count+1", "FOUNDLIST_COUNT_CHANGED"),
+])
+def test_rev1_malformed_or_nonaccept_scope_never_writes(runtime, mutation, reason):
+    lua, w = runtime
+    process_population(lua, w, 129, (129,))
+    w.cfg.scan.scan_budget = 128; w.cfg.scan.max_candidates = 20
+    enable_diagnostics(lua)
+    mutate_scope_result(lua, mutation)
+    w.start(); w.until_state("ERROR")
+    assert reason in w.loop.status().last_error
+    assert len(w.writes) == w.loop.evidence().counters.adapter_write_attempts == 0
+    assert not w.loop.status().global_uniqueness_proven
+    w.clean()
+
+
+@pytest.mark.parametrize("count", [2, 30000])
+@pytest.mark.parametrize("qualification", [False, True])
+def test_rev1_original_accept_is_authoritative_only_in_normal_mode(runtime, count, qualification):
+    lua, w = runtime
+    process_population(lua, w, count, (1, count))
+    w.cfg.scan.scan_budget = 2000; w.cfg.scan.max_candidates = 20
+    # The unchanged ranker scores these independent ACCEPTs 36 and 46, gap 10.
+    # Its combined recommendation is ACCEPT for the late, stronger object.
+    for offset in (-8, 0x30, 0x40, 0x48):
+        w.objects[1].memory[w.objects[1].addr + offset] = 1
+    reference = legacy_reference(lua, w)
+    assert reference.result.recommendation.recommendation == "ACCEPT"
+    assert reference.result.best.candidate.value_addr == w.objects[count].addr
+    assert reference.result.best.final_score == 46 and reference.result.score_gap == 10
+    enable_diagnostics(lua)
+    if qualification:
+        # Exercise only adapter decision-mode isolation. The separate full QSG
+        # suite verifies the real broker, permit, writer and evidence contract.
+        lua.execute("""
+          function w.start()
+            local execution={mode='QUALIFICATION',version='qsg.v1',
+              assert_ready=function() end,check_local=function() end,
+              bind_candidate=function() end,readback=function() end,revoke=function() end,
+              wrap_tick=function(fn) return fn end,
+              build_writer=function(raw) return {write_float32=raw} end}
+            w.adapter=w.adapter_module.new(w.core.validate(w.cfg),w.ce,w.load,'synthetic',execution)
+            w.loop=w.core.new(w.cfg,w.adapter); return w.loop.start()
+          end
+        """)
+    w.start(); w.until_state("ERROR" if qualification else "MONITORING")
+    s = w.loop.status()
+    assert s.qualified_count == 2 and s.ranking_recommendation == "ACCEPT"
+    assert not s.global_uniqueness_proven
+    if qualification:
+        reason = "AMBIGUOUS_CANDIDATES" if count == 2 else "INCOMPLETE_CANDIDATE_POPULATION"
+        assert reason in s.last_error and len(w.writes) == 0
+        assert s.decision_scope == "QSG_FULL_POPULATION" and s.write_admission_basis == "NONE"
+    else:
+        assert s.write_admission_basis == "LEGACY_SCOPE_ACCEPT" and len(w.writes) == 1
+        assert w.writes[1].addr == reference.result.best.candidate.value_addr
+        assert s.last_written_bits == s.last_readback_bits == 0x42FA0000
+    w.loop.stop(); w.clean()
+
+
+@pytest.mark.parametrize("fault,reason", [
+    ("w.latest_foundlist.Count=19999", "FOUNDLIST_COUNT_CHANGED"),
+    ("w.latest_foundlist.Address[19999]=nil", "FOUND_ADDRESS_OUT_OF_RANGE"),
+    ("w.latest_foundlist.Address[19999]=w.latest_foundlist.Address[0]", "DUPLICATE_FOUND_ADDRESS"),
+    ("w.creation=w.creation+1", "PID_IDENTITY_MISMATCH"),
+    ("w.opened=999", "CE_TARGET_CHANGED"),
+    ("w.ce_handle=999", "CE_TARGET_CHANGED"),
+    ("w.objects[20000].protect=0x20", "CANDIDATE_MAPPING_INVALID"),
+    ("w.fail.unreadable=w.objects[20000].addr-0x20", "SCREENING_READ_FAILED"),
+])
+def test_rev1_large_pool_integrity_failures_still_block_write(runtime, fault, reason):
+    lua, w = runtime
+    process_population(lua, w, 20000, (20000,))
+    w.cfg.scan.scan_budget = 2000; w.cfg.scan.max_candidates = 20
+    w.start()
+    while (w.loop.status().raw_inspected_count or 0) < 8:
+        w.step(); assert w.loop.status().running
+    lua.execute(fault)
+    w.until_state("ERROR")
+    assert reason in w.loop.status().last_error and len(w.writes) == 0
+    assert not w.loop.status().global_uniqueness_proven
+    w.clean()
+
+
+@pytest.mark.parametrize("count", [20000, 30000])
+@pytest.mark.parametrize("recommendation", ["REJECT", "REVIEW"])
+def test_rev1_large_pool_original_reject_and_review_remain_authoritative(runtime, count, recommendation):
+    lua, w = runtime
+    process_population(lua, w, count, (1, count) if recommendation == "REVIEW" else ())
+    w.cfg.scan.scan_budget = 2000; w.cfg.scan.max_candidates = 20
+    reference = legacy_reference(lua, w)
+    assert reference.result.recommendation.recommendation == recommendation
+    assert reference.result.recommendation.manual_review_required is True
+    w.start(); w.until_state("ERROR")
+    s = w.loop.status()
+    assert "CANDIDATE_NOT_QUALIFIED" in s.last_error and len(w.writes) == 0
+    assert s.ranking_recommendation == recommendation
+    assert s.ranking_best_address == reference.result.best.candidate.value_addr
+    assert s.ranking_best_score == reference.result.best.final_score
+    assert s.raw_match_count == count and s.raw_admitted_count == 2000 and s.ranked_count == 20
+    assert s.write_admission_basis == "NONE" and not s.global_uniqueness_proven
+    w.clean()
+
+
+@pytest.mark.parametrize("mode", ["bounded", "process"])
+def test_rev1_large_scoped_accept_monitor_and_fresh_recovery(runtime, mode):
+    lua, w = runtime
+    process_population(lua, w, 20000, (20000,))
+    w.cfg.scan.scan_budget = None; w.cfg.scan.max_candidates = None
+    w.cfg.max_rescan_attempts = 1
+    if mode == "bounded":
+        w.cfg.scan.mode = mode
+        w.cfg.scan.start_address = 0x100000; w.cfg.scan.stop_address = 0x20FFFFF
+    enable_diagnostics(lua, limit=2048)
+    w.start(); w.until_state("MONITORING")
+    old = w.objects[20000]
+    old.memory[old.addr] = 0x42280000
+    before = w.loop.status().monitor_checks
+    w.step(200)
+    assert w.loop.status().monitor_checks == before + 100
+    assert len(w.scans) == len(w.writes) == 1
+    old.mapped = False
+    fresh = w.object(0x100128 + 20000 * 0x100); fresh.size = 0x2000000
+    w.fail.no_complete = True
+    w.until_state("RESCAN_BACKOFF"); w.until_state("SCREENING"); w.step()
+    pending = w.loop.status()
+    assert pending.cycle_id == 2 and pending.write_admission_basis == "NONE"
+    assert pending.raw_match_count is None and not pending.global_uniqueness_proven
+    assert w.scans[1].dead and w.foundlist_history[1].dead
+    w.scans[1].saved_callback(w.scans[1]); w.scans[1].saved_callback(w.scans[2])
+    w.step(3)
+    assert w.loop.status().raw_match_count is None and len(w.writes) == 1
+    reference = legacy_reference(lua, w)
+    w.fail.no_complete = False
+    w.until_state("MONITORING")
+    s = w.loop.status()
+    assert len(w.scans) == len(w.foundlist_history) == len(w.writes) == 2
+    assert w.writes[2].addr == fresh.addr == reference.result.best.candidate.value_addr
+    assert s.raw_match_count == 20000 and s.raw_admitted_count == 2000 and s.ranked_count == 20
+    assert s.last_written_bits == s.last_readback_bits == 0x42FA0000
+    assert s.write_admission_basis == "LEGACY_SCOPE_ACCEPT" and not s.global_uniqueness_proven
+    evidence = w.loop.evidence()
+    assert evidence.scan_scope.write_admission_basis == s.write_admission_basis
+    assert evidence.scan_scope.coverage == "sampled_or_reduced"
+    assert evidence.counters.verified_writes == 2 and evidence.dropped_events == 0
+    assert [e.cycle_id for e in events(w, "candidate_admitted")] == [1, 2]
+    w.loop.stop(); w.clean()
+
+
 @pytest.mark.parametrize("count", [0, 1, 128, 129, 1001])
 def test_complete_pool_visits_every_index_and_accepts_a_late_unique_candidate(runtime, count):
     lua, w = runtime
@@ -1143,28 +1361,28 @@ def test_complete_pool_visits_every_index_and_accepts_a_late_unique_candidate(ru
     w.cfg.scan.scan_budget = max(128, count)
     lua.execute("w.hook=function(e) if e=='write' then w.at_write=w.loop.status() end end")
     complete = count <= 128
-    w.start(); w.until_state("MONITORING" if count and complete else "ERROR")
+    w.start(); w.until_state("MONITORING" if count else "ERROR")
     s = w.loop.status()
     assert s.raw_match_count == s.raw_inspected_count == s.raw_admitted_count == count
     assert s.ranked_count == min(count, 128) and s.scan_complete
     assert s.collection_complete is complete and s.scope_complete is complete
     assert s.qualified_count == (1 if count else 0)
-    if count and complete:
+    if count:
         assert len(w.writes) == 1 and w.writes[1].addr == 0x100128 + (count - 1) * 0x100
-        assert w.at_write.collected_count == w.at_write.evaluated_count == count
+        assert w.at_write.collected_count == count
+        assert w.at_write.evaluated_count == min(count, 128)
         assert s.last_written_bits == s.last_readback_bits == 0x42FA0000
-    elif count:
         assert s.ranking_best_address == w.objects[count].addr
-        assert "INCOMPLETE_CANDIDATE_POPULATION" in s.last_error
-        assert not s.global_uniqueness_proven and len(w.writes) == 0
+        assert s.global_uniqueness_proven is complete
+        assert s.write_admission_basis == "LEGACY_SCOPE_ACCEPT"
     else:
         assert s.last_error == "RESCAN_LIMIT_EXHAUSTED" and len(w.writes) == 0
     w.loop.stop(); w.clean()
 
 
 @pytest.mark.parametrize("count,good_indices,reason", [
-    (129, (1, 129), "INCOMPLETE_CANDIDATE_POPULATION"),
-    (1001, (9, 1001), "INCOMPLETE_CANDIDATE_POPULATION"),
+    (129, (1, 129), "CANDIDATE_NOT_QUALIFIED"),
+    (1001, (9, 1001), "CANDIDATE_NOT_QUALIFIED"),
     (128, (), "CANDIDATE_NOT_QUALIFIED"),
 ])
 def test_complete_pool_counts_independent_qualifiers_across_chunks(runtime, count, good_indices, reason):
@@ -1249,17 +1467,18 @@ def test_complete_snapshots_are_revalidated_before_global_ranking(runtime, chang
 
 
 @pytest.mark.parametrize("count,limit", [(129, 128), (1001, 1000), (8193, 8192)])
-def test_process_snapshot_resource_limit_reports_actual_count_and_never_samples(runtime, count, limit):
+def test_process_admission_budget_reports_actual_count_and_allows_scope_accept(runtime, count, limit):
     lua, w = runtime
     process_population(lua, w, count, (count,))
     w.cfg.scan.scan_budget = limit
-    w.start(); w.until_state("ERROR")
+    w.start(); w.until_state("MONITORING")
     s = w.loop.status()
-    assert "INCOMPLETE_CANDIDATE_POPULATION" in s.last_error
+    assert s.ranking_recommendation == "ACCEPT" and s.write_admission_basis == "LEGACY_SCOPE_ACCEPT"
     assert s.raw_match_count == count and s.raw_admitted_count == limit
     assert s.ranked_count <= 128 and s.coverage == "sampled_or_reduced"
-    assert not s.scope_complete and not s.global_uniqueness_proven and len(w.writes) == 0
-    w.clean()
+    assert not s.scope_complete and not s.global_uniqueness_proven and len(w.writes) == 1
+    assert w.writes[1].addr == w.objects[count].addr
+    w.loop.stop(); w.clean()
 
 
 @pytest.mark.parametrize("key,value", [("process_candidate_limit", 8193), ("process_candidate_limit", 0),
@@ -1343,7 +1562,7 @@ def test_complete_stream_matches_full_legacy_collector_and_global_ranker(runtime
     enable_diagnostics(lua)
     w.start()
     complete = count <= min(budgets)
-    accepted = complete and w.reference.qualified == 1 and w.reference.recommendation == "ACCEPT"
+    accepted = w.reference.recommendation == "ACCEPT"
     w.until_state("MONITORING" if accepted else "ERROR")
     s = w.loop.status()
     assert s.scope_complete is complete and s.raw_match_count == count
@@ -1361,10 +1580,11 @@ def test_complete_stream_matches_full_legacy_collector_and_global_ranker(runtime
 def test_r1_native_foundlist_keeps_actual_count_and_legacy_defaults(runtime, count, record_property):
     lua, w = runtime
     process_population(lua, w, count, (count,) if count else ())
-    w.cfg.scan.scan_budget = 2000; w.cfg.scan.max_candidates = 20
+    w.cfg.scan.scan_budget = None; w.cfg.scan.max_candidates = None
+    reference = legacy_reference(lua, w)
     enable_diagnostics(lua)
     start = time.perf_counter()
-    w.start(); w.until_state("MONITORING" if count == 1 else "ERROR")
+    w.start(); w.until_state("MONITORING" if count else "ERROR")
     elapsed = time.perf_counter() - start
     s = w.loop.status()
     assert s.raw_match_count == len(w.scans[1].addresses) == count
@@ -1375,11 +1595,22 @@ def test_r1_native_foundlist_keeps_actual_count_and_legacy_defaults(runtime, cou
     assert s.scan_complete and s.collection_complete is (count <= 20)
     assert s.raw_admission_budget == 2000 and s.ranking_budget == 20
     assert len(w.lines) <= w.cfg.log_limit and len(w.loop.evidence().events) <= 512
+    assert s.raw_admitted_count == reference.scanned_count
+    assert s.filtered_count == reference.filtered_count and s.prescored_count == (reference.prescored_count or 0)
+    assert s.selected_count == reference.selected_count and s.ranked_count == len(reference.result.ranked)
+    if count:
+        assert s.ranking_best_address == reference.result.best.candidate.value_addr == w.writes[1].addr
+        assert s.ranking_best_score == reference.result.best.final_score
+        assert s.ranking_recommendation == reference.result.recommendation.recommendation == "ACCEPT"
+        assert s.write_admission_basis == "LEGACY_SCOPE_ACCEPT" and len(w.writes) == 1
+        assert s.last_written_bits == s.last_readback_bits == 0x42FA0000
+        assert w.loop.evidence().scan_scope.write_admission_basis == s.write_admission_basis
+        admission = events(w, "candidate_admitted")[-1]
+        assert admission.write_admission_basis == s.write_admission_basis
+        assert admission.global_uniqueness_proven is s.global_uniqueness_proven
     if count > 20:
-        assert "INCOMPLETE_CANDIDATE_POPULATION" in s.last_error
         assert s.ranking_best_address == w.objects[count].addr  # last raw hit survives original selection
         assert not s.global_uniqueness_proven and s.coverage == "sampled_or_reduced"
-        assert len(w.writes) == 0
     elif count == 1:
         assert s.global_uniqueness_proven and s.last_readback_bits == 0x42FA0000
     else:
@@ -1389,17 +1620,22 @@ def test_r1_native_foundlist_keeps_actual_count_and_legacy_defaults(runtime, cou
         "lua": lua.eval("_VERSION"), "python": platform.python_version(), "platform": platform.system(),
         "sampled_peak_lua_bytes": int(w.peak_lua_kb * 1024), "lua_memory_ceiling_bytes": 256 * 1024 * 1024,
         "admitted": s.raw_admitted_count, "inspected": s.raw_inspected_count, "ranked": s.ranked_count,
+        "filtered": s.filtered_count, "prescored": s.prescored_count, "selected": s.selected_count,
+        "best_address": s.ranking_best_address, "score": s.ranking_best_score,
+        "recommendation": s.ranking_recommendation, "writes": len(w.writes),
+        "write_admission_basis": s.write_admission_basis, "coverage": s.coverage,
+        "global_uniqueness_proven": s.global_uniqueness_proven,
         "fake_elapsed_ms": w.time, "native_acceptance": False}))
     w.loop.stop(); w.clean()
 
 
 @pytest.mark.parametrize("count", [19276, 30001])
-def test_r1_full_raw_admission_keeps_legacy_ranking_budget_and_blocks_subset_write(runtime, count, record_property):
+def test_r1_full_raw_admission_keeps_legacy_ranking_budget_and_allows_scope_accept(runtime, count, record_property):
     lua, w = runtime
     process_population(lua, w, count, (count,))
     w.cfg.scan.scan_budget = count; w.cfg.scan.max_candidates = 20
     start = time.perf_counter()
-    w.start(); w.until_state("ERROR")
+    w.start(); w.until_state("MONITORING")
     record_property("r1_full_intake_performance", json.dumps({"raw_count": count,
         "wall_seconds": time.perf_counter() - start, "lua": lua.eval("_VERSION"),
         "sampled_peak_lua_bytes": int(w.peak_lua_kb * 1024), "fake_elapsed_ms": w.time,
@@ -1409,8 +1645,9 @@ def test_r1_full_raw_admission_keeps_legacy_ranking_budget_and_blocks_subset_wri
     assert s.prescored_count == count and s.ranked_count == 20
     assert s.raw_admission_complete and not s.ranking_complete and not s.global_uniqueness_proven
     assert s.ranking_best_address == w.objects[count].addr
-    assert "INCOMPLETE_CANDIDATE_POPULATION" in s.last_error and len(w.writes) == 0
-    w.clean()
+    assert s.write_admission_basis == "LEGACY_SCOPE_ACCEPT" and len(w.writes) == 1
+    assert s.last_written_bits == s.last_readback_bits == 0x42FA0000
+    w.loop.stop(); w.clean()
 
 
 @pytest.mark.parametrize("raw_budget,rank_budget", [(2000, 20), (65536, 128), (129, 1), (128, 128)])

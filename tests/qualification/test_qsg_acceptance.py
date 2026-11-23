@@ -6,12 +6,43 @@ import subprocess
 
 import pytest
 
-from ce_qualification.evidence import canonical, decode, digest
+from ce_qualification.evidence import canonical, decode, digest, EvidenceError, Stream
+from ce_qualification.recorder import CERecorder
 from ce_qualification.qsg_broker import Broker
 from ce_qualification.qsg_protocol import MockChannel
 from ce_qualification.qsg_store import QSGError
 from ce_qualification.qsg_verifier import verify
 from qsg_support import Model, ROOT, SOURCES, table, layout, plain, world
+
+
+@pytest.mark.parametrize("mutation", [None, "basis", "scope", "coverage", "unique", "type", "missing", "misplaced"])
+def test_rev1_passive_recorder_validates_scoped_admission_without_global_claim(mutation):
+    lua, w = world()
+    w.object(0x100128, "weak"); w.object(0x101128)
+    w.cfg.scan.max_candidates = 1
+    w.start(); w.until_state("MONITORING")
+    snapshot = plain(w.loop.evidence())
+    w.loop.stop(); w.clean()
+    admission = next(e for e in snapshot["events"] if e["event_type"] == "candidate_admitted")
+    assert admission["coverage"] == "sampled_or_reduced"
+    assert admission["global_uniqueness_proven"] is False
+    assert admission["write_admission_basis"] == "LEGACY_SCOPE_ACCEPT"
+    if mutation == "basis": admission["write_admission_basis"] = "QSG_FULL_POPULATION_UNIQUE_ACCEPT"
+    if mutation == "scope": admission["decision_scope"] = "QSG_FULL_POPULATION"
+    if mutation == "coverage": admission["coverage"] = "unknown"
+    if mutation == "unique": admission["global_uniqueness_proven"] = True
+    if mutation == "type": admission["global_uniqueness_proven"] = 0
+    if mutation == "missing": del admission["write_admission_basis"]
+    if mutation == "misplaced": admission["event_type"] = "ranking_summary"
+    recorder = CERecorder(Stream("SYNTHETIC-rev1", "ce"), enabled=True)
+    if mutation is None:
+        recorder.capture(snapshot, run_id="r", scenario="L04", model_lua=lua.eval("_VERSION"))
+        captured = [r["data"]["diagnostic"] for r in recorder.stream.rows if r["kind"] == "ce_event"]
+        assert admission in captured
+    else:
+        with pytest.raises(EvidenceError, match="INVALID_ADMISSION_EVIDENCE"):
+            recorder.capture(snapshot, run_id="r", scenario="L04")
+        assert recorder.stream.rows == []
 
 
 @pytest.mark.parametrize("backend", ["lua53","lua54"])
