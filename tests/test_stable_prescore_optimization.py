@@ -517,3 +517,61 @@ if __name__ == "__main__":
     if arguments.repeats < 3 or not 100 < arguments.candidates < 2000:
         parser.error("use at least 3 repeats and between 101 and 1999 candidates")
     benchmark(arguments.repeats, arguments.candidates)
+
+
+@pytest.mark.parametrize("scenario,count,budget", [
+    ("identical", 120, 2000), ("identical", 2000, 2000),
+    ("identical", 3001, 240), ("mismatch_retry", 360, 2000),
+    ("all_mismatch", 360, 2000), ("changing", 360, 2000),
+])
+@pytest.mark.parametrize("mode", ["no_probe_A", "stable_no_probe_intersection"])
+def test_r1_compact_prescore_preserves_all_legacy_outputs(scenario, count, budget, mode):
+    after = COLLECTOR.read_text(encoding="utf-8")
+    marker = "        -- Selection consumes only these compact keys, not the full score tree.\n"
+    assert after.count(marker) == 1
+    before = after.replace(marker, "        score_result = score_result,\n", 1)
+    runs = []
+    for source in (before, after):
+        lua = new_runtime(source, scenario, count)
+        bundle = lua.globals().synthetic_run(options(lua, mode=mode, budget=budget))
+        runs.append((lua, bundle))
+    assert_equivalent(*runs)  # every nested feature, rank, tie vector and report
+    assert runs[0][0].globals().score_calls == runs[1][0].globals().score_calls
+
+
+@pytest.mark.parametrize("version", ["lua53", "lua54"])
+def test_r1_full_30001_prescore_fits_fixed_memory_ceiling(version):
+    from importlib import import_module
+    lua = import_module("lupa." + version).LuaRuntime(max_memory=128 * 1024 * 1024)
+    lua.execute("""
+      python=nil; io=nil; require=nil; loadfile=nil; dofile=nil
+      print=function() end
+      local total=30001
+      getCurrentMemscan=function() return {} end
+      createFoundList=function()
+        return {Count=total,Address=setmetatable({}, {__index=function(_,i)
+          assert(i>=0 and i<total); return 0x100128+i*0x100
+        end}),initialize=function() end,destroy=function() end}
+      end
+      getAddress=function(a) return a end
+      readInteger=function(addr)
+        local offset=(addr-0x100100)%0x100
+        if offset==0x28 then return 0x42C80000 end
+        if addr>=0x100100+(total-1)*0x100 then
+          return ({[8]=0x10011200,[0x18]=0x10013800,[0x20]=0x10042100,
+            [0x58]=0x10060000,[0x68]=0x10025600,[0x70]=0x10028400,[0x78]=0x10086300})[offset]
+        end
+        return 0
+      end
+      readFloat=function() return 100.0 end
+    """)
+    lua.execute(REPORT.read_text(encoding="utf-8"))
+    lua.execute(COLLECTOR.read_text(encoding="utf-8"))
+    bundle = lua.eval("MVP0FoundList.run")(lua.table_from({
+        "scan_budget": 30001, "max_candidates": 20, "target_value_pattern": 0x42C80000,
+        "target_value_float": 100.0, "filter_target_match": True,
+        "use_prescore_selection": True, "probe_full_foundlist": False}))
+    assert bundle.raw_count == bundle.scanned_count == bundle.filtered_count == bundle.prescored_count == 30001
+    assert bundle.selected_count == len(bundle.result.ranked) == 20
+    assert bundle.result.best.candidate.value_addr == 0x100128 + 30000 * 0x100
+    assert lua.get_memory_used(total=True) < 128 * 1024 * 1024

@@ -1399,7 +1399,7 @@ local function build_scored_pool(addresses, target_value_pattern, known_true_add
         prescore_score = score_result.prescore_score,
         hard_pass = score_result.hard_pass,
         flags = score_result.flags,
-        score_result = score_result,
+        -- Selection consumes only these compact keys, not the full score tree.
       })
     end
   end

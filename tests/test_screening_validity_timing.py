@@ -413,6 +413,11 @@ def test_scoring_collection_policy_and_write_controls_are_unchanged():
     assert report.split("function MVP0.run(", 1)[0] == previous(REPORT).split("function MVP0.run(", 1)[0]
     collector = COLLECTOR.read_text(encoding="utf-8")
     def collection_policy(source):
+        # R1 removes one unused retained score tree; all policy code stays frozen.
+        # Full output equivalence and 30k memory bounds have separate regressions.
+        source = source.replace(
+            "        -- Selection consumes only these compact keys, not the full score tree.\n",
+            "        score_result = score_result,\n", 1)
         return source.split("local function snapshot_failure", 1)[0].split(
             "local function run_stable_no_probe_intersection", 1
         )[0]
