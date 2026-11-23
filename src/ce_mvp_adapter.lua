@@ -53,10 +53,18 @@ function M.new(cfg, ce, load_module, observation_source, execution)
   local observer, borrowed, stream, identity, guard, active_scan, timer
   local poison, closed, log_count, cleanup_uncertain = nil, false, 0, false
   local writer_port, bound_candidate
-  local scope={scope_resolved=false,scan_mode=cfg.scan.mode,alignment_bytes=4,
-    scan_policy=(cfg.scan.mode=='process' and 'MEM_PRIVATE; ' or '') .. '+W-X-C; aligned exact Float32 bits',
-    candidate_policy='MEM_COMMIT/MEM_PRIVATE/PAGE_READWRITE; whole -0x20..+0x53 context',
-    scope_complete=false}
+  local cycle_id=0
+  local function empty_scope()
+    return {cycle_id=cycle_id,scope_resolved=false,scan_mode=cfg.scan.mode,alignment_bytes=4,
+      scan_policy=(cfg.scan.mode=='process' and 'MEM_PRIVATE; ' or '') .. '+W-X-C; aligned exact Float32 bits',
+      candidate_policy='MEM_COMMIT/MEM_PRIVATE/PAGE_READWRITE; whole -0x20..+0x53 context',
+      scope_complete=false,scan_complete=false,collection_complete=false,global_uniqueness_proven=false,
+      raw_admission_complete=false,ranking_complete=false,coverage='pending',collection_phase='idle',
+      raw_inspected_count=0,raw_admitted_count=0,collected_count=0,evaluated_count=0,
+      unique_count=0,filtered_count=0,prescored_count=0,selected_count=0,ranked_count=0,qualified_count=0,
+      raw_admission_budget=cfg.scan.scan_budget,ranking_budget=cfg.scan.max_candidates}
+  end
+  local scope=empty_scope()
   local start_address, stop_address
   function a.scan_scope()
     local out={}; for k,v in pairs(scope) do out[k]=v end; return out
@@ -275,14 +283,14 @@ function M.new(cfg, ce, load_module, observation_source, execution)
     function proxy.initialize()
       fl.initialize()
       total=fl.Count; scope.raw_match_count=total
-      observe('scan_population', {raw_match_count=total,count_source='CE FoundList.Count',
+      observe('scan_population', {cycle_id=task.cycle_id,raw_match_count=total,count_source='CE FoundList.Count',
         collection_complete=false,raw_admission_budget=cfg.scan.scan_budget,
         ranking_budget=cfg.scan.max_candidates,native_count_limited=false})
       if not whole(total) or total<0 or total>math.maxinteger then abort('INVALID_FOUNDLIST_COUNT') end
       verify_population()
       proxy.Count=total -- same native pool and zero-based indices; never truncate
       scope.collection_phase='legacy_collection'
-      observe('scan_population_complete', {raw_match_count=total,scan_complete=true,
+      observe('scan_population_complete', {cycle_id=task.cycle_id,raw_match_count=total,scan_complete=true,
         collection_complete=false,completeness_reason='scan verified; legacy collection pending'})
     end
     function proxy.destroy()
@@ -322,7 +330,7 @@ function M.new(cfg, ce, load_module, observation_source, execution)
     scope.coverage=scope.collection_complete and 'full_population' or 'sampled_or_reduced'
     scope.collection_phase='legacy_complete'
     scope.scope_complete=scope.collection_complete and not active_scan.read_failure
-    observe('candidate_population', {raw_count=bundle.raw_count,scanned_count=bundle.scanned_count,
+    observe('candidate_population', {cycle_id=cycle_id,raw_count=bundle.raw_count,scanned_count=bundle.scanned_count,
       raw_inspected_count=scope.raw_inspected_count,unique_count=bundle.unique_count,
       filtered_count=bundle.filtered_count,prescored_count=scope.prescored_count,
       selected_count=bundle.selected_count,ranked_count=#r.ranked,coverage=scope.coverage,
@@ -332,7 +340,7 @@ function M.new(cfg, ce, load_module, observation_source, execution)
     if #r.ranked==0 then
       if not scope.collection_complete then fail('INCOMPLETE_CANDIDATE_POPULATION') end
       scope.qualified_count=0
-      observe('ranking_summary', {ranked_count=0,qualified_count=0,recommendation='NONE'})
+      observe('ranking_summary', {cycle_id=cycle_id,ranked_count=0,qualified_count=0,recommendation='NONE'})
       return nil
     end
     local qualified=0
@@ -349,7 +357,7 @@ function M.new(cfg, ce, load_module, observation_source, execution)
     scope.ranking_best_score=r.best.final_score; scope.ranking_best_family_size=r.best.template_family_size
     scope.ranking_score_gap=r.score_gap; scope.ranking_confidence=r.confidence
     scope.ranking_recommendation=r.recommendation.recommendation
-    observe('ranking_summary', {ranked_count=#r.ranked,qualified_count=qualified,
+    observe('ranking_summary', {cycle_id=cycle_id,ranked_count=#r.ranked,qualified_count=qualified,
       coverage=scope.coverage,global_uniqueness_proven=false,
       recommendation=r.recommendation.recommendation,manual_review=r.recommendation.manual_review_required,
       best_score=r.best.final_score,hard_pass=r.best.hard_pass,confidence=r.confidence,
@@ -372,16 +380,16 @@ function M.new(cfg, ce, load_module, observation_source, execution)
   function a.begin_scan()
     checked()
     if active_scan then fail('SCAN_OVERLAP') end
-    scope.scope_complete=false
+    cycle_id=cycle_id+1
+    scope=empty_scope() -- No previous ranking/coverage can prove this fresh cycle.
+    start_address,stop_address=nil,nil
+    scope.collection_phase='resolving_scope'
     resolve_scope()
-    local task = {done=false, disposed=false}; active_scan=task
+    local task = {done=false, disposed=false,cycle_id=cycle_id}; active_scan=task
     local now=a.now()
     if not whole(now) or now<0 or now>math.maxinteger then fail('CLOCK_UNCERTAIN') end
     task.started_tick,task.last_tick,task.slice_started=now,now,now; task.operations=0
-    scope.scan_complete=false; scope.collection_complete=false; scope.global_uniqueness_proven=false
-    scope.raw_match_count=nil; scope.raw_inspected_count=0; scope.collected_count=0; scope.evaluated_count=0
-    scope.qualified_count=0; scope.collection_phase='scanning'
-    scope.raw_admission_budget=cfg.scan.scan_budget; scope.ranking_budget=cfg.scan.max_candidates
+    scope.collection_phase='scanning'
     local ms=f.createMemScan(); task.object=ms
     if cfg.scan.mode=='process' then
       if type(ms.setSpecialScanOptionsOverride)~='function' then fail('PROCESS_SCAN_POLICY_UNAVAILABLE') end
@@ -396,7 +404,7 @@ function M.new(cfg, ce, load_module, observation_source, execution)
     checked()
     -- Dword discovery of the exact Float32 bits avoids CE's decimal scan rounding.
     -- Candidate interpretation, qualification and the only write API remain Float32.
-    observe('scan_invocation', {search_bits=cfg.scan.target_bits,
+    observe('scan_invocation', {cycle_id=task.cycle_id,search_bits=cfg.scan.target_bits,
       search_mode='float32_bits_via_dword_hex',raw_admission_budget=cfg.scan.scan_budget,
       ranking_budget=cfg.scan.max_candidates}, 'adapter_scan_invocations')
     ms.firstScan(f.soExactValue, f.vtDword, f.rtRounded,
@@ -409,7 +417,7 @@ function M.new(cfg, ce, load_module, observation_source, execution)
     if task~=active_scan or task.disposed then fail('SCAN_STATE_INVALID') end
     if not task.done then return false end
     if not task.worker then
-      observe('scan_done_observed', nil, 'scan_completions')
+      observe('scan_done_observed', {cycle_id=task.cycle_id}, 'scan_completions')
       task.worker=coroutine.create(function()
         local bundle=collector.run({max_candidates=cfg.scan.max_candidates,
           scan_budget=cfg.scan.scan_budget, target_value_pattern=cfg.scan.target_bits,
@@ -434,7 +442,7 @@ function M.new(cfg, ce, load_module, observation_source, execution)
   end
   function a.dispose_scan(task)
     if task.disposed then return end
-    observe('scan_dispose_begin', {cancel_requested=not task.done},
+    observe('scan_dispose_begin', {cycle_id=task.cycle_id,cancel_requested=not task.done},
       not task.done and 'scan_cancel_requests' or nil)
     task.disposed=true; task.worker=nil
     if task==active_scan then active_scan=nil end
@@ -452,7 +460,7 @@ function M.new(cfg, ce, load_module, observation_source, execution)
       cleanup_uncertain=true; scope.scope_complete=false; scope.global_uniqueness_proven=false
       fail('SCAN_CLEANUP_FAILED:' .. table.concat(errors,','))
     end
-    observe('scan_disposed', {dispose_call_returned=true}, 'scan_disposals')
+    observe('scan_disposed', {cycle_id=task.cycle_id,dispose_call_returned=true}, 'scan_disposals')
   end
   function a.create_timer(interval, callback)
     if timer then fail('TIMER_OVERLAP') end

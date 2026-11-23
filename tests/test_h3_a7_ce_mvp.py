@@ -1445,3 +1445,93 @@ def test_r1_float32_bits_do_not_match_literal_dword_integer_100(runtime):
     assert len(w.writes) == 1 and w.writes[1].addr == expected.addr
     assert integer.memory[integer.addr] == 100 and w.loop.status().last_readback_bits == 0x42FA0000
     w.loop.stop(); w.clean()
+
+
+@pytest.mark.parametrize("mode", ["bounded", "process"])
+def test_r1_recovery_cycles_use_fresh_native_objects_and_clear_previous_evidence(runtime, mode):
+    lua, w = runtime
+    if mode == "process": process_scope(w)
+    enable_diagnostics(lua, limit=2048)
+    current = good(w)
+    for cycle in (2, 3):
+        before = w.loop.status().monitor_checks
+        current.memory[current.addr] = 0x42280000  # Healthy finite drift: never rewrite.
+        w.step(200)
+        assert w.loop.status().monitor_checks >= before + 100
+        assert len(w.scans) == len(w.writes) == cycle - 1
+        previous = w.scans[cycle - 1]
+        assert previous.dead and w.foundlist_history[cycle - 1].dead
+        current.mapped = False
+        current = w.object(0x100128 + (cycle - 1) * 0x2000)
+        w.fail.no_complete = True
+        w.until_state("RESCAN_BACKOFF"); w.until_state("SCREENING"); w.step()
+        pending = w.loop.status()
+        assert pending.cycle_id == cycle and pending.scan_count == cycle
+        assert pending.raw_match_count is None and pending.coverage == "pending"
+        assert pending.raw_admitted_count == pending.ranked_count == pending.qualified_count == 0
+        assert pending.ranking_best_address is None and pending.ranking_recommendation is None
+        assert not pending.scan_complete and not pending.collection_complete and not pending.global_uniqueness_proven
+        assert len(w.foundlist_history) == cycle - 1
+        # Both an authentic old sender and a forged new sender remain inert.
+        previous.saved_callback(previous); previous.saved_callback(w.scans[cycle])
+        w.step(3)
+        assert w.loop.status().raw_match_count is None and len(w.writes) == cycle - 1
+        assert len(w.foundlist_history) == cycle - 1
+        w.fail.no_complete = False
+        w.until_state("MONITORING")
+        assert len(w.writes) == len(w.scans) == len(w.foundlist_history) == cycle
+        assert w.writes[cycle].addr == current.addr
+        assert w.foundlist_history[cycle].scan_id == cycle
+        assert w.foundlist_history[cycle].Address[0] == format(current.addr, "X")
+        assert w.loop.status().cycle_id == cycle and w.loop.status().global_uniqueness_proven
+        assert w.loop.status().last_readback_bits == 0x42FA0000
+    lifecycle = [(row.event, row.scan_id) for row in w.lifecycle.values()]
+    assert lifecycle == [(event, cycle) for cycle in (1, 2, 3) for event in (
+        "scan_created", "first_scan", "foundlist_created", "foundlist_destroyed", "scan_destroyed")]
+    for kind in ("scan_invocation", "scan_population", "candidate_population", "ranking_summary", "scan_disposed"):
+        assert [row.cycle_id for row in events(w, kind)] == [1, 2, 3]
+    assert w.loop.evidence().dropped_events == 0
+    w.loop.stop(); w.clean()
+
+
+@pytest.mark.parametrize("fault,reason", [("system_info_no_output", "PROCESS_SCOPE_UNAVAILABLE"),
+                                         ("create_scan", "INJECTED_create_scan")])
+def test_r1_failed_fresh_scan_setup_cannot_keep_previous_unique_ranking(runtime, fault, reason):
+    _, w = runtime
+    process_scope(w)
+    old = good(w)
+    assert w.loop.status().global_uniqueness_proven and w.loop.status().ranking_best_address == old.addr
+    old.mapped = False; w.object(0x102128)
+    w.fail[fault] = True if fault == "system_info_no_output" else "throw"
+    w.until_state("ERROR")
+    s = w.loop.status()
+    assert reason in s.last_error and s.cycle_id == 2
+    assert s.raw_match_count is None and s.ranking_best_address is None and s.ranking_best_score is None
+    assert s.raw_admitted_count == s.ranked_count == s.qualified_count == 0
+    assert s.coverage == "pending" and not s.scope_complete and not s.global_uniqueness_proven
+    assert len(w.scans) == len(w.foundlist_history) == len(w.writes) == 1
+    w.clean()
+
+
+@pytest.mark.parametrize("mode", ["bounded", "process"])
+@pytest.mark.parametrize("fault,reason", [("timeout", "SCAN_TIMEOUT"), ("empty", "RESCAN_LIMIT_EXHAUSTED"),
+                                         ("exit", "PID_EXITED")])
+def test_r1_recovery_never_reuses_previous_population_when_fresh_scan_fails(runtime, mode, fault, reason):
+    _, w = runtime
+    if mode == "process": process_scope(w)
+    w.cfg.max_rescan_attempts = 1
+    old = good(w); old.mapped = False
+    if fault == "timeout":
+        w.object(0x102128); w.fail.no_complete = True
+    elif fault == "exit":
+        w.alive = False
+    w.until_state("ERROR")
+    s = w.loop.status()
+    assert reason in s.last_error and len(w.writes) == 1
+    assert len(w.scans) == s.cycle_id == (1 if fault == "exit" else 2)
+    assert len(w.foundlist_history) == (2 if fault == "empty" else 1)
+    if fault != "exit":
+        assert not s.global_uniqueness_proven and s.ranking_best_address is None
+        assert s.raw_match_count == (0 if fault == "empty" else None)
+    assert s.cleanup_ok
+    w.clean()

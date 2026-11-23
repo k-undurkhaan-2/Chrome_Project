@@ -2,7 +2,7 @@
 local M = {}
 function M.new(sources)
   local w={time=0, pid=101, opened=0, ce_handle=202, creation=91, alive=true,
-    reads=0, writes={}, scans={}, timers={}, native_calls={}, objects={}, localmem={},
+    reads=0, writes={}, scans={}, foundlist_history={}, lifecycle={}, timers={}, native_calls={}, objects={}, localmem={},
     open_calls=0, observers=0, streams=0, foundlists=0, active_scans=0,
     active_timers=0, max_scans=0, max_timers=0, forbidden=0, lines={}, fail={}}
   local ce={soExactValue=0,vtDword=2,rtRounded=0,fsmAligned=1}
@@ -148,15 +148,17 @@ function M.new(sources)
     o.memory[addr]=string.unpack('<I4',string.pack('<f',value)); return true
   end
   ce.createMemScan=function()
-    hook('create_scan'); assert(w.active_scans==0,'overlapping scanners')
+    hook('create_scan'); assert(w.active_scans==0 and w.foundlists==0,'overlapping native resources')
     w.active_scans=w.active_scans+1; w.max_scans=math.max(w.max_scans,w.active_scans)
-    local ms={done=false,dead=false,addresses={}}
+    local ms={id=#w.scans+1,done=false,dead=false,addresses={}}
+    w.lifecycle[#w.lifecycle+1]={event='scan_created',scan_id=ms.id}
     if not w.fail.scan_policy then
       ms.setSpecialScanOptionsOverride=function(options) ms.policy=options end
     end
     w.scans[#w.scans+1]=ms
     ms.firstScan=function(...)
       target_access(); hook('first_scan')
+      w.lifecycle[#w.lifecycle+1]={event='first_scan',scan_id=ms.id}
       local args={...}; ms.args=args
       assert(#args==14 and args[1]==0 and args[2]==2 and args[4]=='42C80000')
       assert(args[8]=='+W-X-C' and args[9]==1 and args[10]=='4' and args[11]==true)
@@ -181,6 +183,7 @@ function M.new(sources)
     end
     ms.destroy=function()
       assert(not ms.dead); ms.dead=true; w.active_scans=w.active_scans-1
+      w.lifecycle[#w.lifecycle+1]={event='scan_destroyed',scan_id=ms.id}
       hook('destroy_scan')
     end
     return ms
@@ -188,11 +191,17 @@ function M.new(sources)
   ce.createFoundList=function(ms)
     assert(ms.done and not ms.dead,'FoundList read before completion')
     w.foundlists=w.foundlists+1
-    local fl={Count=#ms.addresses,Address={},dead=false}
+    local fl={Count=#ms.addresses,Address={},dead=false,scan_id=ms.id,id=#w.foundlist_history+1}
+    w.foundlist_history[#w.foundlist_history+1]=fl
+    w.lifecycle[#w.lifecycle+1]={event='foundlist_created',scan_id=ms.id}
     w.latest_foundlist=fl
     for i,addr in ipairs(ms.addresses) do fl.Address[i-1]=string.format('%X',addr) end
     fl.initialize=function() hook('initialize') end
-    fl.destroy=function() assert(not fl.dead); fl.dead=true; w.foundlists=w.foundlists-1; hook('destroy_foundlist') end
+    fl.destroy=function()
+      assert(not fl.dead); fl.dead=true; w.foundlists=w.foundlists-1
+      w.lifecycle[#w.lifecycle+1]={event='foundlist_destroyed',scan_id=ms.id}
+      hook('destroy_foundlist')
+    end
     return fl
   end
   ce.createTimer=function(owner,enabled)

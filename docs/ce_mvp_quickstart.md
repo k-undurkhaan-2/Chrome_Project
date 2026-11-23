@@ -202,6 +202,16 @@ object must again have the configured discovery value. PID exit, target switch,
 identity uncertainty, ambiguity, write/readback error, timeout, or retry exhaustion
 stops the run. There is no automatic rollback or process-name reattachment.
 
+`status().cycle_id` identifies each discovery attempt in the current Start run.
+At a fresh attempt, all discovery counts, ranking details and uniqueness/coverage
+claims are cleared before resolving the scan bounds. `raw_match_count=nil` and
+`coverage='pending'` mean no new native result population has been established.
+Historical write/readback fields and cumulative counters still describe prior
+operations. Scan invocation, population, ranking and disposal diagnostics carry
+the cycle ID. An old completion callback cannot complete the new scanner.
+The old FoundList and MemScan must be disposed before any fresh First Scan;
+a healthy address causes no new discovery cycle or repeated write.
+
 ## Common outcomes
 
 | Status/reason | Meaning and next action |
