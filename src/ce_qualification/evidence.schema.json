@@ -1,0 +1,685 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:armedforces:g1-infra:evidence:1",
+  "title": "G1 infrastructure v1 record; SYNTHETIC only in this implementation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "origin",
+    "source",
+    "actor",
+    "session_id",
+    "run_id",
+    "scenario",
+    "sequence",
+    "event_id",
+    "clock",
+    "kind",
+    "data",
+    "predecessor_digest",
+    "content_digest"
+  ],
+  "properties": {
+    "schema": {
+      "const": 1
+    },
+    "origin": {
+      "enum": [
+        "SYNTHETIC",
+        "CE_DIAGNOSTIC_FUTURE",
+        "TARGET_FUTURE",
+        "DERIVED"
+      ]
+    },
+    "source": {
+      "$ref": "#/$defs/id"
+    },
+    "actor": {
+      "$ref": "#/$defs/id"
+    },
+    "session_id": {
+      "$ref": "#/$defs/id"
+    },
+    "run_id": {
+      "$ref": "#/$defs/id"
+    },
+    "scenario": {
+      "$ref": "#/$defs/id"
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "event_id": {
+      "$ref": "#/$defs/id"
+    },
+    "kind": {
+      "$ref": "#/$defs/id"
+    },
+    "clock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "origin",
+        "monotonic_ns",
+        "utc"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "SYNTHETIC_MONOTONIC_NS",
+            "MONOTONIC_NS"
+          ]
+        },
+        "origin": {
+          "$ref": "#/$defs/id"
+        },
+        "monotonic_ns": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "utc": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "data": {
+      "type": "object",
+      "description": "Kind-specific payload; see runbook and independent verifier for semantic constraints. Canonical encoded size <=65536 bytes."
+    },
+    "predecessor_digest": {
+      "$ref": "#/$defs/sha256"
+    },
+    "content_digest": {
+      "$ref": "#/$defs/sha256"
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.:-]{1,100}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "float32_bits": {
+      "type": "string",
+      "pattern": "^0x[0-9A-F]{8}$"
+    },
+    "instance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "designation",
+        "pid",
+        "creation",
+        "target_sha256"
+      ],
+      "properties": {
+        "designation": {
+          "enum": [
+            "A",
+            "B"
+          ]
+        },
+        "pid": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "creation": {
+          "type": "string",
+          "pattern": "^[0-9A-F]{16}$"
+        },
+        "target_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "sidecar_reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_id",
+        "sha256",
+        "byte_length",
+        "normalized_type",
+        "evidence_schema_version"
+      ],
+      "properties": {
+        "artifact_id": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "byte_length": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1048576
+        },
+        "normalized_type": {
+          "enum": [
+            "retained_snapshot",
+            "loader_diagnostic"
+          ]
+        },
+        "evidence_schema_version": {
+          "const": 2
+        }
+      }
+    },
+    "config_rejected_legacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "accepted",
+        "diagnostic",
+        "guard_before",
+        "guard_after",
+        "guard_restored",
+        "retained_before",
+        "retained_after",
+        "retained_origin"
+      ],
+      "properties": {
+        "accepted": {
+          "const": false
+        },
+        "diagnostic": {
+          "type": "string",
+          "maxLength": 240
+        },
+        "guard_before": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "openProcess",
+            "createMemScan",
+            "readInteger",
+            "readFloat",
+            "writeFloat",
+            "createTimer",
+            "executeCodeLocalEx",
+            "createMemoryStream"
+          ],
+          "properties": {
+            "openProcess": {
+              "const": 0
+            },
+            "createMemScan": {
+              "const": 0
+            },
+            "readInteger": {
+              "const": 0
+            },
+            "readFloat": {
+              "const": 0
+            },
+            "writeFloat": {
+              "const": 0
+            },
+            "createTimer": {
+              "const": 0
+            },
+            "executeCodeLocalEx": {
+              "const": 0
+            },
+            "createMemoryStream": {
+              "const": 0
+            }
+          }
+        },
+        "guard_after": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "openProcess",
+            "createMemScan",
+            "readInteger",
+            "readFloat",
+            "writeFloat",
+            "createTimer",
+            "executeCodeLocalEx",
+            "createMemoryStream"
+          ],
+          "properties": {
+            "openProcess": {
+              "const": 0
+            },
+            "createMemScan": {
+              "const": 0
+            },
+            "readInteger": {
+              "const": 0
+            },
+            "readFloat": {
+              "const": 0
+            },
+            "writeFloat": {
+              "const": 0
+            },
+            "createTimer": {
+              "const": 0
+            },
+            "executeCodeLocalEx": {
+              "const": 0
+            },
+            "createMemoryStream": {
+              "const": 0
+            }
+          }
+        },
+        "guard_restored": {
+          "const": true
+        },
+        "retained_before": {
+          "type": "object"
+        },
+        "retained_after": {
+          "type": "object"
+        },
+        "retained_origin": {
+          "const": "PRIOR_RUN_OR_NO_RUN"
+        }
+      }
+    },
+    "config_rejected_v2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "accepted",
+        "diagnostic",
+        "guard_before",
+        "guard_after",
+        "guard_restored",
+        "retained_before",
+        "retained_after",
+        "retained_origin",
+        "evidence_schema_version",
+        "bundle_id"
+      ],
+      "properties": {
+        "accepted": {
+          "const": false
+        },
+        "diagnostic": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/sidecar_reference"
+            },
+            {
+              "properties": {
+                "normalized_type": {
+                  "const": "loader_diagnostic"
+                }
+              }
+            }
+          ]
+        },
+        "guard_before": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "openProcess",
+            "createMemScan",
+            "readInteger",
+            "readFloat",
+            "writeFloat",
+            "createTimer",
+            "executeCodeLocalEx",
+            "createMemoryStream"
+          ],
+          "properties": {
+            "openProcess": {
+              "const": 0
+            },
+            "createMemScan": {
+              "const": 0
+            },
+            "readInteger": {
+              "const": 0
+            },
+            "readFloat": {
+              "const": 0
+            },
+            "writeFloat": {
+              "const": 0
+            },
+            "createTimer": {
+              "const": 0
+            },
+            "executeCodeLocalEx": {
+              "const": 0
+            },
+            "createMemoryStream": {
+              "const": 0
+            }
+          }
+        },
+        "guard_after": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "openProcess",
+            "createMemScan",
+            "readInteger",
+            "readFloat",
+            "writeFloat",
+            "createTimer",
+            "executeCodeLocalEx",
+            "createMemoryStream"
+          ],
+          "properties": {
+            "openProcess": {
+              "const": 0
+            },
+            "createMemScan": {
+              "const": 0
+            },
+            "readInteger": {
+              "const": 0
+            },
+            "readFloat": {
+              "const": 0
+            },
+            "writeFloat": {
+              "const": 0
+            },
+            "createTimer": {
+              "const": 0
+            },
+            "executeCodeLocalEx": {
+              "const": 0
+            },
+            "createMemoryStream": {
+              "const": 0
+            }
+          }
+        },
+        "guard_restored": {
+          "const": true
+        },
+        "retained_before": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/sidecar_reference"
+            },
+            {
+              "properties": {
+                "normalized_type": {
+                  "const": "retained_snapshot"
+                }
+              }
+            }
+          ]
+        },
+        "retained_after": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/sidecar_reference"
+            },
+            {
+              "properties": {
+                "normalized_type": {
+                  "const": "retained_snapshot"
+                }
+              }
+            }
+          ]
+        },
+        "retained_origin": {
+          "const": "PRIOR_RUN_OR_NO_RUN"
+        },
+        "evidence_schema_version": {
+          "const": 2
+        },
+        "bundle_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        }
+      }
+    },
+    "sidecar_seal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "bundle_id",
+        "sha256",
+        "byte_length"
+      ],
+      "properties": {
+        "schema": {
+          "const": 2
+        },
+        "bundle_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "byte_length": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65536
+        }
+      }
+    },
+    "sidecar_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "session_id",
+        "event_id",
+        "run_id",
+        "scenario",
+        "sequence",
+        "content_digest",
+        "roles"
+      ],
+      "properties": {
+        "source": {
+          "$ref": "#/$defs/id"
+        },
+        "session_id": {
+          "$ref": "#/$defs/id"
+        },
+        "event_id": {
+          "$ref": "#/$defs/id"
+        },
+        "run_id": {
+          "$ref": "#/$defs/id"
+        },
+        "scenario": {
+          "$ref": "#/$defs/id"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "content_digest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "roles": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "retained_before",
+            "retained_after",
+            "diagnostic"
+          ],
+          "properties": {
+            "retained_before": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "retained_after": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "diagnostic": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            }
+          }
+        }
+      }
+    },
+    "sidecar_manifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "bundle_id",
+        "session_id",
+        "artifacts",
+        "bindings"
+      ],
+      "properties": {
+        "schema": {
+          "const": "ce.sidecars.v2"
+        },
+        "bundle_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        },
+        "session_id": {
+          "$ref": "#/$defs/id"
+        },
+        "artifacts": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/sidecar_reference"
+          }
+        },
+        "bindings": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/sidecar_binding"
+          }
+        }
+      }
+    },
+    "loader_diagnostic_v2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "origin",
+        "source",
+        "path_utf8_hex",
+        "returned_error_hex",
+        "full_error_hex",
+        "loader_error_hex",
+        "loader_return_arity",
+        "full_error_source",
+        "return_arity",
+        "truncation_bytes"
+      ],
+      "properties": {
+        "schema": {
+          "const": "ce.loader-diagnostic.v2"
+        },
+        "origin": {
+          "const": "SYNTHETIC"
+        },
+        "source": {
+          "const": "g1_mock_loader"
+        },
+        "path_utf8_hex": {
+          "type": "string",
+          "pattern": "^(?:[0-9a-f]{2})+$",
+          "maxLength": 1048576
+        },
+        "returned_error_hex": {
+          "type": "string",
+          "pattern": "^(?:[0-9a-f]{2})+$",
+          "maxLength": 480
+        },
+        "full_error_hex": {
+          "type": "string",
+          "pattern": "^(?:[0-9a-f]{2})+$",
+          "maxLength": 1048576
+        },
+        "loader_error_hex": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^(?:[0-9a-f]{2})+$",
+              "maxLength": 1048576
+            },
+            {
+              "const": false
+            }
+          ]
+        },
+        "loader_return_arity": {
+          "enum": [
+            0,
+            2
+          ]
+        },
+        "full_error_source": {
+          "enum": [
+            "PCALL_ERROR",
+            "API_RETURN"
+          ]
+        },
+        "return_arity": {
+          "const": 2
+        },
+        "truncation_bytes": {
+          "const": 240
+        }
+      }
+    }
+  },
+  "$comment": "SHA256(canonical sorted ASCII JSON excluding content_digest); first predecessor is 64 zeroes. JSONL exact bytes have a separate manifest SHA256 and terminal head. Require a separately retained manifest digest. UTC must have offset zero. Cross-source monotonic values are not comparable. Future origins are reserved schema labels, rejected by the current synthetic verifier. No LIVE_PASS is representable in its output. Opt-in config_rejected data v2 leaves record envelope v1 unchanged. Sidecars are canonical ASCII JSON, <=1 MiB/blob, <=32 blobs and <=8 MiB total; manifest <=65536 bytes. Runtime verification additionally checks exact byte sizes, digest, unique IDs, role/content bindings, directory closure and independently retained bundle seal.",
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "config_rejected"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "scenario": {
+            "enum": [
+              "L12-MISSING",
+              "L12-DISABLED",
+              "L12-INVALID"
+            ]
+          },
+          "data": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/config_rejected_legacy"
+              },
+              {
+                "$ref": "#/$defs/config_rejected_v2"
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}
