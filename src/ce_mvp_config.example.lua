@@ -16,11 +16,15 @@ return {
     target_value_float = 100.0, -- new/relocated objects must start with this value
     target_value_pattern = 0x42C80000, -- exact bits must agree with rounded value
     -- Full-population Single, no truth label, no first-match or top-N shortcut.
-    -- P2-A still rejects over 128 matches; complete large-pool treatment is pending.
+    -- Legacy bounded-mode budgets only; process mode never samples this quota.
     scan_budget = 128,
     max_candidates = 128, -- must equal scan_budget
     filter_target_match = true,
     use_prescore_selection = true,
+    -- Process defaults (omit in bounded mode): complete pool or zero writes.
+    -- process_candidate_limit = 8192, -- compact snapshots; hard ceiling 8192
+    -- process_chunk_candidates = 8, -- 1..32, yield after this many candidates
+    -- process_slice_ms = 10, -- 1..25, checked between guarded read/score steps
   },
   monitor_interval_ms = 1000,
   invalid_confirmations = 2,

@@ -24,10 +24,10 @@ module finds its configuration and sibling modules relative to its saved path.
    Float32. The example `100.0 / 0x42C80000 -> 125.0 / 0x42FA0000` is a test
    example, not an instruction to use those values on a real application.
 4. Leave `screening_profile='single'`, `value_type='float32'`, both filter and
-   prescore flags true, and all engineering extensions false. Keep
-   `max_candidates == scan_budget`, at most 128. If there are more matches,
-   the P2-A release stops with `CANDIDATE_BUDGET_EXCEEDED`. Large-population
-   evaluation is pending P2-B; automatic bounds alone do not resolve that limit.
+   prescore flags true, and all engineering extensions false. The example's
+   `max_candidates == scan_budget == 128` preserves legacy bounded mode.
+   Process mode evaluates the entire FoundList using separate resource limits;
+   these legacy quotas never truncate a process population.
 5. Adjust monitoring/retry limits if needed. `max_rescan_attempts` is the total
    retry/relocation budget for that Start. After obtaining the applicable target
    authorization, deliberately set `write_enabled=true` and save.
@@ -58,6 +58,24 @@ These addresses are synthetic examples only. Existing configs with both legacy
 address fields keep their historical bounded meaning even without `mode`.
 One missing bound, `mode='process'` with bounds, an invalid mode, or an invalid
 range is rejected before attachment. No manual bounds means process mode.
+
+Process mode defaults to `process_candidate_limit=8192` compact snapshots
+(hard maximum 8192), `process_chunk_candidates=8` (1..32) and
+`process_slice_ms=10` (1..25). These optional settings can be lowered for a
+smaller resource allowance; omit them in bounded mode. They are engineering
+limits, not sampling quotas. If the complete FoundList exceeds the snapshot
+limit, the run reports the actual count and `PROCESS_CANDIDATE_LIMIT_EXCEEDED`
+with zero evaluated candidates and zero writes. It never silently narrows the
+scope. Scan plus both processing passes share `scan_timeout_ms`.
+
+The first pass reads every index, rejects duplicate/missing entries, records
+stable structural snapshots and accumulates all family counts and independent
+qualifiers. The second pass revalidates each snapshot and evaluates it against
+that complete global family context. Only then can the exact global first and
+second rows, confidence and Single uniqueness authorize one write. One acceptable
+candidate at index 129 or later can qualify; two acceptable candidates anywhere
+cause `AMBIGUOUS_CANDIDATES`, even across processing chunks. Drift, incomplete
+progress, count changes, read/mapping errors, timeout or cancellation stop safely.
 
 ## Prepare the local table (offline)
 
@@ -132,6 +150,11 @@ also includes `scan_mode`, resolved `scan_start_address` / `scan_stop_address`,
 `bounds_source`, `scan_policy`, `candidate_policy`, `alignment_bytes` and
 `scope_complete`. A resolved address envelope alone is not complete collection.
 These are read-only snapshots with no extra process access. Output
+also exposes `raw_match_count`, `collected_count`, `evaluated_count`,
+`qualified_count`, `scan_complete`, `collection_complete`, `collection_phase`
+and `process_candidate_limit`. A completed process decision requires all three
+population counts to agree. Complete evaluation can still end in an explicit
+ambiguity/rejection with zero writes. Output
 uses local nonsecret process identifiers, not signed authorization. The optional
 `.log` path is disabled by default; set an absolute path under an existing local
 directory if desired. History/output is bounded; status queries remain available.
@@ -167,7 +190,9 @@ stops the run. There is no automatic rollback or process-name reattachment.
 | `UNSUPPORTED_ENGINEERING_EXTENSION` | This MVP only implements the disabled extension interfaces. Do not substitute an A4 review-only result. |
 | `CE_API_MISSING`, `WIN32_API_MISSING`, `REQUIRES_CE_*` | Verify CE 7.6 x64/Lua 5.3 and ordinary Windows process access. There is no fallback to weaker identity checks. |
 | `PROCESS_OPEN_FAILED`, `IDENTITY_UNCERTAIN`, `PID_*`, `CE_TARGET_CHANGED` | Stop; confirm the exact intended PID/instance and access. No automated reattachment follows. |
-| `CANDIDATE_BUDGET_EXCEEDED` | P2-A cannot evaluate this entire population; zero writes. P2-B is required for full large-population treatment. |
+| `CANDIDATE_BUDGET_EXCEEDED` | The legacy bounded-mode population exceeds its configured 1..128 budget; zero writes. |
+| `PROCESS_CANDIDATE_LIMIT_EXCEEDED` | The full process population exceeds its explicit snapshot resource limit; actual count is retained, no subset is evaluated and no write occurs. |
+| `FOUNDLIST_COUNT_CHANGED`, `FOUNDLIST_ADDRESS_CHANGED`, `DUPLICATE_FOUND_ADDRESS`, `CANDIDATE_MEMORY_DRIFT` | The complete stable candidate pool cannot be established; zero writes. |
 | `PROCESS_SCOPE_UNAVAILABLE`, `PROCESS_SCAN_POLICY_UNAVAILABLE` | Windows x64 bounds or the CE scan policy could not be established; zero writes. |
 | `CANDIDATE_NOT_QUALIFIED`, `AMBIGUOUS_CANDIDATES` | Existing structural rules cannot establish a unique acceptable candidate. Inspect the profile/target; never force the first match. |
 | `SCAN_COMPLETION_UNCERTAIN`, `SCREENING_READ_FAILED` | Incomplete scan/read observations. Check CE diagnostics and the stable test layout; no write follows. |

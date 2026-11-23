@@ -28,7 +28,8 @@ local ROOT = keys([[target_pid screening_profile value_type write_value write_en
   min_rescan_spacing_ms max_rescan_attempts scan_timeout_ms scan engineering_extensions
   log_limit log_path diagnostics]])
 local SCAN = keys([[mode start_address stop_address target_value_float target_value_pattern
-  scan_budget max_candidates filter_target_match use_prescore_selection]])
+  scan_budget max_candidates filter_target_match use_prescore_selection
+  process_candidate_limit process_chunk_candidates process_slice_ms]])
 local EXT = keys('h3_a3_store h3_a4_approval strict_attachment')
 local DIAG = keys('enabled session_token event_limit cleanup_start_probe')
 local function address(v)
@@ -85,6 +86,13 @@ function M.validate(input)
   if not integer(s.scan_budget, 1, 128) or s.max_candidates ~= s.scan_budget
       or s.filter_target_match ~= true or s.use_prescore_selection ~= true then
     fail('INVALID_SCAN_SETTINGS')
+  end
+  for k,rule in pairs({process_candidate_limit={8192,1,8192},
+      process_chunk_candidates={8,1,32},process_slice_ms={10,1,25}}) do
+    if s.mode=='process' then
+      if s[k]==nil then s[k]=rule[1] end
+      if not integer(s[k],rule[2],rule[3]) then fail('INVALID_PROCESS_BUDGET') end
+    elseif s[k]~=nil then fail('PROCESS_BUDGET_REQUIRES_PROCESS_MODE') end
   end
   c.diagnostics = {enabled=false}
   if input.diagnostics ~= nil then

@@ -19,9 +19,13 @@ function M.new(sources)
     local o={addr=addr, mapped=true, readable=true, protect=4, alloc=0x100000, memory={}}
     for i,offset in ipairs({-0x20,-0x10,-8,0x30,0x40,0x48,0x50}) do o.memory[addr+offset]=fields[i] end
     o.memory[addr]=0x42C80000; w.objects[#w.objects+1]=o
+    if w.fast_index then for key in pairs(o.memory) do w.fast_index[key]=o end end
     return o
   end
   function w.locate(addr)
+    if w.fast_index then
+      local o=w.fast_index[addr]; if o and o.mapped then return o end; return nil
+    end
     for _,o in ipairs(w.objects) do if o.mapped and o.memory[addr]~=nil then return o end end
   end
   function w.use_layout(pages, words)
@@ -170,7 +174,8 @@ function M.new(sources)
     end
     ms.getProgress=function()
       assert(ms.done)
-      return {TotalAddressesToScan=100,CurrentlyScanned=w.fail.progress and 50 or 100, ResultsFound=#ms.addresses}
+      return {TotalAddressesToScan=100,CurrentlyScanned=w.fail.progress and 50 or 100,
+        ResultsFound=w.fail.results_count or #ms.addresses}
     end
     ms.destroy=function()
       assert(not ms.dead); ms.dead=true; w.active_scans=w.active_scans-1
@@ -182,6 +187,7 @@ function M.new(sources)
     assert(ms.done and not ms.dead,'FoundList read before completion')
     w.foundlists=w.foundlists+1
     local fl={Count=#ms.addresses,Address={},dead=false}
+    w.latest_foundlist=fl
     for i,addr in ipairs(ms.addresses) do fl.Address[i-1]=string.format('%X',addr) end
     fl.initialize=function() hook('initialize') end
     fl.destroy=function() assert(not fl.dead); fl.dead=true; w.foundlists=w.foundlists-1; hook('destroy_foundlist') end
