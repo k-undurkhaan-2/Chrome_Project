@@ -950,3 +950,133 @@ def test_portable_output_and_private_config_are_ignored_without_hiding_template(
                               "src/prepare_ce_mvp.py"], cwd=ROOT,
                              text=True, capture_output=True, check=True)
     assert ignored.stdout.splitlines() == ["src/ce_mvp.local.CT", "src/ce_mvp_config.local.lua"]
+
+
+def process_scope(w):
+    w.cfg.scan.start_address = None
+    w.cfg.scan.stop_address = None
+
+
+@pytest.mark.parametrize("explicit", [False, True])
+def test_process_scope_uses_verified_os_bounds_after_identity_and_is_readonly(runtime, explicit):
+    lua, w = runtime
+    process_scope(w)
+    if explicit:
+        w.cfg.scan.mode = "process"
+    enable_diagnostics(lua)
+    assert len(w.native_calls) == w.open_calls == w.reads == 0
+    good(w)
+    s = w.loop.status()
+    assert s.scan_mode == "process" and s.scope_resolved and s.scope_complete
+    assert s.scan_start_address == w.scans[1].args[6] == 0x10000
+    assert s.scan_stop_address == w.scans[1].args[7] == 0x7FFFFFFEFFFF
+    assert "GetSystemInfo" in s.bounds_source and s.alignment_bytes == 4
+    assert w.scans[1].policy.MEM_PRIVATE is True
+    assert w.scans[1].policy.MEM_IMAGE is w.scans[1].policy.MEM_MAPPED is False
+    assert "MEM_PRIVATE" in s.scan_policy
+    native = [c.name for _, c in w.native_calls.items()]
+    assert native.index("GetProcessTimes") < native.index("GetSystemInfo")
+    before = (len(w.native_calls), w.reads)
+    s.scan_start_address = 999
+    w.loop.evidence().scan_scope.scan_stop_address = 999
+    assert w.loop.status().scan_start_address == 0x10000
+    assert w.loop.evidence().scan_scope.scan_stop_address == 0x7FFFFFFEFFFF
+    assert before == (len(w.native_calls), w.reads)
+    w.loop.stop(); w.clean()
+
+
+@pytest.mark.parametrize("mode", [None, "bounded"])
+def test_legacy_bounds_keep_their_meaning_without_system_info(runtime, mode):
+    _, w = runtime
+    w.cfg.scan.mode = mode
+    w.fail.symbol = "GetSystemInfo"
+    good(w)
+    s = w.loop.status()
+    assert s.scan_mode == "bounded"
+    assert (s.scan_start_address, s.scan_stop_address) == (0x100000, 0x11FFFF)
+    assert not any(c.name == "GetSystemInfo" for _, c in w.native_calls.items())
+    w.loop.stop(); w.clean()
+
+
+@pytest.mark.parametrize("edit,reason", [
+    ("w.cfg.scan.start_address=nil", "INCOMPLETE_SCAN_RANGE"),
+    ("w.cfg.scan.stop_address=nil", "INCOMPLETE_SCAN_RANGE"),
+    ("w.cfg.scan.mode='process'", "CONFLICTING_SCAN_RANGE"),
+    ("w.cfg.scan.mode='auto'", "INVALID_SCAN_MODE"),
+    ("w.cfg.scan.mode=false", "INVALID_SCAN_MODE"),
+    ("w.cfg.scan.mode='bounded';w.cfg.scan.start_address=nil;w.cfg.scan.stop_address=nil", "INCOMPLETE_SCAN_RANGE"),
+    ("w.cfg.scan.stop_address=0x7FFFFFFFFFFFFFFF", "INVALID_SCAN_ADDRESS"),
+])
+def test_scope_configuration_rejects_before_ce_access(runtime, edit, reason):
+    lua, w = runtime
+    lua.execute(edit)
+    with pytest.raises(Exception, match=reason):
+        w.start()
+    assert len(w.native_calls) == w.open_calls == w.reads == len(w.writes) == 0
+
+
+@pytest.mark.parametrize("edit,reason", [
+    ("w.fail.system_info_no_output=true", "PROCESS_SCOPE_UNAVAILABLE"),
+    ("w.fail.local_write=true", "SYSTEM_INFO_BUFFER_FAILED"),
+    ("w.system_info_override={[0]=0}", "PROCESS_SCOPE_UNAVAILABLE"),
+    ("w.system_info_override={[4]=0}", "PROCESS_SCOPE_UNAVAILABLE"),
+    ("w.system_info_override={[8]=0}", "PROCESS_SCOPE_UNAVAILABLE"),
+    ("w.system_info_override={[8]=0x7FFFFFFFFFFF0000,[16]=-65537}", "PROCESS_SCOPE_UNAVAILABLE"),
+    ("w.system_info_override={[16]=0x7FFFFFFFFFFFFFFF}", "PROCESS_SCOPE_UNAVAILABLE"),
+    ("w.system_info_override={[16]=0x10000}", "PROCESS_SCOPE_UNAVAILABLE"),
+    ("w.system_info_override={[16]=0x7FFFFFFEFFF0}", "PROCESS_SCOPE_UNAVAILABLE"),
+    ("w.system_info_override={[40]=4096}", "PROCESS_SCOPE_UNAVAILABLE"),
+    ("w.fail.scan_policy=true", "PROCESS_SCAN_POLICY_UNAVAILABLE"),
+    ("w.hook=function(e) if e=='GetSystemInfo' then w.creation=w.creation+1 end end", "PID_IDENTITY_MISMATCH"),
+])
+def test_uncertain_process_scope_cannot_scan_or_write(runtime, edit, reason):
+    lua, w = runtime
+    process_scope(w)
+    lua.execute(edit)
+    w.start(); w.until_state("ERROR")
+    assert reason in w.loop.status().last_error
+    assert w.loop.status().scope_complete is False
+    assert w.reads == len(w.writes) == 0
+    assert all(ms.args is None for _, ms in w.scans.items())
+    w.clean()
+
+
+@pytest.mark.parametrize("edit,reason", [
+    ("w.fail.symbol='GetSystemInfo'", "WIN32_API_MISSING:GetSystemInfo"),
+    ("w.ce.writeIntegerLocal=nil", "CE_API_MISSING:writeIntegerLocal"),
+])
+def test_process_scope_missing_local_apis_fail_before_attachment(runtime, edit, reason):
+    lua, w = runtime
+    process_scope(w); lua.execute(edit)
+    with pytest.raises(Exception, match=reason):
+        w.start()
+    assert w.open_calls == w.reads == len(w.writes) == 0
+
+
+def test_process_scope_stops_mid_scan_without_claiming_completeness(runtime):
+    _, w = runtime
+    process_scope(w); w.fail.no_complete = True
+    w.start(); w.step(2)
+    w.loop.stop(); w.step(5)
+    assert w.loop.status().scope_complete is False and len(w.writes) == 0
+    w.clean()
+
+
+@pytest.mark.parametrize("addr", [0x100129, 0x10000, 0x7FFFFFFEFFFC])
+def test_process_scope_rejects_unaligned_or_edge_context_candidates(runtime, addr):
+    _, w = runtime
+    process_scope(w); w.object(addr)
+    w.start(); w.until_state("ERROR")
+    assert len(w.writes) == 0 and w.loop.status().scope_complete is False
+    w.clean()
+
+
+@pytest.mark.parametrize("value,bits", [(-0.0, 0x80000000), (1e-46, 0), (0.1, 0x3DCCCCCD)])
+def test_process_scope_validates_exact_search_bits_without_bounds(runtime, value, bits):
+    _, w = runtime
+    process_scope(w)
+    w.cfg.scan.target_value_float = value
+    w.cfg.scan.target_value_pattern = bits
+    validated = w.core.validate(w.cfg)
+    assert validated.scan.mode == "process" and validated.scan.target_bits == bits
+    assert w.open_calls == w.reads == 0

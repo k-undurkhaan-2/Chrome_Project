@@ -3,6 +3,7 @@
 local M = {}
 local function fail(code) error(code, 0) end
 local function whole(v) return type(v)=='number' and v%1==0 end
+local MAX_ADDRESS = 0x7FFFFFFFFFFF
 local function u32(v)
   if not whole(v) or v < -0x80000000 or v > 0xFFFFFFFF then return nil end
   return v < 0 and v+0x100000000 or v
@@ -35,6 +36,12 @@ function M.new(cfg, ce, load_module, observation_source, execution)
     native[name] = f.getAddressSafe('kernel32.' .. name, true)
     if not whole(native[name]) or native[name] <= 0 then fail('WIN32_API_MISSING:' .. name) end
   end
+  if cfg.scan.mode=='process' then
+    native.GetSystemInfo=f.getAddressSafe('kernel32.GetSystemInfo', true)
+    if not whole(native.GetSystemInfo) or native.GetSystemInfo<=0 then fail('WIN32_API_MISSING:GetSystemInfo') end
+    if type(ce.writeIntegerLocal)~='function' then fail('CE_API_MISSING:writeIntegerLocal') end
+    f.writeIntegerLocal=ce.writeIntegerLocal
+  end
   local function call(name, ...)
     local args = {}
     for i=1,select('#', ...) do args[i]={type=0, value=select(i, ...)} end
@@ -46,6 +53,14 @@ function M.new(cfg, ce, load_module, observation_source, execution)
   local observer, borrowed, stream, identity, guard, active_scan, timer
   local poison, closed, log_count, cleanup_uncertain = nil, false, 0, false
   local writer_port, bound_candidate
+  local scope={scope_resolved=false,scan_mode=cfg.scan.mode,alignment_bytes=4,
+    scan_policy=(cfg.scan.mode=='process' and 'MEM_PRIVATE; ' or '') .. '+W-X-C; aligned exact Float32 bits',
+    candidate_policy='MEM_COMMIT/MEM_PRIVATE/PAGE_READWRITE; whole -0x20..+0x53 context',
+    scope_complete=false}
+  local start_address, stop_address
+  function a.scan_scope()
+    local out={}; for k,v in pairs(scope) do out[k]=v end; return out
+  end
   function a.set_guard(fn) guard = fn end
   function a.now() return call('GetTickCount64') end
   local function checked()
@@ -93,6 +108,34 @@ function M.new(cfg, ce, load_module, observation_source, execution)
     a.check_identity(identity)
     return identity
   end
+  local function resolve_scope()
+    -- begin_scan already guards the bound PID/creation token for both modes.
+    if cfg.scan.mode=='bounded' then
+      start_address,stop_address=cfg.scan.start_address,cfg.scan.stop_address
+      scope.bounds_source='explicit configuration (legacy compatible)'
+    else
+      local p=stream.Memory
+      -- SYSTEM_INFO on Windows AMD64: 48 bytes, DWORD union/page at 0/4,
+      -- pointer-sized min/max at 8/16, allocation granularity DWORD at 40.
+      -- GetSystemInfo returns void; poison output markers to detect no output.
+      if f.writeIntegerLocal(p, -1)~=true or f.writeIntegerLocal(p+4, 0)~=true then
+        fail('SYSTEM_INFO_BUFFER_FAILED')
+      end
+      call('GetSystemInfo', p)
+      local arch,page=f.readIntegerLocal(p),f.readIntegerLocal(p+4)
+      local lo,hi=f.readQwordLocal(p+8),f.readQwordLocal(p+16)
+      local gran=f.readIntegerLocal(p+40)
+      checked()
+      if arch~=9 or page~=4096 or gran~=65536 or not whole(lo) or not whole(hi)
+          or lo<0x10000 or lo>MAX_ADDRESS or hi<lo or hi>MAX_ADDRESS or hi-lo<128
+          or lo%gran~=0 or (hi+1)%page~=0 then fail('PROCESS_SCOPE_UNAVAILABLE') end
+      start_address,stop_address=lo,hi
+      scope.bounds_source='GetSystemInfo/AMD64 SYSTEM_INFO (48 bytes)'
+    end
+    scope.scan_start_address,scope.scan_stop_address=start_address,stop_address
+    scope.scope_resolved=true
+    if cfg.scan.mode=='process' then observe('scan_scope_resolved', a.scan_scope()) end
+  end
   function a.read_bits(addr)
     checked()
     observe(nil, nil, 'adapter_read_calls')
@@ -118,12 +161,15 @@ function M.new(cfg, ce, load_module, observation_source, execution)
   end
   local function mapping(addr)
     checked()
+    if not whole(addr) or addr<0x10020 or addr>MAX_ADDRESS-0x53 then return nil end
     observe(nil, nil, 'mapping_queries')
     local p = stream.Memory
     if call('VirtualQueryEx', observer, addr, p, 48) ~= 48 then return nil end
     local base, alloc, size = f.readQwordLocal(p), f.readQwordLocal(p+8), f.readQwordLocal(p+24)
     local state, protect, kind = f.readIntegerLocal(p+32), f.readIntegerLocal(p+36), f.readIntegerLocal(p+40)
     if not whole(base) or not whole(alloc) or not whole(size) or size <= 0
+        or base<0 or base>MAX_ADDRESS or alloc<0 or alloc>MAX_ADDRESS
+        or size>MAX_ADDRESS-base+1
         or addr-0x20 < base or addr+0x54 > base+size
         or state~=0x1000 or protect~=0x04 or kind~=0x20000 then return nil end
     return string.format('%X:%X:%X', base, alloc, size)
@@ -143,8 +189,9 @@ function M.new(cfg, ce, load_module, observation_source, execution)
     return true -- finite value drift is intentionally irrelevant to validity
   end
   local function within(addr)
-    return whole(addr) and addr%4==0 and addr-0x20>=cfg.scan.start_address
-      and addr+0x53<=cfg.scan.stop_address
+    return whole(addr) and addr>=0x10020 and addr<=MAX_ADDRESS-0x53
+      and addr%4==0 and start_address~=nil and addr-0x20>=start_address
+      and addr+0x53<=stop_address
   end
   local env = {assert=assert, error=error, type=type, pcall=pcall, pairs=pairs, ipairs=ipairs,
     tonumber=tonumber, tostring=tostring, math=math, string=string, table=table,
@@ -260,8 +307,15 @@ function M.new(cfg, ce, load_module, observation_source, execution)
   function a.begin_scan()
     checked()
     if active_scan then fail('SCAN_OVERLAP') end
+    scope.scope_complete=false
+    resolve_scope()
     local task = {done=false, disposed=false}; active_scan=task
     local ms=f.createMemScan(); task.object=ms
+    if cfg.scan.mode=='process' then
+      if type(ms.setSpecialScanOptionsOverride)~='function' then fail('PROCESS_SCAN_POLICY_UNAVAILABLE') end
+      ms.setSpecialScanOptionsOverride({MEM_PRIVATE=true,MEM_IMAGE=false,MEM_MAPPED=false})
+      scope.scan_policy='MEM_PRIVATE; +W-X-C; aligned exact Float32 bits'
+    end
     ms.OnlyOneResult=false; ms.IsUnique=false
     ms.OnScanDone=function(sender)
       -- Only enqueue completion. Never read results/destroy an object in its event.
@@ -272,8 +326,8 @@ function M.new(cfg, ce, load_module, observation_source, execution)
     -- Candidate interpretation, qualification and the only write API remain Float32.
     observe('scan_invocation', {search_bits=cfg.scan.target_bits,hard_limit=128}, 'adapter_scan_invocations')
     ms.firstScan(f.soExactValue, f.vtDword, f.rtRounded,
-      string.format('%08X',cfg.scan.target_bits), '', cfg.scan.start_address,
-      cfg.scan.stop_address, '+W-X-C', f.fsmAligned, '4', true, false, false, false)
+      string.format('%08X',cfg.scan.target_bits), '', start_address,
+      stop_address, '+W-X-C', f.fsmAligned, '4', true, false, false, false)
     return task
   end
   function a.poll_scan(task)
@@ -295,6 +349,7 @@ function M.new(cfg, ce, load_module, observation_source, execution)
     if poison then fail(poison) end
     if not ok then fail('SCREENING_CALLBACK:' .. tostring(result)) end
     if coroutine.status(task.worker)=='dead' then
+      scope.scope_complete=true
       if execution and result then
         bound_candidate={address=result.address,mapping=result.mapping,fields={}}
         for k,v in pairs(result.fields) do bound_candidate.fields[k]=v end

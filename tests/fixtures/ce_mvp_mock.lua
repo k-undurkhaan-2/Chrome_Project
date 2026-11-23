@@ -57,6 +57,17 @@ function M.new(sources)
     w.native_calls[#w.native_calls+1]={name=name,args=args}; hook(name)
     if w.fail[name]=='nil' then return nil end
     if name=='GetTickCount64' then return w.time end
+    if name=='GetSystemInfo' then
+      local p=args[1]; assert(p==0x800000 and w.observers==1 and w.opened==w.pid)
+      if w.fail.system_info_no_output then return end
+      local bytes=string.pack('<I2I2I4I8I8I8I4I4I4I2I2',
+        9,0,4096,0x10000,0x7FFFFFFEFFFF,1,1,8664,65536,6,0)
+      assert(#bytes==48)
+      for offset=0,44,4 do w.localmem[p+offset]=string.unpack('<I4',bytes,offset+1) end
+      for _,offset in ipairs({8,16}) do w.localmem[p+offset]=string.unpack('<I8',bytes,offset+1) end
+      for offset,value in pairs(w.system_info_override or {}) do w.localmem[p+offset]=value end
+      return -- native return is void, never a success Boolean
+    end
     if name=='OpenProcess' then
       assert(args[1]==0x101400 and args[2]==0 and args[3]==w.pid)
       w.open_calls=w.open_calls+1
@@ -96,6 +107,11 @@ function M.new(sources)
   end
   ce.readIntegerLocal=function(addr) return w.localmem[addr] end
   ce.readQwordLocal=ce.readIntegerLocal
+  ce.writeIntegerLocal=function(addr,value)
+    assert(addr==0x800000 or addr==0x800004)
+    if w.fail.local_write then return false end
+    w.localmem[addr]=value; return true
+  end
   ce.openProcess=function(pid)
     assert(pid==w.pid and type(pid)=='number'); hook('attach')
     w.opened=w.fail.attach and 999 or pid
@@ -129,6 +145,9 @@ function M.new(sources)
     hook('create_scan'); assert(w.active_scans==0,'overlapping scanners')
     w.active_scans=w.active_scans+1; w.max_scans=math.max(w.max_scans,w.active_scans)
     local ms={done=false,dead=false,addresses={}}
+    if not w.fail.scan_policy then
+      ms.setSpecialScanOptionsOverride=function(options) ms.policy=options end
+    end
     w.scans[#w.scans+1]=ms
     ms.firstScan=function(...)
       target_access(); hook('first_scan')

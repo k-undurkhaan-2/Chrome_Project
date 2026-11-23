@@ -105,6 +105,8 @@ function api.status()
       'write_count','monitor_checks','invalid_count','rescan_attempts','retry_at',
       'last_check_ms','last_invalidation','last_error','stop_reason','startup_error',
       'cleanup_pending','cleanup_ok','cleanup_error','log_error','qualification',
+      'scan_mode','scope_resolved','scan_start_address','scan_stop_address','bounds_source',
+      'scan_policy','candidate_policy','alignment_bytes','scope_complete',
       'attachment_handle_status','authorization_status'}) do
     local value=s[k]
     if type(value)=='number' and (k:find('address',1,true) or k:find('_bits',1,true)) then

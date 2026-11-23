@@ -27,7 +27,7 @@ local ROOT = keys([[target_pid screening_profile value_type write_value write_en
   monitor_interval_ms invalid_confirmations rescan_backoff_ms max_backoff_ms
   min_rescan_spacing_ms max_rescan_attempts scan_timeout_ms scan engineering_extensions
   log_limit log_path diagnostics]])
-local SCAN = keys([[start_address stop_address target_value_float target_value_pattern
+local SCAN = keys([[mode start_address stop_address target_value_float target_value_pattern
   scan_budget max_candidates filter_target_match use_prescore_selection]])
 local EXT = keys('h3_a3_store h3_a4_approval strict_attachment')
 local DIAG = keys('enabled session_token event_limit cleanup_start_probe')
@@ -66,8 +66,18 @@ function M.validate(input)
   fields(input.scan, SCAN, 'SCAN')
   c.scan = {}; for k, v in pairs(input.scan) do c.scan[k] = v end
   local s = c.scan
-  s.start_address, s.stop_address = address(s.start_address), address(s.stop_address)
-  if s.stop_address - s.start_address < 128 then fail('INVALID_SCAN_RANGE') end
+  local has_start, has_stop = s.start_address~=nil, s.stop_address~=nil
+  if has_start~=has_stop then fail('INCOMPLETE_SCAN_RANGE') end
+  -- Legacy paired bounds always retain their bounded meaning.
+  if s.mode==nil then s.mode=has_start and 'bounded' or 'process' end
+  if s.mode~='bounded' and s.mode~='process' then fail('INVALID_SCAN_MODE') end
+  if s.mode=='process' then
+    if has_start then fail('CONFLICTING_SCAN_RANGE') end
+  else
+    if not has_start then fail('INCOMPLETE_SCAN_RANGE') end
+    s.start_address, s.stop_address = address(s.start_address), address(s.stop_address)
+    if s.stop_address - s.start_address < 128 then fail('INVALID_SCAN_RANGE') end
+  end
   s.target_value_float, s.target_bits = M.float32(s.target_value_float)
   if not integer(s.target_value_pattern, 0, 0xFFFFFFFF)
       or s.target_value_pattern ~= s.target_bits then fail('SCAN_PATTERN_MISMATCH') end
@@ -162,6 +172,7 @@ function M.new(config, adapter, public_start_probe)
   function api.evidence()
     if not c.diagnostics.enabled then return {enabled=false} end
     return {enabled=true, schema=1, session_token=c.diagnostics.session_token,
+      scan_scope=c.scan.mode=='process' and a.scan_scope and a.scan_scope() or nil,
       source=a.observation_source or 'synthetic', configured_pid=c.target_pid,
       state=s.state, running=s.running, cleanup_pending=s.cleanup_pending or false,
       cleanup_ok=not cleanup_failed and not s.cleanup_pending, stop_reason=s.stop_reason,
@@ -369,6 +380,8 @@ function M.new(config, adapter, public_start_probe)
   end
   function api.status()
     local out = {}; for k, v in pairs(s) do out[k] = v end
+    out.scan_mode=c.scan.mode
+    for k,v in pairs(a.scan_scope and a.scan_scope() or {}) do out[k]=v end
     out.events = {}; for i, v in ipairs(events) do out.events[i] = v end
     out.cleanup_ok = not cleanup_failed and not s.cleanup_pending
     return out

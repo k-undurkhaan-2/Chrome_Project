@@ -6,8 +6,9 @@ was granted by the implementation task.
 
 ## Runtime and integration
 
-The runtime is Windows **x64 Cheat Engine 7.6, embedded Lua 5.3**. Load
-`src/ce_mvp.CT`, then deliberately enable its Start record after saving
+The runtime is Windows **x64 Cheat Engine 7.6, embedded Lua 5.3**. Prepare with
+`src/prepare_ce_mvp.py`, load the generated private `src/ce_mvp.local.CT`,
+then deliberately enable its Start record after saving
 `src/ce_mvp_config.local.lua`. Merely loading/inspecting the table does not load
 the runtime, read the config, attach, scan or write. Its AA syntax-check pass is
 also inert. The equivalent Lua entrypoint is `dofile(.../ce_mvp.lua).start()`.
@@ -112,14 +113,39 @@ This finds the exact four bytes of the configured Float32 without CE's decimal
 Float scan rounding window. Interpretation, structural qualification, write and
 readback are exclusively Float32. Discovery does not permit a Dword write.
 
+P2-A defaults to process scope when both address fields are absent. After the
+original PID/creation-time identity guard, local `GetSystemInfo` supplies the
+x64 user-mode envelope. The adapter validates the AMD64 48-byte `SYSTEM_INFO`
+layout (architecture/page at 0/4, 64-bit minimum/maximum pointers at 8/16,
+allocation granularity at 40), conventional 4 KiB pages and 64 KiB granularity,
+ordered bounds and the supported 47-bit user address ceiling. Output markers
+detect missing output from the void API. Unsupported layouts/bounds fail closed.
+The existing CE-local native-call bridge and scratch stream are reused; no
+target code, new privileges or process-name discovery is involved.
+
+Process mode explicitly overrides the owned MemScan's memory-type policy to
+private only (`MEM_PRIVATE=true`, image/mapped=false). Bounds selection and
+region eligibility are separate: only readable/writable non-executable private
+mappings supported by CE's `+W-X-C` policy and four-byte alignment are searched.
+Inaccessible or unaligned values are outside this declared scope. Every selected
+context must still fit one committed private `PAGE_READWRITE` region. Address
+and mapping arithmetic reject overflow. CE-native coverage remains unqualified.
+
+`mode='bounded'` accepts explicit bounds for fixtures/diagnostics. Legacy paired
+bounds with no mode retain their bounded meaning. Partial bounds, process mode
+combined with bounds, and unknown modes fail config validation before attachment.
+Status/evidence expose resolved bounds, source, policies, alignment and
+`scope_complete`; resolving the envelope never asserts successful collection.
+
 On completion, FoundList count must agree with scan progress/results and fit
 the configured budget (1..128). `max_candidates` must equal `scan_budget`.
 The collector receives all matches, exact target pattern/float, target filtering
 and prescore selection enabled, no known-true address, no truth probe, and no
 Full/stable-intersection claim. More matches than the budget, incomplete scan
 progress, truncated collection, or failed reads are errors. The adapter never
-silently samples a smaller universe to claim uniqueness. Narrow the scan range
-before retrying an oversized population.
+silently samples a smaller universe to claim uniqueness. P2-A publishes automatic
+bounds independently; the 128-result limit remains until P2-B establishes complete
+large-population evaluation. P2-A alone is not complete process-wide Single.
 
 The real collector and ranker must produce an `ACCEPT`, no-manual-review best
 candidate. Additionally, exactly **one** member of the entire filtered/ranked

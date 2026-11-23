@@ -16,9 +16,9 @@ module finds its configuration and sibling modules relative to its saved path.
    Keep the local file private: it is ignored by Git and never overwritten by
    the loader. Do not edit the legacy `run_case_config.local.lua` for this tool.
 2. Set `target_pid` to the current exact PID of the intended operator-owned
-   target. Set `scan.start_address` and `scan.stop_address` to its permitted
-   memory range. The scan range must include each candidate's entire surrounding
-   structure, from value address minus 0x20 through plus 0x53.
+   target. Omit both address fields for automatic process scope. After identity
+   checks, the adapter obtains Windows x64 user-mode bounds from `GetSystemInfo`.
+   Missing or uncertain OS bounds stop the run; there is no guessed fallback.
 3. Set `scan.target_value_float` and its matching `target_value_pattern` to the
    value used to discover new objects. Set `write_value` to the intended finite
    Float32. The example `100.0 / 0x42C80000 -> 125.0 / 0x42FA0000` is a test
@@ -26,7 +26,8 @@ module finds its configuration and sibling modules relative to its saved path.
 4. Leave `screening_profile='single'`, `value_type='float32'`, both filter and
    prescore flags true, and all engineering extensions false. Keep
    `max_candidates == scan_budget`, at most 128. If there are more matches,
-   narrow the range; the tool will not silently choose from a sampled list.
+   the P2-A release stops with `CANDIDATE_BUDGET_EXCEEDED`. Large-population
+   evaluation is pending P2-B; automatic bounds alone do not resolve that limit.
 5. Adjust monitoring/retry limits if needed. `max_rescan_attempts` is the total
    retry/relocation budget for that Start. After obtaining the applicable target
    authorization, deliberately set `write_enabled=true` and save.
@@ -35,6 +36,28 @@ The shipped sample uses PID 0 and disables writes. It is intentionally rejected
 before attachment. Numbers such as 0.1 round once to their binary32 representation;
 the actual written/read-back bits are shown in status. Readback requires exact
 bits, with no epsilon tolerance. Search float/pattern disagreement is rejected.
+
+Automatic scope uses the owned MemScan's `setSpecialScanOptionsOverride` for
+`MEM_PRIVATE=true`, `MEM_IMAGE=false`, `MEM_MAPPED=false`, plus `+W-X-C` and
+four-byte alignment. It covers eligible readable/writable, non-executable
+private mappings supported by CE's scan policy, not inaccessible or unaligned
+addresses. Selection additionally requires a whole `-0x20..+0x53` context in one
+committed `PAGE_READWRITE` mapping. Unknown scope or incomplete collection cannot
+authorize a write. Native CE scan behavior still requires separate qualification.
+
+For a disposable fixture or advanced diagnostics, explicitly opt into a range:
+
+```lua
+-- Inside scan (keep the search/filter/budget settings):
+mode = 'bounded',
+start_address = '0x100000',
+stop_address = '0x10FFFF',
+```
+
+These addresses are synthetic examples only. Existing configs with both legacy
+address fields keep their historical bounded meaning even without `mode`.
+One missing bound, `mode='process'` with bounds, an invalid mode, or an invalid
+range is rejected before attachment. No manual bounds means process mode.
 
 ## Prepare the local table (offline)
 
@@ -105,6 +128,10 @@ H3A7_CE_MVP.status()
 Status includes PID/creation-time identity token, current and last candidate
 address, last written/read-back Float32 and bits, scan/write counts, completed
 monitor checks, last check time, error, stop reason and cleanup status. Output
+also includes `scan_mode`, resolved `scan_start_address` / `scan_stop_address`,
+`bounds_source`, `scan_policy`, `candidate_policy`, `alignment_bytes` and
+`scope_complete`. A resolved address envelope alone is not complete collection.
+These are read-only snapshots with no extra process access. Output
 uses local nonsecret process identifiers, not signed authorization. The optional
 `.log` path is disabled by default; set an absolute path under an existing local
 directory if desired. History/output is bounded; status queries remain available.
@@ -140,7 +167,8 @@ stops the run. There is no automatic rollback or process-name reattachment.
 | `UNSUPPORTED_ENGINEERING_EXTENSION` | This MVP only implements the disabled extension interfaces. Do not substitute an A4 review-only result. |
 | `CE_API_MISSING`, `WIN32_API_MISSING`, `REQUIRES_CE_*` | Verify CE 7.6 x64/Lua 5.3 and ordinary Windows process access. There is no fallback to weaker identity checks. |
 | `PROCESS_OPEN_FAILED`, `IDENTITY_UNCERTAIN`, `PID_*`, `CE_TARGET_CHANGED` | Stop; confirm the exact intended PID/instance and access. No automated reattachment follows. |
-| `CANDIDATE_BUDGET_EXCEEDED` | More than the bounded complete population. Narrow the configured range before restarting. |
+| `CANDIDATE_BUDGET_EXCEEDED` | P2-A cannot evaluate this entire population; zero writes. P2-B is required for full large-population treatment. |
+| `PROCESS_SCOPE_UNAVAILABLE`, `PROCESS_SCAN_POLICY_UNAVAILABLE` | Windows x64 bounds or the CE scan policy could not be established; zero writes. |
 | `CANDIDATE_NOT_QUALIFIED`, `AMBIGUOUS_CANDIDATES` | Existing structural rules cannot establish a unique acceptable candidate. Inspect the profile/target; never force the first match. |
 | `SCAN_COMPLETION_UNCERTAIN`, `SCREENING_READ_FAILED` | Incomplete scan/read observations. Check CE diagnostics and the stable test layout; no write follows. |
 | `CANDIDATE_CHANGED`, `PREWRITE_CANDIDATE_CHANGED` | Value or structure changed after discovery. The transaction was abandoned. |

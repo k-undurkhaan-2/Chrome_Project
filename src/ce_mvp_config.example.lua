@@ -8,14 +8,15 @@ return {
   write_value = 125.0, -- example only; rounded by string.pack('<f') to binary32
   write_enabled = false,
   scan = {
-    -- Scan VALUE addresses within this range. The entire -0x20..+0x53 context
-    -- must fit inside it. For a disposable test, use its reported allocation.
-    start_address = '0x10000',
-    stop_address = '0x7FFFFFFFFFFF',
+    -- Default: process scope, OS-verified user-mode bounds; no addresses needed.
+    -- Only 4-byte aligned matches in CE-supported private writable/non-executable
+    -- mappings are searched. Candidate context must be committed PAGE_READWRITE.
+    -- Optional diagnostics: mode='bounded', start_address='0x100000',
+    -- stop_address='0x10FFFF'. Legacy paired bounds also mean bounded mode.
     target_value_float = 100.0, -- new/relocated objects must start with this value
     target_value_pattern = 0x42C80000, -- exact bits must agree with rounded value
     -- Full-population Single, no truth label, no first-match or top-N shortcut.
-    -- More than 128 matches fails safely: narrow the range/profile before Start.
+    -- P2-A still rejects over 128 matches; complete large-pool treatment is pending.
     scan_budget = 128,
     max_candidates = 128, -- must equal scan_budget
     filter_target_match = true,
