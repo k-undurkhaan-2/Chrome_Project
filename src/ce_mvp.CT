@@ -8,7 +8,13 @@
       <AssemblerScript><![CDATA[[ENABLE]
 {$lua}
 if syntaxcheck then return end
-local m=dofile([[D:\armedforces.io-v2\src\ce_mvp.lua]])
+local entrypoint=nil -- H3A7_LOCAL_ENTRYPOINT
+assert(entrypoint, 'CE_MVP_TABLE_NOT_PREPARED: run src/prepare_ce_mvp.py, then load src/ce_mvp.local.CT')
+if H3A7_CE_MVP then
+  assert(debug.getinfo(H3A7_CE_MVP.start, 'S').source=='@'..entrypoint,
+    'CE_MVP_DIFFERENT_INSTALLATION_RELOAD_CE')
+end
+local m=dofile(entrypoint)
 local ok,reason=m.start()
 if not ok then error(reason) end
 {$asm}

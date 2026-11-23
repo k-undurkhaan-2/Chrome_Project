@@ -6,16 +6,19 @@ No test opens a native process, loads a Win32 DLL or invokes the live helper.
 from importlib import import_module
 import ast
 from pathlib import Path
+import shutil
+import subprocess
+import sys
 import xml.etree.ElementTree as ET
 
 import pytest
 from fixtures import ce_mvp_target_layout as layout
+from prepare_ce_mvp import MODULES, lua_path, prepare
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
-SOURCES = {p.name: p.read_text(encoding="utf-8") for p in SRC.glob("*.lua")
-           if p.name.startswith("ce_mvp") or p.name in (
-               "mvp0_candidate_report.lua", "mvp0_foundlist_collector.lua")}
+SOURCES = {name: (SRC / name).read_text(encoding="utf-8")
+           for name in (*MODULES, "ce_mvp_config.example.lua")}
 
 
 @pytest.fixture(params=["lua53", "lua54"])
@@ -424,7 +427,7 @@ def test_readback_failure_does_not_become_invalidation(runtime):
     w.clean()
 
 
-def test_actual_loader_and_ct_start_stop_scripts_under_mock_ce(runtime):
+def test_actual_loader_and_ct_start_stop_scripts_under_mock_ce(runtime, tmp_path):
     lua, w = runtime
     # Exercise saved configuration loading, native adapter wiring and the public
     # singleton, not just construction through the test factory.
@@ -450,8 +453,10 @@ def test_actual_loader_and_ct_start_stop_scripts_under_mock_ce(runtime):
       end
       dofile=function(path) return assert(loadfile(path,'t',_G))() end
     """)
+    source_dir = portable_source(tmp_path)
+    table_path = prepare(source_dir)
     entry = SOURCES["ce_mvp.lua"]
-    api = lua.execute(entry, name="@D:/repo/src/ce_mvp.lua")
+    api = lua.execute(entry, name="@" + (source_dir / "ce_mvp.lua").as_posix())
     if lua.eval("_VERSION") != "Lua 5.3":
         assert api.start()[0] is False
         assert w.open_calls == 0
@@ -468,7 +473,7 @@ def test_actual_loader_and_ct_start_stop_scripts_under_mock_ce(runtime):
     assert api.evidence().reason == "NO_RUN"
     guard.restore()
     w.object(0x100128)
-    script = ET.parse(SRC / "ce_mvp.CT").find(".//AssemblerScript").text
+    script = ET.parse(table_path).find(".//AssemblerScript").text
     enable, disable = script.split("[DISABLE]")
     start_code = enable.split("{$lua}")[1].split("{$asm}")[0]
     stop_code = disable.split("{$lua}")[1].split("{$asm}")[0]
@@ -776,3 +781,172 @@ def test_l01_prestart_api_guard_is_inert_counts_attempts_and_restores(runtime):
     assert guard.snapshot().attempted_calls.writeFloat == 1 and len(w.writes) == 0
     guard.restore(); guard.restore()
     assert guard.snapshot().installed is False
+
+
+def portable_source(tmp_path, name="relocated checkout [test] & 'quoted'"):
+    source_dir = tmp_path / name / "src"
+    source_dir.mkdir(parents=True)
+    for name in (*MODULES, "ce_mvp_config.example.lua", "ce_mvp.CT", "prepare_ce_mvp.py"):
+        shutil.copyfile(SRC / name, source_dir / name)
+    return source_dir
+
+
+def table_lua(path):
+    return [code.split("{$asm}")[0]
+            for script in ET.parse(path).findall(".//AssemblerScript")
+            for code in script.text.split("{$lua}")[1:]]
+
+
+@pytest.mark.parametrize("name", ["ASCII with spaces [x] & 'quote'", "\u79fb\u52a8\u76ee\u5f55 [x] & 'quote'"])
+def test_portable_preparation_cli_is_deterministic_private_and_cwd_independent(tmp_path, name):
+    source_dir = portable_source(tmp_path, name)
+    before = {p.name: p.read_bytes() for p in source_dir.iterdir()}
+    result = subprocess.run([sys.executable, str(source_dir / "prepare_ce_mvp.py")],
+                            cwd=tmp_path, capture_output=True)
+    assert result.returncode == 0, result.stderr
+    output = source_dir / "ce_mvp.local.CT"
+    first = output.read_bytes()
+    assert b"\r" not in first and first.decode("ascii")
+    assert not (source_dir / "ce_mvp_config.local.lua").exists()
+    # A pre-existing private file must not even be parsed or replaced.
+    private = source_dir / "ce_mvp_config.local.lua"
+    private.write_bytes(b"this is deliberately not valid Lua\n")
+    assert prepare(source_dir).read_bytes() == first
+    assert private.read_bytes() == b"this is deliberately not valid Lua\n"
+    assert all((source_dir / name).read_bytes() == data for name, data in before.items())
+    assert {p.name for p in source_dir.iterdir()} == set(before) | {output.name, private.name}
+
+
+def test_portable_records_are_inert_and_template_requires_preparation(runtime, tmp_path):
+    lua, w = runtime
+    output = prepare(portable_source(tmp_path))
+    lua.execute("for k,v in pairs(w.ce) do _G[k]=v end; dofile=function() error('UNEXPECTED_LOAD') end")
+    for path in (SRC / "ce_mvp.CT", output):
+        table = ET.parse(path)
+        assert table.find("LuaScript") is None and table.findall(".//Active") == []
+        records = table.findall(".//CheatEntry")
+        assert [r.findtext("ID") for r in records] == ["1", "2"]
+        assert "Start (uncheck to Stop" in records[0].findtext("Description")
+        assert "Status" in records[1].findtext("Description")
+        lua.globals().syntaxcheck = True
+        for code in table_lua(path):
+            lua.compile(code)
+            lua.execute(code)
+        lua.globals().syntaxcheck = False
+        # Start-disable (Stop), Status-enable and Status-disable are inert before Start.
+        for code in table_lua(path)[1:]:
+            lua.execute(code)
+    with pytest.raises(Exception, match="CE_MVP_TABLE_NOT_PREPARED"):
+        lua.execute(table_lua(SRC / "ce_mvp.CT")[0])
+    assert w.open_calls == w.reads == len(w.writes) == len(w.native_calls) == 0
+
+
+@pytest.mark.parametrize("path", [
+    "C:\\space & quotes\\a'\"b\\ce_mvp.lua",
+    "C:/\u79fb\u52a8/]]; error('INJECTED') --/ce_mvp.lua",
+    "C:/]]></AssemblerScript><LuaScript>injected</LuaScript>/[DISABLE]/{$asm}/ce_mvp.lua",
+])
+def test_portable_path_encoding_round_trips_in_real_lua_and_xml(runtime, path):
+    lua, _ = runtime
+    literal = lua_path(path)
+    assert lua.eval(literal) == path
+    xml = ET.fromstring("<AssemblerScript><![CDATA[return " + literal + "]]></AssemblerScript>")
+    assert lua.execute(xml.text) == path
+
+
+@pytest.mark.parametrize("path", ["", "C:/nul\0/ce_mvp.lua", "C:/line\n/ce_mvp.lua"])
+def test_portable_invalid_paths_reject(path):
+    with pytest.raises(ValueError, match="INVALID_ENTRYPOINT_PATH"):
+        lua_path(path)
+
+
+@pytest.mark.parametrize("missing", MODULES)
+def test_portable_missing_module_fails_without_output_or_config(tmp_path, missing):
+    source_dir = portable_source(tmp_path)
+    (source_dir / missing).unlink()
+    with pytest.raises(ValueError, match="MISSING_MODULE"):
+        prepare(source_dir)
+    assert not (source_dir / "ce_mvp.local.CT").exists()
+    assert not (source_dir / "ce_mvp_config.local.lua").exists()
+
+
+@pytest.mark.parametrize("bad_template", ["<CheatTable/>", "local entrypoint=nil -- H3A7_LOCAL_ENTRYPOINT<"])
+def test_portable_bad_template_does_not_overwrite_local_output(tmp_path, bad_template):
+    source_dir = portable_source(tmp_path)
+    output = prepare(source_dir)
+    before = output.read_bytes()
+    (source_dir / "ce_mvp.CT").write_text(bad_template, encoding="utf-8")
+    with pytest.raises((ValueError, ET.ParseError)):
+        prepare(source_dir)
+    assert output.read_bytes() == before
+
+
+def test_portable_real_file_loading_has_no_config_fallback_or_implicit_enable(tmp_path):
+    lua = import_module("lupa.lua53").LuaRuntime(unpack_returned_tuples=True)
+    source_dir = portable_source(tmp_path)
+    start = table_lua(prepare(source_dir))[0]
+    lua.execute("openProcess=function() error('UNEXPECTED_ATTACH') end")
+    with pytest.raises(Exception, match="ce_mvp_config.local.lua"):
+        lua.execute(start)
+    assert lua.globals().H3A7_CE_MVP.status().state == "STOPPED"
+    sample = (source_dir / "ce_mvp_config.example.lua").read_text(encoding="utf-8")
+    cfg = lua.execute(sample)
+    assert cfg.target_pid == 0 and cfg.write_enabled is False
+    local = source_dir / "ce_mvp_config.local.lua"
+    # Explicit test fixture copies only; the preparation helper never creates config.
+    local.write_text(sample, encoding="utf-8")
+    with pytest.raises(Exception, match="INVALID_TARGET_PID"):
+        lua.execute(start)
+    local.write_text(sample.replace("target_pid = 0,", "target_pid = 101,"), encoding="utf-8")
+    with pytest.raises(Exception, match="WRITE_DISABLED"):
+        lua.execute(start)
+    (source_dir / "ce_mvp_core.lua").unlink()
+    with pytest.raises(Exception, match="ce_mvp_core.lua"):
+        lua.execute(start)
+    (source_dir / "ce_mvp.lua").unlink()
+    with pytest.raises(Exception, match="ce_mvp.lua"):
+        lua.execute(start)
+
+
+def test_portable_unicode_paths_route_to_exact_siblings_under_unicode_file_io(tmp_path):
+    # Stock Windows Lupa uses narrow C file I/O, unlike a Unicode-capable host.
+    # Use explicit Python UTF-8 file I/O + real Lua compilation for this routing
+    # test; native CE Unicode filename handling still requires qualification.
+    lua = import_module("lupa.lua53").LuaRuntime(unpack_returned_tuples=True)
+    source_dir = portable_source(tmp_path, "\u79fb\u52a8\u76ee\u5f55 with spaces")
+    output = prepare(source_dir)
+    sample = source_dir / "ce_mvp_config.example.lua"
+    shutil.copyfile(sample, source_dir / "ce_mvp_config.local.lua")
+    loaded = []
+
+    def read_source(path):
+        loaded.append(Path(path))
+        assert Path(path).parent == source_dir
+        return Path(path).read_text(encoding="utf-8")
+
+    lua.globals().read_source = read_source
+    lua.execute("""
+      loadfile=function(path, mode, env) return load(read_source(path),'@'..path,mode,env) end
+      dofile=function(path) return assert(loadfile(path,'t',_G))() end
+      openProcess=function() error('UNEXPECTED_ATTACH') end
+    """)
+    with pytest.raises(Exception, match="INVALID_TARGET_PID"):
+        lua.execute(table_lua(output)[0])
+    assert loaded == [source_dir / name for name in
+                      ("ce_mvp.lua", "ce_mvp_config.local.lua", "ce_mvp_core.lua")]
+
+
+def test_portable_table_rejects_singleton_from_another_installation(runtime, tmp_path):
+    lua, w = runtime
+    lua.execute(SOURCES["ce_mvp.lua"], name="@C:/other installation/src/ce_mvp.lua")
+    with pytest.raises(Exception, match="CE_MVP_DIFFERENT_INSTALLATION_RELOAD_CE"):
+        lua.execute(table_lua(prepare(portable_source(tmp_path)))[0])
+    assert w.open_calls == w.reads == len(w.writes) == len(w.native_calls) == 0
+
+
+def test_portable_output_and_private_config_are_ignored_without_hiding_template():
+    ignored = subprocess.run(["git", "check-ignore", "--no-index", "src/ce_mvp.local.CT",
+                              "src/ce_mvp_config.local.lua", "src/ce_mvp.CT",
+                              "src/prepare_ce_mvp.py"], cwd=ROOT,
+                             text=True, capture_output=True, check=True)
+    assert ignored.stdout.splitlines() == ["src/ce_mvp.local.CT", "src/ce_mvp_config.local.lua"]

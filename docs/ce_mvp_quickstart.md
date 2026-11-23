@@ -8,10 +8,9 @@ target or any historical PID/address from earlier A6 attempts.
 
 ## Configure once
 
-Use **Windows x64 Cheat Engine 7.6 with Lua 5.3**. Keep the repository at
-`D:\armedforces.io-v2`; the CT Start action points there. If you move the
-repository, edit that one loader path inside the CT before use. The Lua module
-finds its sibling files relative to its own saved path.
+Use **Windows x64 Cheat Engine 7.6 with Lua 5.3**. The checkout can live in any
+chosen installation directory. Keep the shipped `src` files together; the Lua
+module finds its configuration and sibling modules relative to its saved path.
 
 1. Copy `src\ce_mvp_config.example.lua` to `src\ce_mvp_config.local.lua`.
    Keep the local file private: it is ignored by Git and never overwritten by
@@ -37,20 +36,59 @@ before attachment. Numbers such as 0.1 round once to their binary32 representati
 the actual written/read-back bits are shown in status. Readback requires exact
 bits, with no epsilon tolerance. Search float/pattern disagreement is rejected.
 
+## Prepare the local table (offline)
+
+From the checkout root, run this once with Python 3.10 or later:
+
+```powershell
+py -3 .\src\prepare_ce_mvp.py
+```
+
+Or invoke the script by its full path from any working directory. For the
+current checkout, an equivalent command is:
+
+```powershell
+py -3 'D:\armedforces.io-v2\src\prepare_ce_mvp.py'
+```
+
+This standard-library-only helper creates `src\ce_mvp.local.CT`, containing the
+absolute path of its sibling `ce_mvp.lua`. It checks that all five required Lua
+modules exist. It never reads, creates or changes the private config, launches
+CE or a target, or enables writes. Repeating preparation produces the same bytes
+at the same location. Python is only needed for this offline preparation.
+
+`src\ce_mvp.CT` is the versioned template. Its Start deliberately fails with
+`CE_MVP_TABLE_NOT_PREPARED`; open the generated **local** table instead. The exact
+local output filename is ignored by Git, like `ce_mvp_config.local.lua`. Do not
+commit or distribute this machine-specific generated table.
+
+After moving/copying the checkout, run the helper **at the new location** and load
+the newly generated CT. The old generated CT still names its old installation;
+it does not follow moves. Stop and close the old CE session before switching
+installations. `CE_MVP_DIFFERENT_INSTALLATION_RELOAD_CE` prevents Start from
+silently using an already loaded singleton from another directory. Missing files
+fail explicitly; there is no current-directory or process-name fallback.
+
+The path is encoded as fixed-width Lua UTF-8 byte escapes, including spaces,
+quotes, brackets and XML delimiters. Offline tests cover those encodings and
+Unicode path routing. **Native CE Unicode file I/O remains unverified**; if that
+CE build cannot open a non-ASCII installation path, use an ASCII directory and
+prepare again. This is not a claim of native CE acceptance.
+
+This preparation approach avoids dependence on an unverified CT-directory API.
+The upstream [CT path API discussion](https://github.com/cheat-engine/cheat-engine/issues/2276)
+records why Open/Save dialog filenames are unreliable after process attachment.
+
 ## Load, Start, inspect and Stop
 
-Open `D:\armedforces.io-v2\src\ce_mvp.CT` in CE. Opening the table performs no
-process/memory operation. Show CE's Lua Engine output, then enable the checkbox
-**H3-A7 Start** once. It attaches to the configured PID automatically, starts an
-asynchronous scan, applies the existing Single collector/ranker, writes one
-uniquely qualified candidate, verifies it, and monitors. No pasted witnesses,
-Python console, repeated prompts, or manual initial scan are required.
-
-One-line fallback in the CE Lua Engine, with the same saved configuration:
-
-```lua
-dofile([[D:\armedforces.io-v2\src\ce_mvp.lua]]).start()
-```
+Use **File -> Load** to open `src\ce_mvp.local.CT` from this installation
+(`D:\armedforces.io-v2\src\ce_mvp.local.CT` for the command above). Opening the
+table and AA syntax checking perform no process/memory operation. After saving
+the explicitly authorized local configuration, show CE's Lua Engine output and
+enable **H3-A7 Start** once. It attaches to the configured PID automatically,
+starts an asynchronous scan, applies the existing Single collector/ranker, writes
+one uniquely qualified candidate, verifies it, and monitors. No Python companion
+or manual initial scan is required while CE runs.
 
 Expected state sequence:
 
