@@ -57,7 +57,7 @@ function M.new(cfg, ce, load_module, observation_source, execution)
   local cycle_id=0
   local function empty_scope()
     return {cycle_id=cycle_id,scope_resolved=false,scan_mode=cfg.scan.mode,alignment_bytes=4,
-      scan_policy=(cfg.scan.mode=='process' and 'MEM_PRIVATE; ' or '') .. '+W-X-C; aligned exact Float32 bits',
+      scan_policy=(cfg.scan.mode=='process' and 'memory-type policy pending; ' or '') .. '+W-X-C; aligned exact Float32 bits',
       candidate_policy='MEM_COMMIT/MEM_PRIVATE/PAGE_READWRITE; whole -0x20..+0x53 context',
       result_ready=false,scope_complete=false,scan_complete=false,collection_complete=false,global_uniqueness_proven=false,
       decision_scope=execution and 'QSG_FULL_POPULATION' or 'LEGACY_SINGLE_SCOPE',write_admission_basis='NONE',
@@ -421,7 +421,7 @@ function M.new(cfg, ce, load_module, observation_source, execution)
       if u32(row[key])==nil then fail('CANDIDATE_UNREADABLE') end
       candidate.fields[key]=row[key]
     end
-    scope.global_uniqueness_proven=scope.scope_complete and qualified==1
+    scope.global_uniqueness_proven=scope.scope_complete and qualified==1 and not active_scan.native_policy_fallback
     scope.write_admission_basis=execution and 'QSG_FULL_POPULATION_UNIQUE_ACCEPT' or 'LEGACY_SCOPE_ACCEPT'
     observe('candidate_admitted', {cycle_id=cycle_id,address=candidate.address,coverage=scope.coverage,
       decision_scope=scope.decision_scope,write_admission_basis=scope.write_admission_basis,
@@ -443,9 +443,18 @@ function M.new(cfg, ce, load_module, observation_source, execution)
     scope.collection_phase='scanning'
     local ms=f.createMemScan(); task.object=ms
     if cfg.scan.mode=='process' then
-      if type(ms.setSpecialScanOptionsOverride)~='function' then fail('PROCESS_SCAN_POLICY_UNAVAILABLE') end
-      ms.setSpecialScanOptionsOverride({MEM_PRIVATE=true,MEM_IMAGE=false,MEM_MAPPED=false})
-      scope.scan_policy='MEM_PRIVATE; +W-X-C; aligned exact Float32 bits'
+      if type(ms.setSpecialScanOptionsOverride)=='function' then
+        -- A real override failure is terminal; never retry it with default policy.
+        ms.setSpecialScanOptionsOverride({MEM_PRIVATE=true,MEM_IMAGE=false,MEM_MAPPED=false})
+        scope.scan_policy='MEM_PRIVATE (per-instance override); +W-X-C; aligned exact Float32 bits'
+      elseif execution then
+        fail('PROCESS_SCAN_POLICY_UNAVAILABLE')
+      else
+        -- NORMAL reuses bounded First Scan policy with the resolved OS bounds.
+        -- Do not change CE-wide preferences or claim a private-only population.
+        task.native_policy_fallback=true
+        scope.scan_policy='CE native/default memory types (NORMAL bounded-policy fallback); +W-X-C; aligned exact Float32 bits'
+      end
     end
     ms.OnlyOneResult=false; ms.IsUnique=false
     ms.OnScanDone=function(sender)

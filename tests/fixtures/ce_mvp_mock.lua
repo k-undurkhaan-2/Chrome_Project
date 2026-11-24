@@ -8,7 +8,8 @@ function M.new(sources)
   local ce={soExactValue=0,vtDword=2,rtRounded=0,fsmAligned=1}
   local function forbidden() w.forbidden=w.forbidden+1; error('FORBIDDEN_ACCESS') end
   for _,name in ipairs({'executeCode','executeCodeEx','writeInteger','writeBytes',
-      'getProcessIDFromProcessName','getCurrentMemscan','AOBScan','waitTillDone'}) do ce[name]=forbidden end
+      'getProcessIDFromProcessName','getCurrentMemscan','AOBScan','waitTillDone',
+      'setSpecialScanOptionsOverride'}) do ce[name]=forbidden end
   local function hook(event)
     if w.hook then w.hook(event) end
     if w.fail[event]=='throw' then error('INJECTED_' .. event) end
@@ -108,7 +109,7 @@ function M.new(sources)
       local o=w.locate(args[2]); if not o then return 0 end
       local p=args[3]
       w.localmem[p]=o.base or 0x100000; w.localmem[p+8]=o.alloc; w.localmem[p+24]=o.size or 0x20000
-      w.localmem[p+32]=0x1000; w.localmem[p+36]=o.protect; w.localmem[p+40]=0x20000
+      w.localmem[p+32]=0x1000; w.localmem[p+36]=o.protect; w.localmem[p+40]=o.kind or 0x20000
       return 48
     end
     error('unexpected native API ' .. name)
@@ -158,8 +159,10 @@ function M.new(sources)
     w.active_scans=w.active_scans+1; w.max_scans=math.max(w.max_scans,w.active_scans)
     local ms={id=#w.scans+1,done=false,dead=false,addresses={}}
     w.lifecycle[#w.lifecycle+1]={event='scan_created',scan_id=ms.id}
-    if not w.fail.scan_policy then
-      ms.setSpecialScanOptionsOverride=function(options) ms.policy=options end
+    if w.fail.scan_policy=='non_callable' then
+      ms.setSpecialScanOptionsOverride=false
+    elseif w.fail.scan_policy~=true then
+      ms.setSpecialScanOptionsOverride=function(options) hook('scan_policy'); ms.policy=options end
     end
     w.scans[#w.scans+1]=ms
     ms.firstScan=function(...)

@@ -1009,8 +1009,11 @@ def test_p4_default_or_unavailable_progress_cannot_prove_empty_scan(runtime, sna
     ("w.hook=function(e) if e=='initialize' then w.latest_foundlist.Count=-1 end end", "INVALID_FOUNDLIST_COUNT"),
     ("w.hook=function(e) if e=='getProgress' then w.hook=nil; w.loop.stop() end end", "OPERATOR_STOP"),
 ])
-def test_p4_r1_observed_api_failure_or_stop_is_terminal_even_with_ready_callback(runtime, fault, reason):
+@pytest.mark.parametrize("native_fallback", [False, True])
+def test_p4_r1_observed_api_failure_or_stop_is_terminal_even_with_ready_callback(runtime, fault, reason, native_fallback):
     lua, w = runtime
+    if native_fallback:
+        process_scope(w); w.fail.scan_policy = True
     w.object(0x100128); reset_worker_counters(lua, w)
     lua.execute(fault)
     w.start(); w.until_state("STOPPED" if reason == "OPERATOR_STOP" else "ERROR")
@@ -1324,16 +1327,102 @@ def test_process_scope_uses_verified_os_bounds_after_identity_and_is_readonly(ru
 
 
 @pytest.mark.parametrize("mode", [None, "bounded"])
-def test_legacy_bounds_keep_their_meaning_without_system_info(runtime, mode):
+@pytest.mark.parametrize("policy", [None, True, "non_callable", "throw"])
+def test_legacy_bounds_keep_their_meaning_without_system_info(runtime, mode, policy):
     _, w = runtime
     w.cfg.scan.mode = mode
+    w.fail.scan_policy = policy
     w.fail.symbol = "GetSystemInfo"
     good(w)
     s = w.loop.status()
     assert s.scan_mode == "bounded"
+    assert s.scan_policy == "+W-X-C; aligned exact Float32 bits"
+    assert w.scans[1].policy is None
     assert (s.scan_start_address, s.scan_stop_address) == (0x100000, 0x11FFFF)
     assert not any(c.name == "GetSystemInfo" for _, c in w.native_calls.items())
     w.loop.stop(); w.clean()
+
+
+@pytest.mark.parametrize("policy", [True, "non_callable"])
+@pytest.mark.parametrize("retained_counters", [False, True])
+def test_p4_r2_normal_auto_bounds_use_native_policy_without_global_claim(runtime, policy, retained_counters):
+    lua, w = runtime
+    process_scope(w)
+    w.cfg.scan.scan_budget = w.cfg.scan.max_candidates = None
+    w.fail.scan_policy = policy
+    enable_diagnostics(lua)
+    if not retained_counters: reset_worker_counters(lua, w)
+    good(w)
+    s = w.loop.status()
+    assert s.scan_mode == "process" and s.scope_resolved
+    assert "GetSystemInfo" in s.bounds_source
+    assert (s.scan_start_address, s.scan_stop_address) == (0x10000, 0x7FFFFFFEFFFF)
+    assert (w.scans[1].args[6], w.scans[1].args[7]) == (s.scan_start_address, s.scan_stop_address)
+    assert w.scans[1].policy is None
+    assert s.scan_policy == "CE native/default memory types (NORMAL bounded-policy fallback); +W-X-C; aligned exact Float32 bits"
+    assert "MEM_PRIVATE" not in s.scan_policy and "MEM_PRIVATE" in s.candidate_policy
+    assert (s.raw_admission_budget, s.ranking_budget) == (2000, 20)
+    assert s.result_ready and s.collection_complete and s.coverage == "full_population"
+    # The historical counter rule describes this native view, never all private memory.
+    assert s.scan_complete is retained_counters and s.scope_complete is retained_counters
+    assert not s.global_uniqueness_proven
+    assert s.decision_scope == "LEGACY_SINGLE_SCOPE" and s.write_admission_basis == "LEGACY_SCOPE_ACCEPT"
+    assert s.last_written_bits == s.last_readback_bits == 0x42FA0000
+    assert len(events(w, "scan_invocation")) == len(events(w, "scan_done_observed")) == 1
+    assert events(w, "scan_population_complete")[0].scan_complete is retained_counters
+    assert not events(w, "candidate_admitted")[0].global_uniqueness_proven
+    assert w.loop.evidence().scan_scope.scan_policy == s.scan_policy
+    assert "pending" in events(w, "scan_scope_resolved")[0].scan_policy
+    w.step(40)
+    assert w.loop.status().monitor_checks >= 20 and len(w.scans) == len(w.writes) == 1
+    w.loop.stop(); w.clean()
+
+
+@pytest.mark.parametrize("policy,qualification", [(True, True), ("non_callable", True),
+                                                  ("throw", False), ("throw", True)])
+def test_p4_r2_strict_missing_policy_and_real_override_failures_remain_terminal(runtime, policy, qualification):
+    lua, w = runtime
+    process_scope(w); w.fail.scan_policy = policy
+    w.object(0x100128)
+    if qualification: qualification_mode(lua)
+    w.start(); w.until_state("ERROR")
+    s = w.loop.status()
+    assert ("INJECTED_scan_policy" if policy == "throw" else "PROCESS_SCAN_POLICY_UNAVAILABLE") in s.last_error
+    assert s.scope_resolved and "pending" in s.scan_policy and "MEM_PRIVATE" not in s.scan_policy
+    assert not s.result_ready and not s.scan_complete and not s.global_uniqueness_proven
+    assert s.decision_scope == ("QSG_FULL_POPULATION" if qualification else "LEGACY_SINGLE_SCOPE")
+    assert s.write_admission_basis == "NONE"
+    assert len(w.scans) == 1 and w.scans[1].args is None and w.scans[1].policy is None
+    assert len(w.foundlist_history) == len(w.writes) == w.reads == 0
+    assert s.cleanup_ok
+    w.clean()
+
+
+@pytest.mark.parametrize("fault,reason", [
+    ("weak", "CANDIDATE_NOT_QUALIFIED"), ("ambiguous", "CANDIDATE_NOT_QUALIFIED"),
+    ("image", "CANDIDATE_MAPPING_INVALID"), ("mapped", "CANDIDATE_MAPPING_INVALID"),
+    ("read", "SCREENING_READ_FAILED"), ("changed", "CANDIDATE_CHANGED"),
+    ("destroy_foundlist", "FOUNDLIST_CLEANUP_FAILED"), ("destroy_scan", "SCAN_CLEANUP_FAILED"),
+])
+def test_p4_r2_native_policy_keeps_candidate_and_cleanup_protections(runtime, fault, reason):
+    lua, w = runtime
+    process_scope(w); w.fail.scan_policy = True
+    reset_worker_counters(lua, w)
+    candidate = w.object(0x100128, "weak" if fault == "weak" else None)
+    if fault == "ambiguous": w.object(0x101128)
+    if fault in ("image", "mapped"): candidate.kind = 0x1000000 if fault == "image" else 0x40000
+    if fault == "read": w.fail.unreadable = candidate.addr - 0x20
+    if fault.startswith("destroy_"): w.fail[fault] = "throw"
+    w.start()
+    if fault == "changed":
+        w.until_state("CANDIDATE_CHECK"); candidate.memory[candidate.addr - 0x20] = 7
+    w.until_state("ERROR")
+    s = w.loop.status()
+    assert reason in s.last_error and not s.global_uniqueness_proven
+    w.step(100)
+    assert len(w.scans) == 1 and len(w.writes) == 0
+    assert s.cleanup_ok is (not fault.startswith("destroy_"))
+    w.clean()
 
 
 @pytest.mark.parametrize("edit,reason", [
@@ -1364,7 +1453,6 @@ def test_scope_configuration_rejects_before_ce_access(runtime, edit, reason):
     ("w.system_info_override={[16]=0x10000}", "PROCESS_SCOPE_UNAVAILABLE"),
     ("w.system_info_override={[16]=0x7FFFFFFEFFF0}", "PROCESS_SCOPE_UNAVAILABLE"),
     ("w.system_info_override={[40]=4096}", "PROCESS_SCOPE_UNAVAILABLE"),
-    ("w.fail.scan_policy=true", "PROCESS_SCAN_POLICY_UNAVAILABLE"),
     ("w.hook=function(e) if e=='GetSystemInfo' then w.creation=w.creation+1 end end", "PID_IDENTITY_MISMATCH"),
 ])
 def test_uncertain_process_scope_cannot_scan_or_write(runtime, edit, reason):
@@ -1991,10 +2079,11 @@ def test_r1_float32_bits_do_not_match_literal_dword_integer_100(runtime):
     w.loop.stop(); w.clean()
 
 
-@pytest.mark.parametrize("mode", ["bounded", "process"])
-def test_r1_recovery_cycles_use_fresh_native_objects_and_clear_previous_evidence(runtime, mode):
+@pytest.mark.parametrize("mode,native_fallback", [("bounded", False), ("process", False), ("process", True)])
+def test_r1_recovery_cycles_use_fresh_native_objects_and_clear_previous_evidence(runtime, mode, native_fallback):
     lua, w = runtime
     if mode == "process": process_scope(w)
+    if native_fallback: w.fail.scan_policy = True
     enable_diagnostics(lua, limit=2048)
     current = good(w)
     for cycle in (2, 3):
@@ -2027,7 +2116,8 @@ def test_r1_recovery_cycles_use_fresh_native_objects_and_clear_previous_evidence
         assert w.writes[cycle].addr == current.addr
         assert w.foundlist_history[cycle].scan_id == cycle
         assert w.foundlist_history[cycle].Address[0] == format(current.addr, "X")
-        assert w.loop.status().cycle_id == cycle and w.loop.status().global_uniqueness_proven
+        assert w.loop.status().cycle_id == cycle
+        assert w.loop.status().global_uniqueness_proven is (not native_fallback)
         assert w.loop.status().last_readback_bits == 0x42FA0000
     lifecycle = [(row.event, row.scan_id) for row in w.lifecycle.values()]
     assert lifecycle == [(event, cycle) for cycle in (1, 2, 3) for event in (

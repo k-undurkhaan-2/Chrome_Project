@@ -40,12 +40,31 @@ before attachment. Numbers such as 0.1 round once to their binary32 representati
 the actual written/read-back bits are shown in status. Readback requires exact
 bits, with no epsilon tolerance. Search float/pattern disagreement is rejected.
 
-Automatic scope uses the owned MemScan's `setSpecialScanOptionsOverride` for
-`MEM_PRIVATE=true`, `MEM_IMAGE=false`, `MEM_MAPPED=false`, plus `+W-X-C` and
-four-byte alignment. It covers eligible readable/writable, non-executable
-private mappings supported by CE's scan policy, not inaccessible or unaligned
-addresses. Selection additionally requires a whole `-0x20..+0x53` context in one
-committed `PAGE_READWRITE` mapping. Unknown bounds, observed API failures and
+Automatic scope uses the owned MemScan's `setSpecialScanOptionsOverride`, when
+callable, for `MEM_PRIVATE=true`, `MEM_IMAGE=false`, `MEM_MAPPED=false`, plus
+`+W-X-C` and four-byte alignment. An override exception remains terminal.
+The installed CE 7.6 build can lack this member even though its bundled
+`celua.txt` names the override; no supported equivalent per-instance mechanism
+has been established. The documented writable/executable/copy-on-write flags
+do not select private/image/mapped memory types.
+
+**NORMAL process compatibility (P4-R2):** when the member is absent or not
+callable, use the already working bounded First Scan policy with automatically
+resolved `GetSystemInfo` bounds. No manual addresses are required. CE's existing
+native/default memory-type selection applies; no global scan preferences are
+changed. `scan_policy` distinguishes `MEM_PRIVATE (per-instance override)` from
+`CE native/default memory types (NORMAL bounded-policy fallback)`. Before policy
+selection it reports `memory-type policy pending`, including on setup failure.
+Fallback can change the discovery population and does not establish a complete
+private-only population. `global_uniqueness_proven` stays false on that path,
+even with full collection and matching progress counters. The unchanged
+`result_ready`, `scan_complete`, collection coverage and `scope_complete` rules
+describe the available native view; fallback adds no native success proof.
+QUALIFICATION still requires the override and stops with
+`PROCESS_SCAN_POLICY_UNAVAILABLE` if it is absent/non-callable; it never downgrades.
+
+Selection still requires a whole `-0x20..+0x53` context in one committed private
+`PAGE_READWRITE` mapping. Unknown bounds, observed API failures and
 collection/integrity failures cannot authorize a write. Designed legacy admission/ranking
 reduction is allowed. Native scan completeness remains unverified in NORMAL.
 
@@ -291,7 +310,8 @@ a healthy address causes no new discovery cycle or repeated write.
 | `INCOMPLETE_CANDIDATE_POPULATION` | QSG QUALIFICATION only: its stricter full-coverage requirement was not met. NORMAL can write a valid scoped ACCEPT with truthful reduced-coverage evidence. |
 | `OBSOLETE_PROCESS_BUDGET_USE_LEGACY_INTAKE_SETTINGS` | Remove the old P2 snapshot knobs and review the independent raw-admission/ranking budgets. |
 | `FOUNDLIST_COUNT_CHANGED`, `FOUNDLIST_ADDRESS_CHANGED`, `DUPLICATE_FOUND_ADDRESS` | The complete stable candidate pool cannot be established; zero writes. |
-| `PROCESS_SCOPE_UNAVAILABLE`, `PROCESS_SCAN_POLICY_UNAVAILABLE` | Windows x64 bounds or the CE scan policy could not be established; zero writes. |
+| `PROCESS_SCOPE_UNAVAILABLE` | Windows x64 bounds could not be established; zero writes. |
+| `PROCESS_SCAN_POLICY_UNAVAILABLE` | Strict QUALIFICATION lacks its required per-instance policy; zero writes. NORMAL uses the documented native/default compatibility path when the member is absent/non-callable. |
 | `CANDIDATE_NOT_QUALIFIED` | Original Scope did not return a hard-pass ACCEPT without manual review. No write follows. |
 | `AMBIGUOUS_CANDIDATES` | QSG QUALIFICATION found multiple independent qualifiers. Its stricter contract remains active. |
 | `INVALID_RANK_RESULT`, `INVALID_SCOPE_COUNTS`, `CANDIDATE_NOT_SELECTED` | Result shape, stage counts or selected-candidate linkage is inconsistent; zero writes. |
@@ -347,6 +367,34 @@ Only those actual observations can establish minimum native usability. Even a
 passing manual test does not prove complete scan populations, reliable native
 error detection or formal qualification. Keep `IMPLEMENTED_PENDING_CE_QUALIFICATION`,
 `ATTACHMENT_HANDLE_UNVERIFIED`, `NOT_PRODUCTION_AUTHORIZED` and `G1 L01-L12=NOT_RUN`.
+
+## Automatic process-mode operator retest (P4-R2)
+
+The earlier bounded closed loop is historical maintainer evidence. The P4-R2
+checks are offline only; this automatic process-mode run remains pending.
+N0/MIN/LOCAL publication remains paused, with no tag or release authorized here.
+
+1. Stop/uncheck the old Start record and close/reload CE to discard the cached
+   Lua module. Launch a fresh owned disposable fixture using the command above
+   with a fresh token, and keep its window open.
+2. In private `src\ce_mvp_config.local.lua`, use the new fixture PID, keep NORMAL
+   execution and set `scan.mode='process'`. Remove both `start_address` and
+   `stop_address`; retain the search/write values, Single settings, default
+   2000/20 budgets and existing protections. Use a fresh diagnostics token.
+3. Run `& .\.venv\Scripts\python.exe .\src\prepare_ce_mvp.py`, load the generated
+   `src\ce_mvp.local.CT` in CE 7.6 x64 and enable Start once. Record automatic
+   bounds and `scan_policy`, native intake/ranking, ACCEPT and MONITORING,
+   scan/write counts and exact `0x42FA0000` readback. Independently enter `status`
+   in the fixture and confirm `125.0 / 0x42FA0000`. Record any changed discovery
+   population honestly; fallback does not prove private-only coverage or uniqueness.
+4. Repeat the healthy monitoring, one relocation, independent fixture readback
+   and PID-exit cleanup observations in steps 4-5 above. Keep the actual outcomes
+   separate from the offline regression results and formal G1 qualification.
+
+Only after this manual test passes may the maintainer separately authorize a
+signed Alpha Pre-release tag and release transaction. Keep
+`IMPLEMENTED_PENDING_CE_QUALIFICATION`, `ATTACHMENT_HANDLE_UNVERIFIED`,
+`NOT_PRODUCTION_AUTHORIZED` and formal `G1 L01-L12=NOT_RUN`.
 
 ## Separate formal CE qualification procedure
 
