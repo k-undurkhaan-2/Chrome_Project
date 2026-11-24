@@ -184,6 +184,7 @@ function M.new(sources)
     end
     ms.getProgress=function()
       assert(ms.done)
+      hook('getProgress')
       -- Explicit raw telemetry, including released-worker/default counters.
       -- This is not a terminal success/error API; CE exposes no such flag here.
       if w.progress_snapshot~=nil then
@@ -237,7 +238,7 @@ function M.new(sources)
   w.cfg.min_rescan_spacing_ms=200; w.cfg.scan_timeout_ms=10000; w.cfg.max_rescan_attempts=3
   function w.start()
     local validated=w.core.validate(w.cfg)
-    w.adapter=w.adapter_module.new(validated,ce,w.load,'synthetic')
+    w.adapter=w.adapter_module.new(validated,ce,w.load,'synthetic',w.execution)
     w.loop=w.core.new(w.cfg,w.adapter); return w.loop.start()
   end
   function w.step(count)

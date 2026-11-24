@@ -2,8 +2,9 @@
 
 Status: **IMPLEMENTED_PENDING_CE_QUALIFICATION**. The code and synthetic tests
 are delivered. Real CE 7.6 attachment, writes, readback and relocation have
-**not** been tested by this task. The live procedure below requires separate
-operator authorization for its fresh disposable target. Do not use a production
+**not** been tested by this task. P4-R1 implements the maintainer's Option A:
+NORMAL result readiness without independent native terminal-success proof.
+The short operator test below uses a fresh owned disposable fixture. Do not use a production
 target or any historical PID/address from earlier A6 attempts.
 
 ## Configure once
@@ -44,9 +45,9 @@ Automatic scope uses the owned MemScan's `setSpecialScanOptionsOverride` for
 four-byte alignment. It covers eligible readable/writable, non-executable
 private mappings supported by CE's scan policy, not inaccessible or unaligned
 addresses. Selection additionally requires a whole `-0x20..+0x53` context in one
-committed `PAGE_READWRITE` mapping. Unknown bounds, incomplete native scanning or
-collection failures cannot authorize a write. Designed legacy admission/ranking
-reduction is allowed. Native CE scan behavior still requires separate qualification.
+committed `PAGE_READWRITE` mapping. Unknown bounds, observed API failures and
+collection/integrity failures cannot authorize a write. Designed legacy admission/ranking
+reduction is allowed. Native scan completeness remains unverified in NORMAL.
 
 For a disposable fixture or advanced diagnostics, explicitly opt into a range:
 
@@ -62,19 +63,26 @@ address fields keep their historical bounded meaning even without `mode`.
 One missing bound, `mode='process'` with bounds, an invalid mode, or an invalid
 range is rejected before attachment. No manual bounds means process mode.
 
-Every discovery cycle creates a new native MemScan and obtains its entire
-FoundList after completion. No manual New Scan / First Scan button or supplied
+Every discovery cycle creates a new native MemScan and obtains that scan's own
+FoundList after its completion callback. No manual New Scan / First Scan button or supplied
 address list is needed. The unchanged legacy collector consumes that same
 FoundList, including its actual Count and zero-based indices. Native counts
 19,276, 20,000, 30,000 and above are allowed; there is no 128/8192 raw-hit cap.
 
-**Native completion limitation (P4):** `OnScanDone` and an initialized FoundList
+**NORMAL result readiness (P4-R1, Option A):** the current owned scan's
+`OnScanDone`, initialization of its own FoundList without an observed failure,
+and the existing Count/index/address integrity checks allow the unchanged Legacy
+Single Filter to consume the available native view. A stable count before that
+callback is insufficient. NORMAL no longer requires strict worker-counter
+equality or a new native terminal-success interface to select a scoped ACCEPT.
+
+**Native completion limitation:** `OnScanDone` and an initialized FoundList
 do not independently prove successful, complete scanning. CE can release worker
 threads before the final callback. Its `getProgress()` can then retain a positive
 `TotalAddressesToScan` while returning zero `CurrentlyScanned` and `ResultsFound`.
 Those transient counters must not be relabeled as the final FoundList count.
-The adapter currently rejects this pattern with `SCAN_COMPLETION_UNCERTAIN`;
-P4 has **not** established a safe native compatibility rule for accepting it.
+NORMAL can now use this result with `result_ready=true`, `scan_complete=false`
+and `global_uniqueness_proven=false`. Raw progress values stay unchanged.
 
 The public [controller implementation](https://github.com/cheat-engine/cheat-engine/blob/ec45d5f47f92a239ba0bf51ec5d04a7509c3fd37/Cheat%20Engine/memscan.pas#L7642)
 also reaches the final callback on error paths. Its Pascal error methods are
@@ -86,15 +94,22 @@ partial result; zero Count cannot distinguish an empty scan from failed result
 initialization. `waitTillDone()` adds no documented success status and is not
 used as a blocking workaround.
 
-The existing strict counter rule remains in force, with an additional rejection
-of zero total work. A default `0/0/0` snapshot is never positive completion
-evidence, even with an empty FoundList. Empty synthetic scans with a positive,
-fully scanned total remain valid under that existing rule. Reset-counter cases
-remain uncertain and authorize no candidate reads or writes. Raw telemetry,
-`scan_complete`, collection coverage and global uniqueness remain separate;
-no strict QSG proof or evidence version has been relaxed. A supported terminal
-success signal covering scan, result finalization, failure and cancellation is
-required before native compatibility can be claimed.
+The existing strict counter rule still computes `scan_complete`: a positive
+integer total, equal scanned total and ResultsFound equal to native Count.
+QUALIFICATION still blocks on `SCAN_COMPLETION_UNCERTAIN` when it fails. A default
+`0/0/0` snapshot never proves completion. In NORMAL, an initialized zero-hit
+view selects no write and follows the existing bounded no-candidate retry policy.
+`result_ready` does not set strict completion/qualification fields true. The
+historical `scan_population_complete` event now explicitly carries both booleans
+and a reason; its event name alone is not a completion claim.
+
+Stop, stale/wrong callbacks, identity changes, timeouts, API exceptions, unstable
+or invalid FoundList data, failed reads, malformed ranking and uncertain cleanup
+still prevent writing. Explicitly observed failures are terminal, without an
+automatic failed-operation retry. The public API ambiguity for otherwise usable
+partial/error results is accepted for this limited NORMAL mode and remains
+unresolved. Stronger native success/error/cancellation attestation and formal
+qualification are deferred; QSG is not required for NORMAL execution.
 
 `scan_budget` (1..65536, default 2000) controls legacy raw admission;
 `max_candidates` (1..128, default 20, no greater than scan_budget) controls final
@@ -205,19 +220,23 @@ address, last written/read-back Float32 and bits, scan/write counts, completed
 monitor checks, last check time, error, stop reason and cleanup status. Output
 also includes `scan_mode`, resolved `scan_start_address` / `scan_stop_address`,
 `bounds_source`, `scan_policy`, `candidate_policy`, `alignment_bytes` and
-`scope_complete`. A resolved address envelope alone is not complete collection.
+`result_ready`, `scan_complete` and `scope_complete`. A resolved address envelope
+or ready result alone is not proof of complete scanning or collection.
 These are read-only snapshots with no extra process access. Output
 also exposes native `raw_match_count`, `raw_inspected_count` (distinct indices
 visited, including scouts), `raw_admitted_count`, `unique_count`, `filtered_count`,
 `prescored_count`, `selected_count` and `ranked_count`. `collected_count` aliases
 admitted count; `evaluated_count` aliases ranked count. `coverage`,
 `raw_admission_complete`, `ranking_complete` and `global_uniqueness_proven`
-distinguish a completed scan from complete decision coverage. Counts need not
+describe coverage of the available FoundList separately from scan completion. Counts need not
 all match because the original filters remain active. Full coverage requires
 all raw entries admitted and every surviving filtered candidate ranked. Only
-complete coverage plus exactly one independent qualifier, a valid ACCEPT and
+the historical strict scan evidence plus complete coverage, exactly one independent qualifier, a valid ACCEPT and
 valid candidate mapping/fields can set `global_uniqueness_proven=true` within
-the declared scan scope. NORMAL does not require that proof to select a write.
+the declared scan scope. This preserves the historical evidence rule, not a new
+native terminal-success guarantee. Reset/unavailable progress leaves
+`scan_complete`, `scope_complete` and `global_uniqueness_proven` false even if
+all available entries were evaluated. NORMAL does not require that proof to select a write.
 `decision_scope='LEGACY_SINGLE_SCOPE'` and `write_admission_basis='LEGACY_SCOPE_ACCEPT'`
 record scoped admission; the basis starts as `NONE` each cycle. QSG uses
 `decision_scope='QSG_FULL_POPULATION'` and `QSG_FULL_POPULATION_UNIQUE_ACCEPT`.
@@ -251,7 +270,7 @@ identity uncertainty, ambiguity, write/readback error, timeout, or retry exhaust
 stops the run. There is no automatic rollback or process-name reattachment.
 
 `status().cycle_id` identifies each discovery attempt in the current Start run.
-At a fresh attempt, all discovery counts, ranking details and uniqueness/coverage
+At a fresh attempt, result readiness, all discovery counts, ranking details and uniqueness/coverage
 claims are cleared before resolving the scan bounds. `raw_match_count=nil` and
 `coverage='pending'` mean no new native result population has been established.
 Historical write/readback fields and cumulative counters still describe prior
@@ -276,7 +295,8 @@ a healthy address causes no new discovery cycle or repeated write.
 | `CANDIDATE_NOT_QUALIFIED` | Original Scope did not return a hard-pass ACCEPT without manual review. No write follows. |
 | `AMBIGUOUS_CANDIDATES` | QSG QUALIFICATION found multiple independent qualifiers. Its stricter contract remains active. |
 | `INVALID_RANK_RESULT`, `INVALID_SCOPE_COUNTS`, `CANDIDATE_NOT_SELECTED` | Result shape, stage counts or selected-candidate linkage is inconsistent; zero writes. |
-| `SCAN_COMPLETION_UNCERTAIN`, `SCREENING_READ_FAILED` | Incomplete scan/read observations. Check CE diagnostics and the stable test layout; no write follows. |
+| `SCAN_COMPLETION_UNCERTAIN` | QUALIFICATION lacks its strict completion evidence; no write follows. NORMAL can use a ready FoundList while preserving unverified completion. |
+| `SCREENING_READ_FAILED` | A required candidate read failed; no write follows. |
 | `CANDIDATE_CHANGED`, `PREWRITE_CANDIDATE_CHANGED` | Value or structure changed after discovery. The transaction was abandoned. |
 | `RESCAN_BACKOFF` | Waiting before a retry; identity checks continue. |
 | `RESCAN_LIMIT_EXHAUSTED`, `SCAN_TIMEOUT` | The configured bound was reached. Inspect the target before any deliberate restart. |
@@ -284,12 +304,57 @@ a healthy address causes no new discovery cycle or repeated write.
 | `RETIRED_CANDIDATE` | A previously invalidated address reappeared. It will not be reused in the same run. |
 | `cleanup_ok=false` | Cleanup is uncertain. Reload CE; do not bypass the singleton/cleanup guard. |
 
-## Separate manual CE acceptance procedure
+## Minimum NORMAL operator test (P4-R1)
+
+Use only the fresh repository fixture below. This is a limited usability check,
+not formal G1 or native scan qualification. Codex does not launch it, attach CE,
+or change the private configuration. N0/MIN/LOCAL publication remains paused.
+
+1. From the checkout root, launch the existing fixture in a PowerShell window:
+
+   ```powershell
+   & .\.venv\Scripts\python.exe .\tests\ce_mvp_disposable_target.py ('p4r1-' + [guid]::NewGuid().ToString('N'))
+   ```
+
+   Keep it open. Its fresh `ready` JSON gives `pid`, `scan_start`, `scan_stop`,
+   `reservation_bytes=65536` and initial `100.0 / 0x42C80000`. Use these values,
+   never an earlier PID or address.
+2. In the private `src\ce_mvp_config.local.lua`, explicitly set that PID,
+   `write_enabled=true` and `scan.mode='bounded'` with exactly those fresh
+   `scan_start`/`scan_stop` values as `start_address`/`stop_address`.
+   Keep search `100.0 / 0x42C80000`, write `125.0`, Single, the default 2000/20
+   budgets and disabled engineering extensions. Enable diagnostics with a fresh
+   `session_token`, `event_limit=2048`, `cleanup_start_probe=false` if evidence is
+   wanted. The fixture range is a controlled diagnostic boundary; ordinary
+   `mode='process'` still needs neither Start nor End.
+3. In another PowerShell window run
+   `& .\.venv\Scripts\python.exe .\src\prepare_ce_mvp.py`.
+   Open `src\ce_mvp.local.CT` in CE 7.6 x64, show Lua Engine output and enable
+   **H3-A7 Start** once. No manual First Scan is needed. Inspect **Status** and
+   `H3A7_CE_MVP.print_evidence()` for native intake, Legacy ranking, an ACCEPT
+   best candidate and `MONITORING`. Confirm `scan_count=1`, `write_count=1` and
+   exact `last_written_bits=last_readback_bits=0x42FA0000`. In the fixture window,
+   enter `status` and independently confirm `125.0 / 0x42FA0000`.
+4. Observe increasing `monitor_checks` with scan/write counts still 1. Enter
+   `relocate` once in the fixture window. After confirmed invalidation/backoff,
+   check `cycle_id=2`, scan/write counts 2, a new address and exact readback;
+   fixture `status` must again show 125.0. Healthy ticks must add no writes.
+5. Enter `exit` in the fixture. CE must stop with a PID-exit reason,
+   `running=false`, `cleanup_ok=true` and no further writes. Uncheck Start.
+
+Report the two value/readback observations, counts, relocation and cleanup.
+Only those actual observations can establish minimum native usability. Even a
+passing manual test does not prove complete scan populations, reliable native
+error detection or formal qualification. Keep `IMPLEMENTED_PENDING_CE_QUALIFICATION`,
+`ATTACHMENT_HANDLE_UNVERIFIED`, `NOT_PRODUCTION_AUTHORIZED` and `G1 L01-L12=NOT_RUN`.
+
+## Separate formal CE qualification procedure
 
 **G1 is NOT AUTHORIZED / NOT RUN.** Follow the complete
 [R1 fixture, diagnostics, configuration and controlled-session plan](ce_mvp_q1_r1_plan.md)
-after new explicit authorization. The earlier shorter demonstration sequence is
-superseded by the full L01–L12 matrix. All twelve live cases remain NOT_RUN.
+after new explicit authorization for that formal session. The minimum NORMAL
+test above does not execute or replace the full L01–L12 matrix. All twelve
+formal live cases remain NOT_RUN.
 
 The frozen qualification candidate supports baseline_unique, zero_match,
 ambiguous, over_limit (129 actual aligned Float32 positions in one page),

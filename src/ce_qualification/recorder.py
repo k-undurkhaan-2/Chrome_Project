@@ -15,7 +15,7 @@ monitor_checks invalid_count rescan_attempts""".split())
 FIELDS = set("""schema session_token source sequence event_type state_before state_after
 configured_pid relative_ms time_source counters identity address_label reason stop_reason
 identity_token raw_match_count count_source collection_complete completeness_reason hard_limit
-configured_limit scan_complete progress_results total_addresses scanned_addresses raw_count
+configured_limit result_ready scan_complete progress_results total_addresses scanned_addresses raw_count
 scanned_count filtered_count selected_count read_failure ranked_count qualified_count
 recommendation manual_review best_score hard_pass confidence search_bits write_intent_bits
 api_success readback_bits readback_float float_bits value_bits valid delay_ms cancel_requested

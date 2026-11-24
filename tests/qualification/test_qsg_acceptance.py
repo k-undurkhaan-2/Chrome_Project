@@ -45,6 +45,43 @@ def test_rev1_passive_recorder_validates_scoped_admission_without_global_claim(m
         assert recorder.stream.rows == []
 
 
+@pytest.mark.parametrize("backend", ["lua53", "lua54"])
+def test_p4_r1_recorder_keeps_normal_readiness_separate_from_strict_evidence(backend):
+    lua, w = world(backend)
+    w.object(0x100128)
+    w.progress_snapshot = table(lua, {"TotalAddressesToScan": 8945664,
+        "CurrentlyScanned": 0, "ResultsFound": 0})
+    w.start(); w.until_state("MONITORING")
+    snapshot = plain(w.loop.evidence())
+    w.loop.stop(); w.clean()
+    recorder = CERecorder(Stream("SYNTHETIC-p4-r1", "ce"), enabled=True)
+    recorder.capture(snapshot, run_id="r", scenario="L03", model_lua=lua.eval("_VERSION"))
+    captured = [r["data"]["diagnostic"] for r in recorder.stream.rows if r["kind"] == "ce_event"]
+    ready = next(e for e in captured if e["event_type"] == "scan_population_complete")
+    assert ready["result_ready"] is True and ready["scan_complete"] is False
+    assert "native terminal success unverified" in ready["completeness_reason"]
+    admission = next(e for e in captured if e["event_type"] == "candidate_admitted")
+    assert admission["coverage"] == "full_population" and admission["global_uniqueness_proven"] is False
+    assert admission["write_admission_basis"] == "LEGACY_SCOPE_ACCEPT"
+
+
+@pytest.mark.parametrize("backend", ["lua53", "lua54"])
+@pytest.mark.parametrize("total", [0, 8945664])
+def test_p4_r1_qsg_rejects_unverified_terminal_counters_before_permit(tmp_path, backend, total):
+    m = Model(tmp_path, backend)
+    try:
+        m.w.progress_snapshot = table(m.lua, {"TotalAddressesToScan": total,
+            "CurrentlyScanned": 0, "ResultsFound": 0})
+        assert m.start() is True
+        m.until("ERROR")
+        assert "SCAN_COMPLETION_UNCERTAIN" in m.api.status().last_error
+        assert not m.api.status().result_ready and not m.api.status().scan_complete
+        assert m.raw_calls == [] and m.broker.events("reserve") == []
+        assert m.api.status().cleanup_ok
+    finally:
+        m.close()
+
+
 @pytest.mark.parametrize("backend", ["lua53","lua54"])
 @pytest.mark.parametrize("mode", ["baseline_unique","zero_match","ambiguous","over_limit","incomplete_structure","invalid_structure"])
 def test_normal_trace_matches_preserved_r1_bytes_without_qsg(tmp_path,backend,mode):
@@ -275,3 +312,19 @@ def test_r1_sampled_population_cannot_be_relabelled_as_unique(r1_l09_evidence,mu
     result=verify(bundle,digest(bundle),requested=['L09'],sidecar_directory=directory)
     assert result['status']!='SYNTHETIC_PASS',result
     assert set(result['live'].values())=={'NOT_RUN'}
+
+
+def test_p4_r1_result_readiness_cannot_substitute_for_strict_l03_evidence(r1_l09_evidence):
+    source, directory = r1_l09_evidence
+    bundle = deepcopy(source)
+    population = [r['data']['diagnostic'] for r in bundle['ce']
+                  if r['kind'] == 'ce_event' and r['scenario'] == 'L03'
+                  and r['data']['diagnostic']['event_type'] == 'scan_population_complete']
+    assert population
+    for event in population:
+        event['result_ready'] = True
+        event['scan_complete'] = False
+    rechain(bundle['ce'], True)
+    result = verify(bundle, digest(bundle), requested=['L03'], sidecar_directory=directory)
+    assert result['status'] != 'SYNTHETIC_PASS', result
+    assert set(result['live'].values()) == {'NOT_RUN'}

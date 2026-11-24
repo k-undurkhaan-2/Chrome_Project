@@ -112,7 +112,7 @@ function api.status()
       'selected_count','ranked_count','raw_admission_budget','ranking_budget','coverage',
       'raw_admission_complete','ranking_complete','global_uniqueness_proven',
       'decision_scope','write_admission_basis',
-      'scan_complete','collection_complete','collection_phase',
+      'result_ready','scan_complete','collection_complete','collection_phase',
       'attachment_handle_status','authorization_status'}) do
     local value=s[k]
     if type(value)=='number' and (k:find('address',1,true) or k:find('_bits',1,true)) then

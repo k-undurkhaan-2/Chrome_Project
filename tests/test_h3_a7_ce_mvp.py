@@ -222,12 +222,13 @@ def test_no_matches_are_bounded_and_backoff_is_exponential(runtime):
     ("timeout", "SCAN_TIMEOUT"),
 ])
 def test_failed_screening_never_writes_and_disposes_resources(runtime, kind, reason):
-    _, w = runtime
+    lua, w = runtime
+    reset_worker_counters(lua, w)
     w.object(0x100128, "weak" if kind == "weak" else None)
     if kind == "ambiguous": w.object(0x101128)
     if kind == "overflow":
         for i in range(129): w.object(0x102000 + i * 0x100)
-    if kind == "incomplete": w.fail.progress = True
+    if kind == "incomplete": qualification_mode(lua)
     if kind == "read_fault": w.fail.unreadable = 0x100108
     if kind == "callback": w.fail.initialize = "throw"
     if kind == "timeout": w.fail.no_complete = True
@@ -247,6 +248,7 @@ def test_failed_screening_never_writes_and_disposes_resources(runtime, kind, rea
 ])
 def test_failed_write_and_readback_are_terminal_not_rescan_requests(runtime, fault, reason):
     lua, w = runtime
+    reset_worker_counters(lua, w)
     w.object(0x100128); lua.execute(fault); w.start(); w.until_state("ERROR")
     assert reason in w.loop.status().last_error
     assert len(w.writes) <= 1 and len(w.scans) == 1
@@ -697,6 +699,23 @@ def events(w, kind):
     return [e for _, e in w.loop.evidence().events.items() if e.event_type == kind]
 
 
+def reset_worker_counters(lua, w, total=8945664):
+    w.progress_snapshot = lua.table_from({
+        "TotalAddressesToScan": total, "CurrentlyScanned": 0, "ResultsFound": 0})
+
+
+def qualification_mode(lua):
+    # Adapter-mode isolation only; real QSG broker/writer tests remain separate.
+    # No invented native terminal-success/error capability is supplied.
+    lua.execute("""
+      w.execution={mode='QUALIFICATION',version='qsg.v1',
+        assert_ready=function() end,check_local=function() end,
+        bind_candidate=function() end,readback=function() end,revoke=function() end,
+        wrap_tick=function(fn) return fn end,
+        build_writer=function(raw) return {write_float32=raw} end}
+    """)
+
+
 @pytest.mark.parametrize("mode,count", [
     ("baseline_unique", 1), ("zero_match", 0), ("ambiguous", 2), ("over_limit", 129),
     ("incomplete_structure", 1), ("invalid_structure", 1), ("value_drift", 0), ("relocate", 1),
@@ -873,17 +892,24 @@ def test_diagnostics_disabled_and_bounded_ring_report_honestly(runtime):
     w.loop.stop(); w.clean()
 
 
-def test_incomplete_scan_progress_is_separate_from_incomplete_structure(runtime):
+@pytest.mark.parametrize("qualification", [False, True])
+def test_incomplete_scan_progress_is_separate_from_incomplete_structure(runtime, qualification):
     lua, w = runtime
     enable_diagnostics(lua)
+    if qualification: qualification_mode(lua)
     w.object(0x100128); w.fail.progress = True
-    w.start(); w.until_state("ERROR")
+    w.start(); w.until_state("ERROR" if qualification else "MONITORING")
     progress = events(w, "scan_progress")[0]
     assert progress.scanned_addresses < progress.total_addresses
-    assert "SCAN_COMPLETION_UNCERTAIN" in w.loop.status().last_error
-    assert events(w, "scan_population_complete") == []
-    assert w.loop.evidence().counters.adapter_write_attempts == 0
-    w.clean()
+    assert not w.loop.status().scan_complete and not w.loop.status().global_uniqueness_proven
+    if qualification:
+        assert "SCAN_COMPLETION_UNCERTAIN" in w.loop.status().last_error
+        assert events(w, "scan_population_complete") == []
+        assert w.loop.evidence().counters.adapter_write_attempts == 0
+    else:
+        assert w.loop.status().result_ready and w.loop.status().collection_complete
+        assert w.loop.evidence().counters.verified_writes == 1
+    w.loop.stop(); w.clean()
 
 
 @pytest.mark.parametrize("scenario,count,total", [
@@ -891,16 +917,20 @@ def test_incomplete_scan_progress_is_separate_from_incomplete_structure(runtime)
     ("baseline_unique", 1, layout.PAGE_SIZE),
     ("zero_match", 0, layout.PAGE_SIZE),
 ])
-def test_p4_released_worker_counters_remain_unproven_without_success_status(runtime, scenario, count, total):
+@pytest.mark.parametrize("mode", ["bounded", "process"])
+@pytest.mark.parametrize("qualification", [False, True])
+def test_p4_released_worker_counters_remain_unproven_without_success_status(runtime, scenario, count, total, mode, qualification):
     """Reproduce the observation, not a new native test or a success oracle.
 
     Callback + readable results + reset counters cannot distinguish normal
     teardown from cancellation/partial results or a late controller failure.
-    Even the known complete synthetic layout must fail closed until a supported
-    native terminal-success signal is established. No mock-only status is added.
+    NORMAL may use the result under Option A; QUALIFICATION still rejects it.
+    No mock-only terminal status is added and no native completeness is claimed.
     """
     lua, w = runtime
     enable_diagnostics(lua)
+    if qualification: qualification_mode(lua)
+    w.cfg.max_rescan_attempts = 0
     if scenario == "reported_pattern":
         # Four arbitrary synthetic matches, not the operator's fixture candidates.
         for i in range(4):
@@ -909,17 +939,38 @@ def test_p4_released_worker_counters_remain_unproven_without_success_status(runt
         plan = layout.plan(scenario)
         w.use_layout(lua.table_from(plan["pages"]), lua.table_from(plan["words"]))
         assert w.cfg.scan.stop_address - w.cfg.scan.start_address + 1 == layout.RESERVATION_SIZE
-    w.progress_snapshot = lua.table_from({
-        "TotalAddressesToScan": total, "CurrentlyScanned": 0, "ResultsFound": 0})
-    w.start(); w.until_state("ERROR")
-    assert w.loop.status().last_error == "SCAN_COMPLETION_UNCERTAIN"
+    if mode == "process": process_scope(w)
+    reset_worker_counters(lua, w, total)
+    accepted = not qualification and scenario == "baseline_unique"
+    w.start(); w.until_state("MONITORING" if accepted else "ERROR")
+    s = w.loop.status()
     assert len(events(w, "scan_done_observed")) == 1
     assert events(w, "scan_population")[0].raw_match_count == count
     progress = events(w, "scan_progress")[0]
     assert (progress.total_addresses, progress.scanned_addresses, progress.progress_results) == (total, 0, 0)
-    assert events(w, "scan_population_complete") == []
-    assert not w.loop.status().scan_complete and not w.loop.status().collection_complete
-    assert w.reads == len(w.writes) == w.loop.evidence().counters.adapter_readback_calls == 0
+    assert not s.scan_complete and not s.scope_complete and not s.global_uniqueness_proven
+    if qualification:
+        assert s.last_error == "SCAN_COMPLETION_UNCERTAIN"
+        assert events(w, "scan_population_complete") == []
+        assert not s.result_ready and not s.collection_complete
+        assert w.reads == len(w.writes) == w.loop.evidence().counters.adapter_readback_calls == 0
+    else:
+        ready = events(w, "scan_population_complete")[0]
+        assert ready.result_ready and not ready.scan_complete
+        assert "native terminal success unverified" in ready.completeness_reason
+        assert s.result_ready and s.collection_complete
+        assert events(w, "candidate_population")[0].raw_count == count
+        assert len(w.writes) == w.loop.evidence().counters.verified_writes == int(accepted)
+        if accepted:
+            assert s.ranking_recommendation == "ACCEPT" and s.write_admission_basis == "LEGACY_SCOPE_ACCEPT"
+            assert w.writes[1].addr == s.ranking_best_address
+            assert s.last_written_bits == s.last_readback_bits == 0x42FA0000
+            w.step(40)
+            assert w.loop.status().monitor_checks == 20 and len(w.scans) == len(w.writes) == 1
+        else:
+            expected = "RESCAN_LIMIT_EXHAUSTED" if count == 0 else "CANDIDATE_NOT_QUALIFIED"
+            assert expected in s.last_error and s.write_admission_basis == "NONE"
+    w.loop.stop()
     assert w.loop.evidence().cleanup_ok
     assert w.scans[1].hasError is None and w.scans[1].GetErrorString is None
     w.clean()
@@ -932,19 +983,40 @@ def test_p4_released_worker_counters_remain_unproven_without_success_status(runt
     {"TotalAddressesToScan": 4096, "ResultsFound": 0},
     {"TotalAddressesToScan": 4096, "CurrentlyScanned": 4096},
 ])
-def test_p4_default_or_unavailable_progress_cannot_prove_empty_scan(runtime, snapshot):
+@pytest.mark.parametrize("qualification", [False, True])
+def test_p4_default_or_unavailable_progress_cannot_prove_empty_scan(runtime, snapshot, qualification):
     lua, w = runtime
     enable_diagnostics(lua)
+    if qualification: qualification_mode(lua)
     w.cfg.max_rescan_attempts = 0
     w.progress_snapshot = lua.table_from(snapshot) if isinstance(snapshot, dict) else snapshot
     w.start(); w.until_state("ERROR")
-    assert w.loop.status().last_error == "SCAN_COMPLETION_UNCERTAIN"
+    assert w.loop.status().last_error == ("SCAN_COMPLETION_UNCERTAIN" if qualification else "RESCAN_LIMIT_EXHAUSTED")
     assert len(events(w, "scan_done_observed")) == 1
     assert events(w, "scan_population")[0].raw_match_count == 0
-    assert events(w, "scan_population_complete") == []
-    assert not w.loop.status().scan_complete
+    assert not w.loop.status().scan_complete and not w.loop.status().global_uniqueness_proven
+    assert w.loop.status().result_ready is (not qualification)
+    assert len(events(w, "scan_population_complete")) == int(not qualification)
     assert w.reads == len(w.writes) == 0
     assert w.loop.evidence().cleanup_ok
+    w.clean()
+
+
+@pytest.mark.parametrize("fault,reason", [
+    ("w.fail.first_scan='throw'", "INJECTED_first_scan"),
+    ("w.fail.initialize='throw'", "INJECTED_initialize"),
+    ("w.fail.getProgress='throw'", "INJECTED_getProgress"),
+    ("w.hook=function(e) if e=='initialize' then w.latest_foundlist.Count=-1 end end", "INVALID_FOUNDLIST_COUNT"),
+    ("w.hook=function(e) if e=='getProgress' then w.hook=nil; w.loop.stop() end end", "OPERATOR_STOP"),
+])
+def test_p4_r1_observed_api_failure_or_stop_is_terminal_even_with_ready_callback(runtime, fault, reason):
+    lua, w = runtime
+    w.object(0x100128); reset_worker_counters(lua, w)
+    lua.execute(fault)
+    w.start(); w.until_state("STOPPED" if reason == "OPERATOR_STOP" else "ERROR")
+    assert reason in w.loop.status().stop_reason
+    w.step(100)
+    assert len(w.scans) == 1 and len(w.writes) == 0 and w.loop.status().cleanup_ok
     w.clean()
 
 
@@ -1440,6 +1512,7 @@ def mutate_scope_result(lua, mutation):
 ])
 def test_rev1_malformed_or_nonaccept_scope_never_writes(runtime, mutation, reason):
     lua, w = runtime
+    reset_worker_counters(lua, w)
     process_population(lua, w, 129, (129,))
     w.cfg.scan.scan_budget = 128; w.cfg.scan.max_candidates = 20
     enable_diagnostics(lua)
@@ -1467,19 +1540,7 @@ def test_rev1_original_accept_is_authoritative_only_in_normal_mode(runtime, coun
     assert reference.result.best.final_score == 46 and reference.result.score_gap == 10
     enable_diagnostics(lua)
     if qualification:
-        # Exercise only adapter decision-mode isolation. The separate full QSG
-        # suite verifies the real broker, permit, writer and evidence contract.
-        lua.execute("""
-          function w.start()
-            local execution={mode='QUALIFICATION',version='qsg.v1',
-              assert_ready=function() end,check_local=function() end,
-              bind_candidate=function() end,readback=function() end,revoke=function() end,
-              wrap_tick=function(fn) return fn end,
-              build_writer=function(raw) return {write_float32=raw} end}
-            w.adapter=w.adapter_module.new(w.core.validate(w.cfg),w.ce,w.load,'synthetic',execution)
-            w.loop=w.core.new(w.cfg,w.adapter); return w.loop.start()
-          end
-        """)
+        qualification_mode(lua)
     w.start(); w.until_state("ERROR" if qualification else "MONITORING")
     s = w.loop.status()
     assert s.qualified_count == 2 and s.ranking_recommendation == "ACCEPT"
@@ -1507,6 +1568,7 @@ def test_rev1_original_accept_is_authoritative_only_in_normal_mode(runtime, coun
 ])
 def test_rev1_large_pool_integrity_failures_still_block_write(runtime, fault, reason):
     lua, w = runtime
+    reset_worker_counters(lua, w)
     process_population(lua, w, 20000, (20000,))
     w.cfg.scan.scan_budget = 2000; w.cfg.scan.max_candidates = 20
     w.start()
@@ -1523,6 +1585,7 @@ def test_rev1_large_pool_integrity_failures_still_block_write(runtime, fault, re
 @pytest.mark.parametrize("recommendation", ["REJECT", "REVIEW"])
 def test_rev1_large_pool_original_reject_and_review_remain_authoritative(runtime, count, recommendation):
     lua, w = runtime
+    reset_worker_counters(lua, w)
     process_population(lua, w, count, (1, count) if recommendation == "REVIEW" else ())
     w.cfg.scan.scan_budget = 2000; w.cfg.scan.max_candidates = 20
     reference = legacy_reference(lua, w)
@@ -1540,9 +1603,12 @@ def test_rev1_large_pool_original_reject_and_review_remain_authoritative(runtime
 
 
 @pytest.mark.parametrize("mode", ["bounded", "process"])
-def test_rev1_large_scoped_accept_monitor_and_fresh_recovery(runtime, mode):
+@pytest.mark.parametrize("released_counters", [False, True])
+def test_rev1_large_scoped_accept_monitor_and_fresh_recovery(runtime, mode, released_counters):
     lua, w = runtime
-    process_population(lua, w, 20000, (20000,))
+    count = 30000 if released_counters else 20000
+    if released_counters: reset_worker_counters(lua, w)
+    process_population(lua, w, count, (count,))
     w.cfg.scan.scan_budget = None; w.cfg.scan.max_candidates = None
     w.cfg.max_rescan_attempts = 1
     if mode == "bounded":
@@ -1550,19 +1616,20 @@ def test_rev1_large_scoped_accept_monitor_and_fresh_recovery(runtime, mode):
         w.cfg.scan.start_address = 0x100000; w.cfg.scan.stop_address = 0x20FFFFF
     enable_diagnostics(lua, limit=2048)
     w.start(); w.until_state("MONITORING")
-    old = w.objects[20000]
+    old = w.objects[count]
     old.memory[old.addr] = 0x42280000
     before = w.loop.status().monitor_checks
     w.step(200)
     assert w.loop.status().monitor_checks == before + 100
     assert len(w.scans) == len(w.writes) == 1
     old.mapped = False
-    fresh = w.object(0x100128 + 20000 * 0x100); fresh.size = 0x2000000
+    fresh = w.object(0x100128 + count * 0x100); fresh.size = 0x2000000
     w.fail.no_complete = True
     w.until_state("RESCAN_BACKOFF"); w.until_state("SCREENING"); w.step()
     pending = w.loop.status()
     assert pending.cycle_id == 2 and pending.write_admission_basis == "NONE"
     assert pending.raw_match_count is None and not pending.global_uniqueness_proven
+    assert not pending.result_ready and not pending.scan_complete
     assert w.scans[1].dead and w.foundlist_history[1].dead
     w.scans[1].saved_callback(w.scans[1]); w.scans[1].saved_callback(w.scans[2])
     w.step(3)
@@ -1573,7 +1640,8 @@ def test_rev1_large_scoped_accept_monitor_and_fresh_recovery(runtime, mode):
     s = w.loop.status()
     assert len(w.scans) == len(w.foundlist_history) == len(w.writes) == 2
     assert w.writes[2].addr == fresh.addr == reference.result.best.candidate.value_addr
-    assert s.raw_match_count == 20000 and s.raw_admitted_count == 2000 and s.ranked_count == 20
+    assert s.raw_match_count == count and s.raw_admitted_count == 2000 and s.ranked_count == 20
+    assert s.result_ready and s.scan_complete is (not released_counters)
     assert s.last_written_bits == s.last_readback_bits == 0x42FA0000
     assert s.write_admission_basis == "LEGACY_SCOPE_ACCEPT" and not s.global_uniqueness_proven
     evidence = w.loop.evidence()
@@ -1581,6 +1649,11 @@ def test_rev1_large_scoped_accept_monitor_and_fresh_recovery(runtime, mode):
     assert evidence.scan_scope.coverage == "sampled_or_reduced"
     assert evidence.counters.verified_writes == 2 and evidence.dropped_events == 0
     assert [e.cycle_id for e in events(w, "candidate_admitted")] == [1, 2]
+    if released_counters:
+        assert all((e.total_addresses, e.scanned_addresses, e.progress_results) == (8945664, 0, 0)
+                   for e in events(w, "scan_progress"))
+        w.alive = False; w.until_state("ERROR")
+        assert "PID_EXITED" in w.loop.status().last_error and len(w.writes) == 2
     w.loop.stop(); w.clean()
 
 
@@ -1643,6 +1716,7 @@ def test_complete_pool_counts_independent_qualifiers_across_chunks(runtime, coun
 ])
 def test_incomplete_process_population_never_writes(runtime, fault, reason):
     lua, w = runtime
+    reset_worker_counters(lua, w)
     process_population(lua, w, 128, (128,))
     w.cfg.scan.collection_batch_size = 16
     w.start()
@@ -1669,6 +1743,8 @@ def test_incomplete_process_population_never_writes(runtime, fault, reason):
 ])
 def test_process_scan_completion_drift_and_cleanup_faults_are_terminal(runtime, edit, reason):
     lua, w = runtime
+    if reason == "SCAN_COMPLETION_UNCERTAIN": qualification_mode(lua)
+    else: reset_worker_counters(lua, w)
     process_population(lua, w, 128, (128,)); lua.execute(edit)
     w.start(); w.until_state("ERROR")
     assert reason in w.loop.status().last_error and len(w.writes) == 0
@@ -1682,6 +1758,7 @@ def test_process_scan_completion_drift_and_cleanup_faults_are_terminal(runtime, 
 ])
 def test_complete_snapshots_are_revalidated_before_global_ranking(runtime, change, reason):
     lua, w = runtime
+    reset_worker_counters(lua, w)
     process_population(lua, w, 128, (128,))
     w.cfg.scan.collection_batch_size = 16
     w.start()

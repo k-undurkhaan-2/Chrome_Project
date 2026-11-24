@@ -59,7 +59,7 @@ function M.new(cfg, ce, load_module, observation_source, execution)
     return {cycle_id=cycle_id,scope_resolved=false,scan_mode=cfg.scan.mode,alignment_bytes=4,
       scan_policy=(cfg.scan.mode=='process' and 'MEM_PRIVATE; ' or '') .. '+W-X-C; aligned exact Float32 bits',
       candidate_policy='MEM_COMMIT/MEM_PRIVATE/PAGE_READWRITE; whole -0x20..+0x53 context',
-      scope_complete=false,scan_complete=false,collection_complete=false,global_uniqueness_proven=false,
+      result_ready=false,scope_complete=false,scan_complete=false,collection_complete=false,global_uniqueness_proven=false,
       decision_scope=execution and 'QSG_FULL_POPULATION' or 'LEGACY_SINGLE_SCOPE',write_admission_basis='NONE',
       raw_admission_complete=false,ranking_complete=false,coverage='pending',collection_phase='idle',
       raw_inspected_count=0,raw_admitted_count=0,collected_count=0,evaluated_count=0,
@@ -215,6 +215,7 @@ function M.new(cfg, ce, load_module, observation_source, execution)
     return n
   end
   local function abort(code)
+    scope.result_ready=false
     poison=code -- legacy pcall readers must not swallow a safety failure
     fail(code)
   end
@@ -264,16 +265,15 @@ function M.new(cfg, ce, load_module, observation_source, execution)
       observe('scan_progress', {progress_results=type(progress)=='table' and progress.ResultsFound or nil,
         total_addresses=type(progress)=='table' and progress.TotalAddressesToScan or nil,
         scanned_addresses=type(progress)=='table' and progress.CurrentlyScanned or nil})
-      -- Worker counters may reset before OnScanDone. They are telemetry, not
-      -- a durable result count. Callback/FoundList alone cannot prove success:
-      -- CE can also notify after failure/cancellation. Retain the strict gate
-      -- until a supported terminal-success signal is established; zero/default
-      -- totals must not turn an uninitialized empty result into completion.
-      if type(progress)~='table' or not whole(progress.TotalAddressesToScan)
-          or progress.TotalAddressesToScan<=0 or progress.TotalAddressesToScan>math.maxinteger
-          or progress.CurrentlyScanned~=progress.TotalAddressesToScan
-          or progress.ResultsFound~=total then abort('SCAN_COMPLETION_UNCERTAIN') end
-      scope.scan_complete=true
+      -- Preserve the historical strict evidence rule for QUALIFICATION.
+      -- NORMAL uses this owned callback + initialized FoundList for readiness;
+      -- reset/default worker counters cannot prove native terminal success or
+      -- distinguish a complete result from a readable partial/error result.
+      scope.scan_complete=type(progress)=='table' and whole(progress.TotalAddressesToScan)
+        and progress.TotalAddressesToScan>0 and progress.TotalAddressesToScan<=math.maxinteger
+        and progress.CurrentlyScanned==progress.TotalAddressesToScan
+        and progress.ResultsFound==total
+      if execution and not scope.scan_complete then abort('SCAN_COMPLETION_UNCERTAIN') end
     end
     task.verify_population=verify_population
     local proxy = {Address=setmetatable({}, {__index=function(_, index)
@@ -296,9 +296,12 @@ function M.new(cfg, ce, load_module, observation_source, execution)
       if not whole(total) or total<0 or total>math.maxinteger then abort('INVALID_FOUNDLIST_COUNT') end
       verify_population()
       proxy.Count=total -- same native pool and zero-based indices; never truncate
+      scope.result_ready=true
       scope.collection_phase='legacy_collection'
-      observe('scan_population_complete', {cycle_id=task.cycle_id,raw_match_count=total,scan_complete=true,
-        collection_complete=false,completeness_reason='scan verified; legacy collection pending'})
+      observe('scan_population_complete', {cycle_id=task.cycle_id,raw_match_count=total,
+        result_ready=true,scan_complete=scope.scan_complete,collection_complete=false,
+        completeness_reason=execution and 'strict scan evidence verified; legacy collection pending'
+          or 'NORMAL result ready; native terminal success unverified; legacy collection pending'})
     end
     function proxy.destroy()
       verify_population()
@@ -362,7 +365,7 @@ function M.new(cfg, ce, load_module, observation_source, execution)
     scope.collection_complete=scope.raw_admission_complete and scope.ranking_complete
     scope.coverage=scope.collection_complete and 'full_population' or 'sampled_or_reduced'
     scope.collection_phase='legacy_complete'
-    scope.scope_complete=scope.collection_complete and not active_scan.read_failure
+    scope.scope_complete=scope.scan_complete and scope.collection_complete and not active_scan.read_failure
     observe('candidate_population', {cycle_id=cycle_id,raw_count=bundle.raw_count,scanned_count=bundle.scanned_count,
       raw_inspected_count=scope.raw_inspected_count,unique_count=bundle.unique_count,
       filtered_count=bundle.filtered_count,prescored_count=scope.prescored_count,
@@ -418,7 +421,7 @@ function M.new(cfg, ce, load_module, observation_source, execution)
       if u32(row[key])==nil then fail('CANDIDATE_UNREADABLE') end
       candidate.fields[key]=row[key]
     end
-    scope.global_uniqueness_proven=scope.collection_complete and qualified==1
+    scope.global_uniqueness_proven=scope.scope_complete and qualified==1
     scope.write_admission_basis=execution and 'QSG_FULL_POPULATION_UNIQUE_ACCEPT' or 'LEGACY_SCOPE_ACCEPT'
     observe('candidate_admitted', {cycle_id=cycle_id,address=candidate.address,coverage=scope.coverage,
       decision_scope=scope.decision_scope,write_admission_basis=scope.write_admission_basis,
@@ -505,7 +508,7 @@ function M.new(cfg, ce, load_module, observation_source, execution)
       if not pcall(function() ms.OnScanDone=nil; ms.destroy() end) then errors[#errors+1]='memscan' end
     end
     if #errors>0 then
-      cleanup_uncertain=true; scope.scope_complete=false; scope.global_uniqueness_proven=false
+      cleanup_uncertain=true; scope.result_ready=false; scope.scope_complete=false; scope.global_uniqueness_proven=false
       fail('SCAN_CLEANUP_FAILED:' .. table.concat(errors,','))
     end
     observe('scan_disposed', {cycle_id=task.cycle_id,dispose_call_returned=true}, 'scan_disposals')
