@@ -87,8 +87,21 @@ This check runs on every timer tick and immediately before each adapter memory
 primitive (including collector reads, prewrite, write and readback). A stale
 `getOpenedProcessID()` alone never establishes liveness. Exit, changed creation
 time, different CE PID/handle, failed query, or uncertain native results cause
-an error with no subsequent write/retry. GetTickCount64 supplies a monotonic
-clock; invalid/backwards observations stop the run.
+an error with no subsequent write/retry. CE's built-in `getTickCount()` is the
+sole monotonic millisecond clock for control ticks and collection. A missing
+provider rejects before attachment with `CE_API_MISSING:getTickCount`.
+Finite, nonnegative integer and nondecreasing observations remain required;
+invalid/backwards observations stop with `CLOCK_UNCERTAIN`, while equal ticks
+are valid. The shared timing origin and all timeout/slice/monitor/backoff budgets
+are unchanged. There is no native-clock lookup, dummy argument or fallback.
+
+The operator's CE 7.6 / Lua 5.3 samples returned nil from zero-argument
+`executeCodeLocalEx(GetTickCount64_address)` and increasing built-in ticks.
+[Upstream LuaHandler.pas](https://github.com/cheat-engine/cheat-engine/blob/ec45d5f47f92a239ba0bf51ec5d04a7509c3fd37/Cheat%20Engine/LuaHandler.pas#L8846-L8851)
+corroborates that `getTickCount` pushes `GetTickCount64` as a Lua integer,
+supporting full-width ticks without a speculative 32-bit wrap workaround.
+This source corroboration is not an exact installed-binary/source match or
+native CE acceptance; the parameterized Win32 bridge remains unchanged.
 
 Win32 calls execute **locally inside CE** through `executeCodeLocalEx` and local
 kernel32 exports. Output buffers belong to a CE MemoryStream. There is no

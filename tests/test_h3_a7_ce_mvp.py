@@ -310,6 +310,125 @@ def test_clock_rollback_and_logging_failure_never_enable_more_writes(runtime):
     w.clean()
 
 
+def test_builtin_clock_runs_when_zero_argument_native_bridge_returns_nil(runtime):
+    _, w = runtime
+    symbol = w.ce.getAddressSafe("kernel32.GetTickCount64", True)
+    for tick in (350241093, 350241203, 350241328):
+        w.time = tick
+        assert w.ce.executeCodeLocalEx(symbol) is None
+        assert w.ce.getTickCount() == tick
+    process_scope(w)
+    good(w)
+    w.loop.stop(); w.clean()
+    calls = list(w.native_calls.values())[3:]
+    assert all(call.name != "GetTickCount64" and len(call.args) > 0 for call in calls)
+    assert {call.name for call in calls} == {
+        "OpenProcess", "CloseHandle", "GetProcessId", "GetProcessTimes",
+        "WaitForSingleObject", "VirtualQueryEx", "GetSystemInfo",
+    }
+
+
+def test_builtin_clock_needs_no_native_clock_symbol(runtime):
+    _, w = runtime
+    w.fail.symbol = "GetTickCount64"
+    good(w)
+    assert w.loop.status().last_readback_bits == 0x42FA0000
+    w.loop.stop(); w.clean()
+
+
+@pytest.mark.parametrize("provider", ["nil", "false", "42"])
+def test_missing_builtin_clock_rejects_before_attachment(runtime, provider):
+    lua, w = runtime
+    lua.execute("w.ce.getTickCount=" + provider)
+    with pytest.raises(Exception, match="CE_API_MISSING:getTickCount"):
+        w.start()
+    assert len(w.native_calls) == w.open_calls == w.opened == w.reads == 0
+    assert len(w.scans) == len(w.writes) == len(w.timers) == 0
+    w.clean()
+
+
+BAD_TICKS = ["nil", "-1", "0.5", "math.huge", "-math.huge", "0/0",
+             "'100'", "false", "math.maxinteger * 1.0 + 4096", "w.time-1"]
+
+
+@pytest.mark.parametrize("tick", BAD_TICKS)
+@pytest.mark.parametrize("stage", ["ATTACHING", "SCREENING", "CANDIDATE_CHECK", "WRITING", "MONITORING"])
+def test_invalid_builtin_clock_stops_before_further_work(runtime, stage, tick):
+    lua, w = runtime
+    w.object(0x100128); w.start(); w.until_state(stage)
+    before = (w.open_calls, w.opened, len(w.scans), w.reads, len(w.writes))
+    last_check = w.loop.status().last_check_ms
+    lua.execute("w.hook=function(e) if e=='getTickCount' then w.time=" + tick + " end end")
+    w.loop.tick(); w.loop.tick()
+    s = w.loop.status()
+    assert s.state == "ERROR" and s.stop_reason == "CLOCK_UNCERTAIN"
+    assert s.last_check_ms == last_check and s.cleanup_ok
+    assert (w.open_calls, w.opened, len(w.scans), w.reads, len(w.writes)) == before
+    if stage == "ATTACHING":
+        assert before == (0, 0, 0, 0, 0) and s.identity_token is None
+        assert s.scan_count == s.write_count == s.cycle_id == 0 and not s.scope_resolved
+    w.clean()
+
+
+@pytest.mark.parametrize("tick", BAD_TICKS[:-1] + ["0"])
+def test_collection_rejects_bad_builtin_tick_after_valid_control_tick(runtime, tick):
+    lua, w = runtime
+    w.object(0x100128); w.start(); w.step(2)
+    reads = w.reads
+    lua.execute("""
+      local calls=0
+      w.hook=function(e)
+        if e=='getTickCount' then
+          calls=calls+1
+          if calls==2 then w.time=""" + tick + """ end
+        end
+      end
+    """)
+    w.step(); w.loop.tick()
+    s = w.loop.status()
+    assert s.last_check_ms == 150 and s.stop_reason == "CLOCK_UNCERTAIN"
+    assert s.state == "ERROR" and s.cleanup_ok
+    assert w.reads == reads and len(w.scans) == 1 and len(w.writes) == 0
+    w.clean()
+
+
+def test_builtin_clock_keeps_collection_timeout_on_shared_origin(runtime):
+    lua, w = runtime
+    w.object(0x100128); w.start(); w.step(2)
+    reads = w.reads
+    lua.execute("""
+      local calls=0
+      w.hook=function(e)
+        if e=='getTickCount' then
+          calls=calls+1
+          if calls==2 then w.time=w.time+w.cfg.scan_timeout_ms end
+        end
+      end
+    """)
+    w.step()
+    s = w.loop.status()
+    assert s.last_check_ms == 150 and s.stop_reason == "SCAN_TIMEOUT"
+    assert s.state == "ERROR" and w.reads == reads and len(w.writes) == 0
+    w.clean()
+
+
+@pytest.mark.parametrize("origin", [0, 0xFFFFFFFF - 100, 2**53 + 1])
+def test_builtin_clock_preserves_full_width_and_equal_ticks(runtime, origin):
+    _, w = runtime
+    w.time = origin
+    good(w)
+    s = w.loop.status()
+    assert s.last_check_ms == w.time and s.last_check_ms > origin
+    for _ in range(5):
+        w.loop.tick()
+    after = w.loop.status()
+    assert after.state == "MONITORING" and after.last_check_ms == s.last_check_ms
+    assert after.monitor_checks == s.monitor_checks and len(w.scans) == len(w.writes) == 1
+    w.step(2)
+    assert w.loop.status().monitor_checks == s.monitor_checks + 1
+    w.loop.stop(); w.clean()
+
+
 def test_exact_float32_rounding(runtime):
     _, w = runtime
     for requested, expected_bits in [(0.1, 0x3DCCCCCD), (-0.0, 0x80000000), (1e-46, 0)]:
@@ -1433,7 +1552,7 @@ def test_incomplete_process_population_never_writes(runtime, fault, reason):
     ("w.fail.results_count=999", "SCAN_COMPLETION_UNCERTAIN"),
     ("w.fail.no_complete=true;w.cfg.scan_timeout_ms=1000", "SCAN_TIMEOUT"),
     ("w.hook=function(e) if e=='initialize' then w.latest_foundlist.Count=127 end end", "SCAN_COMPLETION_UNCERTAIN"),
-    ("w.hook=function(e) if e=='GetTickCount64' and w.loop.status().state=='CANDIDATE_CHECK' then w.objects[128].memory[w.objects[128].addr-0x20]=7 end end", "CANDIDATE_CHANGED"),
+    ("w.hook=function(e) if e=='getTickCount' and w.loop.status().state=='CANDIDATE_CHECK' then w.objects[128].memory[w.objects[128].addr-0x20]=7 end end", "CANDIDATE_CHANGED"),
     ("w.fail.destroy_foundlist='throw'", "FOUNDLIST_CLEANUP_FAILED"),
     ("w.fail.destroy_scan='throw'", "SCAN_CLEANUP_FAILED"),
 ])
@@ -1502,7 +1621,7 @@ def test_process_resource_settings_cannot_change_legacy_budget_meaning(runtime):
 def test_process_time_slice_yields_inside_candidate_reads(runtime):
     lua, w = runtime
     process_population(lua, w, 2, (2,))
-    lua.execute("w.hook=function(e) if e=='GetTickCount64' then w.time=w.time+3 end end")
+    lua.execute("w.hook=function(e) if e=='getTickCount' then w.time=w.time+3 end end")
     w.start(); w.step(3)
     assert w.loop.status().collected_count == 0 and len(w.writes) == 0
     w.until_state("MONITORING")

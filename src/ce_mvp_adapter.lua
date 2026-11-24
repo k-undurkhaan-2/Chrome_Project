@@ -21,7 +21,7 @@ function M.new(cfg, ce, load_module, observation_source, execution)
   for name in ([[openProcess getOpenedProcessID getOpenedProcessHandle getAddressSafe
       executeCodeLocalEx createMemoryStream readIntegerLocal readQwordLocal
       createMemScan createFoundList createTimer readInteger readFloat writeFloat
-      cheatEngineIs64Bit getCheatEngineFileVersion print]]):gmatch('%S+') do
+      cheatEngineIs64Bit getCheatEngineFileVersion getTickCount print]]):gmatch('%S+') do
     if type(ce[name]) ~= 'function' then fail('CE_API_MISSING:' .. name) end
     f[name] = ce[name]
   end
@@ -33,7 +33,7 @@ function M.new(cfg, ce, load_module, observation_source, execution)
   if type(version)~='table' or version.major~=7 or version.minor~=6 then fail('REQUIRES_CE_7_6') end
   if not f.cheatEngineIs64Bit() then fail('REQUIRES_CE_X64_WINDOWS') end
   local native = {}
-  for name in ('OpenProcess CloseHandle GetProcessId GetProcessTimes WaitForSingleObject GetTickCount64 VirtualQueryEx'):gmatch('%S+') do
+  for name in ('OpenProcess CloseHandle GetProcessId GetProcessTimes WaitForSingleObject VirtualQueryEx'):gmatch('%S+') do
     native[name] = f.getAddressSafe('kernel32.' .. name, true)
     if not whole(native[name]) or native[name] <= 0 then fail('WIN32_API_MISSING:' .. name) end
   end
@@ -72,7 +72,7 @@ function M.new(cfg, ce, load_module, observation_source, execution)
     local out={}; for k,v in pairs(scope) do out[k]=v end; return out
   end
   function a.set_guard(fn) guard = fn end
-  function a.now() return call('GetTickCount64') end
+  function a.now() return f.getTickCount() end
   local function checked()
     if execution then execution.check_local() end
     if poison then fail(poison) end

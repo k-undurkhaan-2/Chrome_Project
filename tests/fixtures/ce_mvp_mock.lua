@@ -55,14 +55,20 @@ function M.new(sources)
   end
   ce.getCheatEngineFileVersion=function() return 0,{major=7,minor=w.fail.ce_version or 6} end
   ce.cheatEngineIs64Bit=function() return not w.fail.x86 end
+  ce.getTickCount=function()
+    hook('getTickCount')
+    if w.fail.getTickCount=='nil' then return nil end
+    return w.time
+  end
   ce.executeCodeLocalEx=function(symbol,...)
     local name=assert(reverse[symbol]); local args={}
     for i=1,select('#',...) do local p=select(i,...); assert(p.type==0); args[i]=p.value end
     w.native_call_count=(w.native_call_count or 0)+1
     if w.record_native_calls~=false then w.native_calls[#w.native_calls+1]={name=name,args=args} end
+    -- Observed CE 7.6 behavior: zero arguments do not dispatch the native API.
+    if select('#',...)==0 then return nil end
     hook(name)
     if w.fail[name]=='nil' then return nil end
-    if name=='GetTickCount64' then return w.time end
     if name=='GetSystemInfo' then
       local p=args[1]; assert(p==0x800000 and w.observers==1 and w.opened==w.pid)
       if w.fail.system_info_no_output then return end

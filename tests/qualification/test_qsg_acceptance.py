@@ -60,7 +60,13 @@ def test_normal_trace_matches_preserved_r1_bytes_without_qsg(tmp_path,backend,mo
         w=factory.new(table(lua,sources))
         w.cfg.diagnostics=table(lua,{"enabled":True,"session_token":"SYNTHETIC-normal","event_limit":2048})
         p=layout.plan(mode); w.use_layout(table(lua,p['pages']),table(lua,p['words']))
-        w.start(); w.step(100); w.loop.stop(); w.clean()
+        w.start()
+        if baseline:
+            # Keep historical source bytes frozen, but share the corrected clock
+            # so its known zero-argument bridge failure cannot mask trace parity.
+            w.adapter.now = w.ce.getTickCount
+        w.step(100); w.loop.stop(); w.clean()
+        assert all(call.name != "GetTickCount64" for call in w.native_calls.values())
         # R1 changes cooperative scheduling and diagnostics, not safe outcomes.
         # Compare the same selected addresses/values and successful cleanup.
         writes=[{k:v for k,v in row.items() if k!='time'} for row in (plain(w.writes) or [])]
