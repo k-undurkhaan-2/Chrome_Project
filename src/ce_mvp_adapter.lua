@@ -264,8 +264,13 @@ function M.new(cfg, ce, load_module, observation_source, execution)
       observe('scan_progress', {progress_results=type(progress)=='table' and progress.ResultsFound or nil,
         total_addresses=type(progress)=='table' and progress.TotalAddressesToScan or nil,
         scanned_addresses=type(progress)=='table' and progress.CurrentlyScanned or nil})
+      -- Worker counters may reset before OnScanDone. They are telemetry, not
+      -- a durable result count. Callback/FoundList alone cannot prove success:
+      -- CE can also notify after failure/cancellation. Retain the strict gate
+      -- until a supported terminal-success signal is established; zero/default
+      -- totals must not turn an uninitialized empty result into completion.
       if type(progress)~='table' or not whole(progress.TotalAddressesToScan)
-          or progress.TotalAddressesToScan<0 or progress.TotalAddressesToScan>math.maxinteger
+          or progress.TotalAddressesToScan<=0 or progress.TotalAddressesToScan>math.maxinteger
           or progress.CurrentlyScanned~=progress.TotalAddressesToScan
           or progress.ResultsFound~=total then abort('SCAN_COMPLETION_UNCERTAIN') end
       scope.scan_complete=true

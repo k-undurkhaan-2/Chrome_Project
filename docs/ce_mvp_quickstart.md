@@ -68,6 +68,34 @@ address list is needed. The unchanged legacy collector consumes that same
 FoundList, including its actual Count and zero-based indices. Native counts
 19,276, 20,000, 30,000 and above are allowed; there is no 128/8192 raw-hit cap.
 
+**Native completion limitation (P4):** `OnScanDone` and an initialized FoundList
+do not independently prove successful, complete scanning. CE can release worker
+threads before the final callback. Its `getProgress()` can then retain a positive
+`TotalAddressesToScan` while returning zero `CurrentlyScanned` and `ResultsFound`.
+Those transient counters must not be relabeled as the final FoundList count.
+The adapter currently rejects this pattern with `SCAN_COMPLETION_UNCERTAIN`;
+P4 has **not** established a safe native compatibility rule for accepting it.
+
+The public [controller implementation](https://github.com/cheat-engine/cheat-engine/blob/ec45d5f47f92a239ba0bf51ec5d04a7509c3fd37/Cheat%20Engine/memscan.pas#L7642)
+also reaches the final callback on error paths. Its Pascal error methods are
+not exported by the [Lua binding](https://github.com/cheat-engine/cheat-engine/blob/ec45d5f47f92a239ba0bf51ec5d04a7509c3fd37/Cheat%20Engine/LuaMemscan.pas#L296),
+and the 7.6 bundled Lua documentation does not specify a terminal success/error
+accessor. This public revision is mechanism evidence, not verified source for
+the installed 7.6 binary. A stable Count/address list cannot rule out a valid
+partial result; zero Count cannot distinguish an empty scan from failed result
+initialization. `waitTillDone()` adds no documented success status and is not
+used as a blocking workaround.
+
+The existing strict counter rule remains in force, with an additional rejection
+of zero total work. A default `0/0/0` snapshot is never positive completion
+evidence, even with an empty FoundList. Empty synthetic scans with a positive,
+fully scanned total remain valid under that existing rule. Reset-counter cases
+remain uncertain and authorize no candidate reads or writes. Raw telemetry,
+`scan_complete`, collection coverage and global uniqueness remain separate;
+no strict QSG proof or evidence version has been relaxed. A supported terminal
+success signal covering scan, result finalization, failure and cancellation is
+required before native compatibility can be claimed.
+
 `scan_budget` (1..65536, default 2000) controls legacy raw admission;
 `max_candidates` (1..128, default 20, no greater than scan_budget) controls final
 ranking/report size. Legacy even/structure/neighborhood admission, exact-value

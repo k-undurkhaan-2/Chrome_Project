@@ -184,6 +184,13 @@ function M.new(sources)
     end
     ms.getProgress=function()
       assert(ms.done)
+      -- Explicit raw telemetry, including released-worker/default counters.
+      -- This is not a terminal success/error API; CE exposes no such flag here.
+      if w.progress_snapshot~=nil then
+        if type(w.progress_snapshot)~='table' then return w.progress_snapshot end
+        local snapshot={}; for k,v in pairs(w.progress_snapshot) do snapshot[k]=v end
+        return snapshot
+      end
       return {TotalAddressesToScan=100,CurrentlyScanned=w.fail.progress and 50 or 100,
         ResultsFound=w.fail.results_count or #ms.addresses}
     end

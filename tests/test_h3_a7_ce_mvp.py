@@ -886,6 +886,117 @@ def test_incomplete_scan_progress_is_separate_from_incomplete_structure(runtime)
     w.clean()
 
 
+@pytest.mark.parametrize("scenario,count,total", [
+    ("reported_pattern", 4, 8945664),
+    ("baseline_unique", 1, layout.PAGE_SIZE),
+    ("zero_match", 0, layout.PAGE_SIZE),
+])
+def test_p4_released_worker_counters_remain_unproven_without_success_status(runtime, scenario, count, total):
+    """Reproduce the observation, not a new native test or a success oracle.
+
+    Callback + readable results + reset counters cannot distinguish normal
+    teardown from cancellation/partial results or a late controller failure.
+    Even the known complete synthetic layout must fail closed until a supported
+    native terminal-success signal is established. No mock-only status is added.
+    """
+    lua, w = runtime
+    enable_diagnostics(lua)
+    if scenario == "reported_pattern":
+        # Four arbitrary synthetic matches, not the operator's fixture candidates.
+        for i in range(4):
+            w.object(0x100128 + i * 0x1000)
+    else:
+        plan = layout.plan(scenario)
+        w.use_layout(lua.table_from(plan["pages"]), lua.table_from(plan["words"]))
+        assert w.cfg.scan.stop_address - w.cfg.scan.start_address + 1 == layout.RESERVATION_SIZE
+    w.progress_snapshot = lua.table_from({
+        "TotalAddressesToScan": total, "CurrentlyScanned": 0, "ResultsFound": 0})
+    w.start(); w.until_state("ERROR")
+    assert w.loop.status().last_error == "SCAN_COMPLETION_UNCERTAIN"
+    assert len(events(w, "scan_done_observed")) == 1
+    assert events(w, "scan_population")[0].raw_match_count == count
+    progress = events(w, "scan_progress")[0]
+    assert (progress.total_addresses, progress.scanned_addresses, progress.progress_results) == (total, 0, 0)
+    assert events(w, "scan_population_complete") == []
+    assert not w.loop.status().scan_complete and not w.loop.status().collection_complete
+    assert w.reads == len(w.writes) == w.loop.evidence().counters.adapter_readback_calls == 0
+    assert w.loop.evidence().cleanup_ok
+    assert w.scans[1].hasError is None and w.scans[1].GetErrorString is None
+    w.clean()
+
+
+@pytest.mark.parametrize("snapshot", [
+    False, {}, {"TotalAddressesToScan": 0, "CurrentlyScanned": 0, "ResultsFound": 0},
+    {"TotalAddressesToScan": -1, "CurrentlyScanned": -1, "ResultsFound": 0},
+    {"TotalAddressesToScan": 1.5, "CurrentlyScanned": 1.5, "ResultsFound": 0},
+    {"TotalAddressesToScan": 4096, "ResultsFound": 0},
+    {"TotalAddressesToScan": 4096, "CurrentlyScanned": 4096},
+])
+def test_p4_default_or_unavailable_progress_cannot_prove_empty_scan(runtime, snapshot):
+    lua, w = runtime
+    enable_diagnostics(lua)
+    w.cfg.max_rescan_attempts = 0
+    w.progress_snapshot = lua.table_from(snapshot) if isinstance(snapshot, dict) else snapshot
+    w.start(); w.until_state("ERROR")
+    assert w.loop.status().last_error == "SCAN_COMPLETION_UNCERTAIN"
+    assert len(events(w, "scan_done_observed")) == 1
+    assert events(w, "scan_population")[0].raw_match_count == 0
+    assert events(w, "scan_population_complete") == []
+    assert not w.loop.status().scan_complete
+    assert w.reads == len(w.writes) == 0
+    assert w.loop.evidence().cleanup_ok
+    w.clean()
+
+
+@pytest.mark.parametrize("mode", ["baseline_unique", "zero_match"])
+def test_p4_retained_counters_preserve_existing_synthetic_fixture_flow(runtime, mode):
+    lua, w = runtime
+    enable_diagnostics(lua)
+    plan = layout.plan(mode)
+    w.use_layout(lua.table_from(plan["pages"]), lua.table_from(plan["words"]))
+    w.cfg.max_rescan_attempts = 0
+    count = 1 if mode == "baseline_unique" else 0
+    # Existing strict evidence rule only; this is not CE 7.6 teardown evidence.
+    w.progress_snapshot = lua.table_from({"TotalAddressesToScan": layout.PAGE_SIZE,
+        "CurrentlyScanned": layout.PAGE_SIZE, "ResultsFound": count})
+    w.start(); w.until_state("MONITORING" if count else "ERROR")
+    assert w.loop.status().scan_complete and w.loop.status().collection_complete
+    assert events(w, "scan_population")[0].raw_match_count == count
+    assert len(w.writes) == count
+    if count:
+        assert w.loop.status().last_readback_bits == 0x42FA0000
+        w.step(40)
+        assert w.loop.status().monitor_checks >= 20 and len(w.scans) == 1
+    else:
+        assert w.loop.status().last_error == "RESCAN_LIMIT_EXHAUSTED"
+        assert w.reads == 0
+    w.loop.stop(); w.clean()
+
+
+@pytest.mark.parametrize("callback", ["absent", "wrong_sender", "premature"])
+def test_p4_zero_progress_does_not_replace_current_terminal_callback(runtime, callback):
+    lua, w = runtime
+    enable_diagnostics(lua)
+    w.object(0x100128)
+    w.fail.no_complete = True
+    w.cfg.scan_timeout_ms = 1000
+    w.progress_snapshot = lua.table_from({"TotalAddressesToScan": 0,
+        "CurrentlyScanned": 0, "ResultsFound": 0})
+    w.start(); w.step(2)
+    if callback == "wrong_sender":
+        w.scans[1].saved_callback(lua.table())
+    elif callback == "premature":
+        # The mock refuses FoundList initialization before its scanner is done.
+        w.scans[1].saved_callback(w.scans[1])
+    w.until_state("ERROR")
+    expected = "FoundList read before completion" if callback == "premature" else "SCAN_TIMEOUT"
+    assert expected in w.loop.status().last_error
+    assert not w.loop.status().scan_complete and len(w.foundlist_history) == 0
+    assert w.reads == len(w.writes) == 0
+    assert w.loop.evidence().cleanup_ok
+    w.clean()
+
+
 @pytest.mark.parametrize("scenario", ["unique", "empty", "ambiguous", "overflow", "read_failure", "switch"])
 def test_opt_in_diagnostics_preserves_operation_order_and_terminal_decisions(runtime, scenario):
     lua, _ = runtime
