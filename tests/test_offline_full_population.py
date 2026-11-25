@@ -97,6 +97,24 @@ def test_ties_are_deterministic_across_source_order(runtime):
     assert first.result.recommendation.recommendation == "REVIEW"
 
 
+def test_unmapped_records_cannot_supply_missing_features(runtime):
+    lua, w = runtime
+    records(w, 2, good=(1,))
+    lua.execute("""
+      local first,excluded=w.objects[1],w.objects[2]
+      local field=first.addr-0x20
+      excluded.memory[field]=first.memory[field]
+      excluded.mapped=false
+      first.memory[field]=nil
+    """)
+    reference = legacy_reference(lua, w)
+    actual = offline(lua, w, population_mode="full")
+    assert actual.counts.eligible == 1 and actual.counts.excluded == 1
+    assert actual.result.best.candidate.f08 is None
+    assert plain(actual.result) == plain(reference.result)
+    no_native(w)
+
+
 @pytest.mark.parametrize("mode", ["bounded", "full"])
 @pytest.mark.parametrize("population", ["empty", "excluded", "duplicates"])
 def test_empty_filtered_and_duplicate_populations(runtime, mode, population):

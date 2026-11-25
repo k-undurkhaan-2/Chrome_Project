@@ -85,9 +85,12 @@ local function population(records, pattern)
     for key, value in pairs(record.memory) do
       require_value(integer(key, 1, 2^53 - 1) and integer(value, 0, 0xFFFFFFFF),
         'OFFLINE_INVALID_RECORDS: memory must contain numeric uint32 words')
-      require_value(words[key] == nil or words[key] == value,
-        'OFFLINE_INVALID_RECORDS: conflicting word')
-      words[key] = value
+      -- Match the existing table fixture: unmapped records cannot supply reads.
+      if record.mapped then
+        require_value(words[key] == nil or words[key] == value,
+          'OFFLINE_INVALID_RECORDS: conflicting word')
+        words[key] = value
+      end
     end
     local previous = by_id[record.addr]
     if previous then

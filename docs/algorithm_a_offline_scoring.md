@@ -33,8 +33,9 @@ The numbers and `memory` table are ordinary synthetic fixture data. The module
 does not read any process or host memory. Records use the existing offline
 fixture shape: a dense array of plain tables with a positive integral `addr`
 (at most `2^53-1`), boolean `mapped`, uint32 `protect`, and plain `memory` table
-mapping numeric identities to uint32 words. Missing words remain ordinary
-missing features. Other record metadata is ignored. Metatables, sparse arrays,
+mapping numeric identities to uint32 words. Only mapped records supply lookup
+words; missing words remain ordinary missing features. Other record metadata is
+ignored. Metatables, sparse arrays,
 malformed words, conflicting duplicate identities and conflicting overlapping
 words are rejected. Identical duplicates retain source order and are reconciled
 by the existing collector. The frozen reference eligibility predicate is
