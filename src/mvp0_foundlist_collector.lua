@@ -2232,6 +2232,20 @@ local function run_offline(opts, request)
     and result.final_decision == result.recommendation
     and result.recommendation.recommended_candidate == result.best
     and type(result.recommendation.manual_review_required) == 'boolean')
+  local recommendation = result.recommendation
+  complete((recommendation.recommendation == 'ACCEPT' or recommendation.recommendation == 'REVIEW'
+      or recommendation.recommendation == 'REJECT')
+    and (result.confidence == 'HIGH' or result.confidence == 'MEDIUM' or result.confidence == 'LOW')
+    and recommendation.confidence == result.confidence and type(result.manual_review) == 'boolean'
+    and type(result.score_gap) == 'number' and math.abs(result.score_gap) < math.huge
+    and recommendation.score_gap == result.score_gap and type(recommendation.rationale) == 'table')
+  local reason_count = 0
+  for index, reason in pairs(recommendation.rationale) do
+    complete(type(index) == 'number' and index % 1 == 0
+      and index >= 1 and index <= #recommendation.rationale and type(reason) == 'string')
+    reason_count = reason_count + 1
+  end
+  complete(reason_count == #recommendation.rationale)
   return completed
 end
 
