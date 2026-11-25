@@ -250,9 +250,58 @@ def options(lua, *, mode="stable_no_probe_intersection", prescore=True, budget=2
 def plain(value, *, omit_timings=True):
     """Compare all nested scoring features, penalties, tie vectors and report text."""
     if hasattr(value, "items"):
-        return {key: plain(item, omit_timings=omit_timings) for key, item in value.items()
-                if not (omit_timings and isinstance(key, str) and key.endswith("_ms"))}
+        return _plain_table(value, omit_timings)
     return value
+
+
+def _plain_table(value, omit_timings):
+    # Full offline outputs contain millions of scalar leaves. Recurse only into
+    # tables, retaining every field and separate copies of repeated table values.
+    return {key: _plain_table(item, omit_timings) if hasattr(item, "items") else item
+            for key, item in value.items()
+            if not (omit_timings and isinstance(key, str) and key.endswith("_ms"))}
+
+
+@pytest.mark.parametrize("version", ["lua53", "lua54"])
+@pytest.mark.parametrize("omit_timings", [False, True])
+def test_plain_preserves_nested_offline_values_and_independent_copies(version, omit_timings):
+    from importlib import import_module
+
+    lua = import_module("lupa." + version).LuaRuntime()
+    source = lua.eval("""function()
+        local candidate = {identity=17, score=2.5, accepted=false, label='sample', decode_ms=3}
+        return {ranked={[0]='zero', [1]=candidate, [2]={}}, best=candidate,
+                elapsed_ms=4, report_text='all fields', empty={}}
+    end""")()
+    candidate = {"identity": 17, "score": 2.5, "accepted": False, "label": "sample"}
+    expected = {"ranked": {0: "zero", 1: candidate, 2: {}}, "best": candidate,
+                "report_text": "all fields", "empty": {}}
+    if not omit_timings:
+        candidate["decode_ms"] = 3
+        expected["elapsed_ms"] = 4
+    actual = plain(source, omit_timings=omit_timings)
+    assert actual == expected
+    assert actual["best"] is not actual["ranked"][1]
+    actual["best"]["identity"] = -1
+    assert actual["ranked"][1]["identity"] == source.best.identity == 17
+    assert source.elapsed_ms == 4 and source.best.decode_ms == 3
+
+
+def test_plain_retains_scalars_and_original_conversion_errors():
+    marker = object()
+    failure = RuntimeError("original table conversion failure")
+
+    class BrokenTable:
+        def items(self):
+            raise failure
+
+    assert plain(marker) is marker
+    assert plain({"value": marker, "nested": {"ignored_ms": BrokenTable()}}) == {
+        "value": marker, "nested": {}}
+    for omit_timings in (False, True):
+        with pytest.raises(RuntimeError) as exc:
+            plain({"nested": BrokenTable()}, omit_timings=omit_timings)
+        assert exc.value is failure
 
 
 def array(value):
