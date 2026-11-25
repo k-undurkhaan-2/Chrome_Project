@@ -279,3 +279,40 @@ full-native specification, replacement of the <=128 qualification rule,
 resource-policy revision or live L12 example amendment is authorized.
 No Generation 2 work or additional offline test campaign follows from this
 registration.
+
+## G1-S3 registered D2 decisions (2026-11-26)
+
+Authority: `APPROVE_G1_S1_D2_DECISION_REGISTRATION_AND_L12_ERRATUM`.
+This dated successor registers D2.1–D2.4 within the approved documentation
+scope. It supersedes the D2 and L12-document deferrals above prospectively;
+those statements record the authority at G1-S2 and remain historical facts.
+The original S1 proposal and S2 receipt are unchanged. The approved wording
+comes from the local G1-S1-D2 decision report at
+`C:/Users/llzz/.codex/visualizations/2026/11/25/01a213b5-878e-7282-bf17-5b185277ab2a/g1-s1-d2-specification-decision.md`.
+
+The six G1-S2 clauses remain effective without re-registration. The following
+dispositions adopt their existing requirements by reference and add only the
+necessary applicability clarification:
+
+| Decision | Effective disposition and references |
+| --- | --- |
+| D2.1 — Full and bounded scope | Retain [G1-S2 clauses 1–3, 5–6](#g1-s2-registered-offline-specification-s1-d1) and the [shared AC5/AC6 contracts](#raw-ac5-api-and-shared-contracts) for supplied finite, explicitly owned synthetic records, with unchanged bounded defaults and labels. Input completeness, eligible-population coverage, ranking correctness, recommendation, independent qualification and authority to act remain separate claims. Product `scan.mode='bounded'` describes a scan range, not this offline population-mode selector; the option is not extended to the product/native path. |
+| D2.2 — Strict bounded G1 | Retain the [L03/L09 correspondence](#offline-correspondence-to-g1-acceptance-rows), [R1 frozen 128/128 regime](ce_mvp_q1_r1_plan.md#frozen-g1-configuration-and-session-budgets) and [strict QUALIFICATION gates](architecture/h3_a7_ce_mvp_contract.md#single-candidate-policy): a complete L03 set of at most 128, unchanged thresholds, exactly one independent qualifier and all five R1 L09 negative controls with zero writes. NORMAL scoped ACCEPT cannot substitute for strict QUALIFICATION or establish a live L-row result. Above 128 alone remains no failure criterion for synthetic full mode. |
+| D2.3 — Existing resource policy | Retain the all-or-unsuccessful outcome under clauses 4–5 and the [registered resource boundary](#resource-boundary-and-accepted-historical-evidence). Cardinality, time, memory, output, cancellation and cleanup constraints are distinct. All existing protections and resource policies remain in force, including [product ownership and cleanup](architecture/h3_a7_ce_mvp_contract.md#state-and-ownership) and R1 budgets. The listed offline test ceilings are not a native SLA, capacity commitment or default; no native-full service guarantee or limit increase is established. |
+| D2.4 — L12 documentation correction | The [authoritative prospective L12 erratum](qualification/h3_a7_q1_qsg_synthetic_test_plan.md#g1-s3-d24-prospective-l12-erratum-2026-11-26) registers the corrected INVALID example and preserves the three distinct before-activity rejections and zero-activity evidence. It identifies the superseded R1/addendum locations; historical observations and validation code remain unchanged. |
+
+For D2.2, the [R1 overflow fixture](ce_mvp_q1_r1_plan.md#disposable-fixture-and-exact-layout)
+establishes at least 129 actual search positions, not 129 qualified structures.
+Its original bounded qualification must refuse admission and record the actual
+count, lack of established completeness and refusal cause; no obsolete legacy
+error token is forced where later approved implementation changed it. This is
+not a universal NORMAL native raw-count ceiling. The five retained controls
+are `zero_match`, `ambiguous`, `over_limit`, `incomplete_structure` and
+`invalid_structure`.
+
+Native full-population external-input completeness, capacity/resource policy
+and strict qualification remain unresolved. This registration establishes no
+full native specification, adapter, live input or execution authority. The
+[retained G1 and product state](#retained-g1-and-product-state), historical
+evidence, qualification obligations, Generation 2 boundary and frozen
+liveness/recovery design remain unchanged.
