@@ -121,9 +121,42 @@ G1 LIVE NOT APPROVED；L01–L12 = **0 PASS / 0 FAIL / 12 NOT_RUN**；L12-MISSIN
 | L11 | 仅批准A/B；A=zero、B=unique，切到B | 0 | CE_TARGET_CHANGED；切换后A/B无新MVPread/scan/write；B自采100不代表OS零写证明 |
 | L12-MISSING | 有效safe config移出/模型缺失，public Start一次 | 0 | 实际missing-file诊断含ce_mvp_config.local.lua；不是虚构MISSING_CONFIG；无adapter构造 |
 | L12-DISABLED | otherwise valid，write_enabled=false | 0 | WRITE_DISABLED；八个before/after guard counters全0 |
-| L12-INVALID | otherwise valid，write_enabled=true，scan_budget129/max_candidates128 | 0 | INVALID_SCAN_SETTINGS；零扫描零raw；不能当L09 overflow |
+| L12-INVALID | Otherwise valid config, `write_enabled=true`, `scan.scan_budget=65537`, `scan.max_candidates=128` | 0 | Start=false with `INVALID_SCAN_SETTINGS` before adapter construction or scan/write activity; not L09 overflow |
 
 L12三个子项各需独立Start结果、guard before/after/restored、retained evidence无变化；前次L10 evidence须标PRIOR_RUN_OR_NO_RUN，不当作新run。保持L12附件的三项范围和session额度不变。L10内probe与active拒绝不消耗write reservation；L10第二run仍计一个成功Start但不获得新写配额。
+
+### G1-S3 D2.4 prospective L12 erratum (2026-11-26)
+
+Authority: `APPROVE_G1_S1_D2_DECISION_REGISTRATION_AND_L12_ERRATUM`.
+The L12-INVALID row above is the corrected prospective example. This
+authoritative erratum supersedes `scan_budget=129,max_candidates=128` in the
+frozen [R1 plan, "L12 rejected configuration"](../ce_mvp_q1_r1_plan.md#l12-rejected-configuration)
+and the local, ignored `docs/codex_tasks/h3_a7_q1_l12_three_case_addendum.md`,
+"Three independently observed future rejections" INVALID row and "Future
+setup, observation and restoration order" step 6. Those original files and
+historical observations remain unchanged.
+
+At baseline `01924ab753d784400ed15d9efe12339820df8a15`, the unchanged
+[validator](../../src/ce_mvp_core.lua#L86-L94) permits `scan_budget` 1–65536,
+`max_candidates` 1–128 and `max_candidates <= scan_budget`. Thus 129/128 alone
+is valid; 65537/128 deliberately exceeds the intake range. The
+[existing three-case synthetic test](../../tests/qualification/test_qsg_acceptance.py#L194-L208)
+already uses 65537; this is static corroboration, not a new execution or live
+result. The correction raises no limit and supplies no L09 overflow evidence.
+
+MISSING, DISABLED and INVALID remain three independently required rejections:
+the correct public-entry diagnostic, all eight attempted-call counters zero
+before and after, no scan/write activity, unchanged retained prior-run
+counters, successful guard restoration and required safe-state restoration.
+Prior singleton evidence remains labelled retained evidence, never fresh L12
+telemetry. No case substitutes for another, and no synthetic result passes L12.
+In the existing separately authorized procedure, restore `write_enabled=false`
+and the original 128/128 settings as already required.
+
+This erratum authorizes no live input preparation, execution or qualification
+result and changes no validation code. All three L12 cases remain
+NOT_RUN/PAUSED; the current [G1 and product state](../algorithm_a_offline_scoring.md#retained-g1-and-product-state)
+is unchanged. The earlier D1 status statements remain historical records.
 
 ## 7. 执行顺序、回归和准入
 
