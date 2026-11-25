@@ -4,8 +4,82 @@
 finite synthetic table records in Lua 5.3/5.4. It reuses the existing
 `MVP0FoundList.build_input` and `MVP0.run` pipeline in an isolated table-backed
 environment. The scorer, weights, cohort context, final comparator, confidence,
-recommendation and ordinary report are unchanged. No native/product entry point
-loads this module or accepts its `population_mode` option.
+recommendation and ordinary report are unchanged. Product configuration does not
+accept `population_mode`; the explicit table-only collector overload below is
+the engineering connection to this API.
+
+## Connected read-only collector interface (AC6)
+
+Call `MVP0FoundList.run(options, {records=records, load_module=load_module})`.
+This overload of the existing collector interface loads AC5 in an isolated
+environment and returns its entire completion envelope unchanged. Unlike the
+raw AC5 call, the caller loads the collector and supplies a loader for all three
+modules. The interface checks completion status, mode, counts and ordinary result
+structure before returning. AC5 retains responsibility for validating options,
+records, feature words, selected/ranked identities, ordering and cohort context.
+There is no second scorer and no result cache.
+
+The second argument must be a plain table containing only `records` and
+`load_module`. The records and options use the AC5 contracts below. The trusted,
+caller-owned `load_module(name, env)` must load the named repository module into
+the supplied environment; it must not substitute ambient process readers or
+actions. Only these three module names are needed. Truth metadata on records is
+ignored; truth, live/action settings and unknown options are rejected. An
+explicit `population_mode` without the synthetic request is an error before any
+collection. Existing single-argument calls without that option retain their
+original behavior. Within the synthetic overload, omitted mode and explicit
+`bounded` retain AC5 defaults and bounded budget semantics.
+
+Run this example from the repository root using Lua 5.3 or 5.4:
+
+<!-- AC6 example -->
+```lua
+local collector = assert(loadfile('src/mvp0_foundlist_collector.lua'))()
+local function load_module(name, env)
+  assert(name == 'mvp0_offline_scoring.lua'
+    or name == 'mvp0_candidate_report.lua' or name == 'mvp0_foundlist_collector.lua')
+  return assert(loadfile('src/' .. name, 't', env))()
+end
+local records = {{
+  addr=0x100128, mapped=true, protect=4,
+  memory={
+    [0x100108]=0x10011200, [0x100118]=0x10013800, [0x100120]=0x10042100,
+    [0x100128]=0x42C80000, [0x100158]=0x10060000,
+    [0x100168]=0x10025600, [0x100170]=0x10028400, [0x100178]=0x10086300,
+  },
+}}
+local completed = collector.run({
+  population_mode='full', target_value_pattern=0x42C80000, target_value_float=100.0,
+}, {records=records, load_module=load_module})
+assert(completed.completed and completed.population_complete)
+assert(completed.counts.fully_scored == 1 and completed.counts.ranked == 1)
+print(completed.status, completed.counts.fully_scored, completed.counts.ranked)
+print(completed.result.report_text)
+```
+
+Full mode succeeds only with consistent completed population coverage. An empty
+eligible set returns `EMPTY` with the ordinary no-candidate recommendation.
+Bounded subset completion remains distinguishable by `population_mode`,
+`population_complete` and the counts. Invalid requests raise
+`OFFLINE_INVALID_REQUEST`; malformed completion envelopes raise
+`OFFLINE_INCOMPLETE_RESULT`. AC5 validation errors and original loader/scoring/
+resource errors propagate without a successful return, fallback, replacement
+recommendation or stale prior result. Caller-aborted workers remain unsuccessful.
+
+All recommendation fields, including `manual_review_required`, are preserved.
+An observed ACCEPT grants no action or automatic execution authority. This
+interface has no action port, starts no product loop, and reads only the supplied
+synthetic tables. It does not attach to processes or collect real memory.
+The caller retains the Lua allocator and existing worker time, sampled memory,
+output and host-commit protections described below; this overload creates no
+worker or supervisor. The existing runtime and trusted loader are caller-owned.
+
+Connected regression: `.venv/Scripts/python.exe -B -m pytest
+tests/test_offline_collector_interface.py tests/test_offline_full_population.py`.
+The connected suite reuses the AC5 cases in both supported Lua versions, adds
+boundary failure checks, and executes the example above.
+
+## Raw AC5 API and shared contracts
 
 ```lua
 local offline = assert(loadfile('src/mvp0_offline_scoring.lua'))()

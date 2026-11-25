@@ -2175,7 +2175,73 @@ function MVP0FoundList.run_from_filtered_addresses(opts)
   return bundle
 end
 
-function MVP0FoundList.run(opts)
+-- Explicit table-backed engineering overload; never discovers a live source.
+local function run_offline(opts, request)
+  local function check(ok, code)
+    if not ok then error(code, 0) end
+  end
+  check(type(request) == 'table' and getmetatable(request) == nil,
+    'OFFLINE_INVALID_REQUEST: plain table required')
+  for key in pairs(request) do
+    check(key == 'records' or key == 'load_module', 'OFFLINE_INVALID_REQUEST: unsupported field')
+  end
+  check(request.records ~= nil and type(request.load_module) == 'function',
+    'OFFLINE_INVALID_REQUEST: records and load_module required')
+  -- Load AC5 without ambient process, file, action or product-loop capabilities.
+  local env = {
+    assert=assert, error=error, ipairs=ipairs, pairs=pairs, next=next, pcall=pcall,
+    select=select, tonumber=tonumber, tostring=tostring, type=type, getmetatable=getmetatable,
+    math=math, string=string, table=table, debug={getinfo=debug.getinfo}, os={clock=os.clock},
+  }
+  env._G = env
+  local offline = request.load_module('mvp0_offline_scoring.lua', env)
+  -- AC5 owns option/record validation, isolated table reads and complete identity,
+  -- feature, cohort and rank reconciliation. Do not catch or replace its errors.
+  local completed = offline.run(request.records, opts, request.load_module)
+  local function complete(ok) check(ok, 'OFFLINE_INCOMPLETE_RESULT: interface completion') end
+  complete(type(completed) == 'table' and completed.completed == true)
+  local counts, result = completed.counts, completed.result
+  complete(type(counts) == 'table' and type(result) == 'table'
+    and type(result.ranked) == 'table' and type(result.recommendation) == 'table'
+    and type(result.report_text) == 'string')
+  for _, key in ipairs({'supplied', 'distinct', 'duplicates', 'eligible', 'excluded',
+    'selected', 'fully_scored', 'ranked'}) do
+    local n = counts[key]
+    complete(type(n) == 'number' and n >= 0 and n < math.huge and n % 1 == 0)
+  end
+  local mode = opts and opts.population_mode or 'bounded'
+  complete(completed.population_mode == mode
+    and counts.supplied == counts.distinct + counts.duplicates
+    and counts.distinct == counts.eligible + counts.excluded
+    and counts.selected == counts.fully_scored and counts.fully_scored == counts.ranked
+    and counts.ranked == #result.ranked and counts.ranked <= counts.eligible
+    and completed.population_complete == (counts.ranked == counts.eligible)
+    and (mode ~= 'full' or completed.population_complete == true)
+    and completed.status == ((counts.ranked == 0) and 'EMPTY' or 'COMPLETE'))
+  complete(type(completed.identities) == 'table' and type(completed.collection) == 'table'
+    and type(completed.identities.supplied) == 'table'
+    and type(completed.identities.distinct) == 'table'
+    and type(completed.identities.eligible) == 'table'
+    and type(completed.collection.candidate_value_addrs) == 'table')
+  complete(#completed.identities.supplied == counts.supplied
+    and #completed.identities.distinct == counts.distinct
+    and #completed.identities.eligible == counts.eligible
+    and #completed.collection.candidate_value_addrs == counts.selected
+    and completed.collection.selected_count == counts.selected
+    and result.best == result.ranked[1] and result.second == result.ranked[2]
+    and result.final_decision == result.recommendation
+    and result.recommendation.recommended_candidate == result.best
+    and type(result.recommendation.manual_review_required) == 'boolean')
+  return completed
+end
+
+function MVP0FoundList.run(opts, offline_request)
+  if offline_request ~= nil then
+    return run_offline(opts, offline_request)
+  end
+  if opts and opts.population_mode ~= nil then
+    error('OFFLINE_INVALID_REQUEST: population_mode requires synthetic records and loader', 0)
+  end
   if opts and opts.stable_no_probe_intersection_enabled == true then
     local bundle = run_stable_no_probe_intersection(opts)
     if bundle.failure_class ~= nil and bundle.failure_class ~= 'collector_runtime_empty' then
