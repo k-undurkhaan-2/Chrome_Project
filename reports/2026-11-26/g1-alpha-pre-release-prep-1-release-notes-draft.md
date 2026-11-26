@@ -4,6 +4,8 @@
 Disposition: **BLOCKED_G1_ALPHA_PRODUCT_CLOSURE**.
 These are the sole current English release notes, replacing the earlier draft
 at this same path. They announce no release and distribute no artifact.
+The [consolidated handoff](g1-alpha-product-closure-delivery.md) records the
+P01-P10/F01-F04 matrix, standard candidate identities, tests and cleanup ledger.
 
 ## Delivered behavior
 

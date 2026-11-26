@@ -17,6 +17,7 @@ English is the sole current official product documentation edition:
 - [Installation, original configuration and standard CT use](docs/ce_mvp_quickstart.md)
 - [Product and retained engineering/qualification contract](docs/architecture/h3_a7_ce_mvp_contract.md)
 - [Current unpublished release notes](reports/2026-11-26/g1-alpha-pre-release-prep-1-release-notes-draft.md)
+- [Consolidated product handoff, acceptance matrix and verification](reports/2026-11-26/g1-alpha-product-closure-delivery.md)
 
 The design environment remains Windows x64, Cheat Engine 7.6 and embedded Lua
 5.3. Python performs one-time offline CT preparation only. Preserve private
