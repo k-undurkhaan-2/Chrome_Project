@@ -11,13 +11,17 @@
 
 *There are some pre-release and current workflow here.*
 
-G1-ALPHA-F01-CONFIG adds persistent standard Alpha configuration at ordinary
-ID1 Start. The separate [public Alpha example](src/ce_mvp_alpha_config.example.lua)
-explicitly selects the existing owned synthetic input; no Lua Console selection
-is required after one-time configuration. See the [Chinese configuration guide](docs/g1_alpha_f01_config_zh.md)
-and [F01 delivery receipt](reports/2026-11-26/g1-alpha-f01-delivery.md).
-This establishes only the authorized synthetic configuration seam. F02–F04,
-real-input product usability, native qualification and publication remain open.
+G1-ALPHA-F01-R1 restores the [original configuration contract](src/ce_mvp_config.example.lua)
+at ordinary ID1 Start, separating validation, Alpha compatibility, effective
+parameter application, runtime capability and authorization. See the
+[Chinese configuration guide](docs/g1_alpha_f01_r1_config_zh.md) and
+[F01-R1 verification receipt](reports/2026-11-26/g1-alpha-f01-r1-delivery.md).
+Safe defaults remain PID 0 and writes disabled. Applicable settings are verified
+only in the explicitly selected existing owned table environment; the standard
+real-input product, F02–F04, native qualification and publication remain BLOCKED/OPEN.
+The [prior F01 receipt](reports/2026-11-26/g1-alpha-f01-delivery.md) remains historical
+evidence for its synthetic selection seam. Its three-field example remains
+compatible and explicitly reports fixture defaults; it is not the product contract.
 
 The preceding G1-ALPHA-INTEGRATION-1 makes the standard ID1 entry select the Alpha full
 profile, with explicit supplied input and stop-only lifecycle. Default Start
