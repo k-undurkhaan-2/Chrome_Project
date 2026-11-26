@@ -11,6 +11,16 @@
 
 *There are some pre-release and current workflow here.*
 
+G1-ALPHA-INTEGRATION-1 now makes the standard ID1 entry select the Alpha full
+profile, with explicit supplied input and stop-only lifecycle. Default Start
+without input fails closed. The [new Chinese manual acceptance
+sheet](docs/g1_alpha_integration_1_manual_acceptance.md) identifies the standard
+candidate and its explicitly selected owned synthetic test input; the
+[verification receipt](reports/2026-11-26/g1-alpha-integration-1-delivery.md)
+records signatures, regression outcomes and retained gates. Status:
+`READY_G1_ALPHA_INTEGRATION_1_CONTROLLED_MANUAL_ACCEPTANCE`; new CE-host manual
+acceptance and native qualification are not established. No release is published.
+
 G1-ALPHA-PREP-3-R1 retains **CE 7.6 + Lua 5.3 + CT**, with ID1 as Start
 and ID3 as the read-only synthetic scoring entry. The Python launcher remains
 an optional engineering utility. The maintainer's 2026-11-26 scope correction
