@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "armedforces-tool"
 version = "0.1.0"
-description = "Read-only tooling CLI for armedforces.io-v2 engineering workflows."
+description = "Research tooling for candidate evaluation, case records and log analysis."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
