@@ -11,7 +11,15 @@
 
 *There are some pre-release and current workflow here.*
 
-G1-ALPHA-INTEGRATION-1 now makes the standard ID1 entry select the Alpha full
+G1-ALPHA-F01-CONFIG adds persistent standard Alpha configuration at ordinary
+ID1 Start. The separate [public Alpha example](src/ce_mvp_alpha_config.example.lua)
+explicitly selects the existing owned synthetic input; no Lua Console selection
+is required after one-time configuration. See the [Chinese configuration guide](docs/g1_alpha_f01_config_zh.md)
+and [F01 delivery receipt](reports/2026-11-26/g1-alpha-f01-delivery.md).
+This establishes only the authorized synthetic configuration seam. F02–F04,
+real-input product usability, native qualification and publication remain open.
+
+The preceding G1-ALPHA-INTEGRATION-1 makes the standard ID1 entry select the Alpha full
 profile, with explicit supplied input and stop-only lifecycle. Default Start
 without input fails closed. The [new Chinese manual acceptance
 sheet](docs/g1_alpha_integration_1_manual_acceptance.md) identifies the standard

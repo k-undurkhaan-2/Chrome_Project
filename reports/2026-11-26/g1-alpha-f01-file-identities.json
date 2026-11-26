@@ -1,0 +1,135 @@
+{
+  "task": "G1-ALPHA-F01-CONFIG",
+  "baseline": "d8f93d517c374a45cfcc62f8a44520ae67b09f35",
+  "source_commit": "79c6a3dfadabfa66afb652dda4ea4c9535ee5388",
+  "package_path": "D:\\armedforces.io-v2\\reports\\2026-11-26\\g1-alpha-f01-candidate",
+  "scope": "Local controlled configuration-seam candidate; owned synthetic input only; not a release artifact",
+  "execution_mode": "ALPHA_STANDARD",
+  "product_profile": "ALPHA_FULL",
+  "config_source": "LOCAL_CONFIG",
+  "input_source": "OWNED_SYNTHETIC",
+  "manual_selection_required": false,
+  "controlled_template_flag": false,
+  "preparation_command": [
+    "D:\\armedforces.io-v2\\.venv\\Scripts\\python.exe",
+    "D:\\armedforces.io-v2\\reports\\2026-11-26\\g1-alpha-f01-candidate\\src\\prepare_ce_mvp.py"
+  ],
+  "preparation_exit": 0,
+  "installation_binding": {
+    "id1": "D:\\armedforces.io-v2\\reports\\2026-11-26\\g1-alpha-f01-candidate\\src\\ce_mvp.lua",
+    "id3": "D:\\armedforces.io-v2\\reports\\2026-11-26\\g1-alpha-f01-candidate\\src\\ce_mvp_readonly.lua",
+    "config": "D:\\armedforces.io-v2\\reports\\2026-11-26\\g1-alpha-f01-candidate\\src\\ce_mvp_config.local.lua",
+    "relocatable_without_regeneration": false
+  },
+  "files": [
+    {
+      "path": "src/ce_mvp.lua",
+      "sha256": "27d9f5b2cae2b4bb3507649ab5ce4fb1411b47e53bda0247f84a0daababe86c2",
+      "bytes": 13612,
+      "source_commit": "79c6a3dfadabfa66afb652dda4ea4c9535ee5388",
+      "git_blob": "bfa2bc74382aeb275d8b3d4d564bdded40f75813"
+    },
+    {
+      "path": "src/ce_mvp_core.lua",
+      "sha256": "fd6c336069df55ecda5cfe3156436e2ada5aaf8ac1521801135b5ddf4b8ff938",
+      "bytes": 19762,
+      "source_commit": "79c6a3dfadabfa66afb652dda4ea4c9535ee5388",
+      "git_blob": "a71f5e2f2e75013b2644333511950863be654336"
+    },
+    {
+      "path": "src/ce_mvp_adapter.lua",
+      "sha256": "1143a9d74bd6f0d5b7f94db21b47a2fc0fa22f991c09fe4273993a8f2edaffae",
+      "bytes": 36236,
+      "source_commit": "79c6a3dfadabfa66afb652dda4ea4c9535ee5388",
+      "git_blob": "cc007a94842a79ff3f1dfd10b245e3636d8ffd07"
+    },
+    {
+      "path": "src/mvp0_foundlist_collector.lua",
+      "sha256": "efc91853c8ed3aa6e8ec059259e5789225747298912fb15dac620a0a1a70e9e4",
+      "bytes": 96505,
+      "source_commit": "79c6a3dfadabfa66afb652dda4ea4c9535ee5388",
+      "git_blob": "cd92d84e69ab84250006b4d156dd492c265549cb"
+    },
+    {
+      "path": "src/mvp0_candidate_report.lua",
+      "sha256": "2fa9d93ba34ff140aead6e87c1d59a5e149720d894bb0f7bd14267ab10182694",
+      "bytes": 107482,
+      "source_commit": "79c6a3dfadabfa66afb652dda4ea4c9535ee5388",
+      "git_blob": "1026904fd810e421acfc7439f2f0b3c6f73d934c"
+    },
+    {
+      "path": "src/ce_mvp_readonly.lua",
+      "sha256": "37cdc21c4474dc4f9d9c855eb873f6a593d7d35065eb7195fbdda63a010de625",
+      "bytes": 4648,
+      "source_commit": "79c6a3dfadabfa66afb652dda4ea4c9535ee5388",
+      "git_blob": "9e33046f33a2c6a0a9f1369d5c7e22a5766e353b"
+    },
+    {
+      "path": "src/mvp0_offline_scoring.lua",
+      "sha256": "4e3677c62b5cbe3a2ee9b827f6f76cece688e8fdda870315b773eb8f81c55f50",
+      "bytes": 10760,
+      "source_commit": "79c6a3dfadabfa66afb652dda4ea4c9535ee5388",
+      "git_blob": "f6890fcafdb7b7b791612947b4d5573d06dfce97"
+    },
+    {
+      "path": "src/examples/g1_alpha_population.example.lua",
+      "sha256": "73713925da9b0cc484eb5fcfed79a12b72e2f8656f5b9e0c77068c0350b12e02",
+      "bytes": 929,
+      "source_commit": "79c6a3dfadabfa66afb652dda4ea4c9535ee5388",
+      "git_blob": "ff8dc27646a342a6ce510d7748206c5bed212abc"
+    },
+    {
+      "path": "src/ce_mvp_config.example.lua",
+      "sha256": "c473b01d35e2ea068cc318b026f39039f6b9af91971f7d6b5d4dfdadd0346013",
+      "bytes": 2659,
+      "source_commit": "79c6a3dfadabfa66afb652dda4ea4c9535ee5388",
+      "git_blob": "46b80ccfc4164025778cb5e527202cd8ff1f30c8"
+    },
+    {
+      "path": "src/ce_mvp_alpha_config.example.lua",
+      "sha256": "784b0f77dc78011c451793898013bcf764d5128f2b53f600083cf3575d338559",
+      "bytes": 354,
+      "source_commit": "79c6a3dfadabfa66afb652dda4ea4c9535ee5388",
+      "git_blob": "4d0c0abc0f5e060615eae8aa88340dd7176ee4a1"
+    },
+    {
+      "path": "src/ce_mvp.CT",
+      "sha256": "2bf2b048fca7d8299702dd1de5bf941a18ac6a3c0e945771651dd0e208591a8c",
+      "bytes": 2316,
+      "source_commit": "79c6a3dfadabfa66afb652dda4ea4c9535ee5388",
+      "git_blob": "ffc91e8a2d7e1ea2c8d1cf006cf3bcd9978e136c"
+    },
+    {
+      "path": "src/prepare_ce_mvp.py",
+      "sha256": "68c9d1bb87da92b56bc45a70a243d289999b9a5db34bae126043a5322d4c6b9a",
+      "bytes": 3368,
+      "source_commit": "79c6a3dfadabfa66afb652dda4ea4c9535ee5388",
+      "git_blob": "769d1c2e957b70499ff29775bb07ab9a8de1954b"
+    },
+    {
+      "path": "tests/fixtures/ce_mvp_mock.lua",
+      "sha256": "9e0f977ba1acdc3c844fd23e55ab99096e7a7277e3841e10fba3e259e0cfa3a5",
+      "bytes": 13188,
+      "source_commit": "79c6a3dfadabfa66afb652dda4ea4c9535ee5388",
+      "git_blob": "a10e57c21bc1c37e57edf8675f5b32dac6f5b39a"
+    },
+    {
+      "path": "src/ce_mvp.local.CT",
+      "sha256": "76d966213fed39d27b491f86f3fc1af9d38ab97ea544a4f9a9b3db1ab85cb7d7",
+      "bytes": 2909,
+      "kind": "generated_standard_CT"
+    },
+    {
+      "path": "src/ce_mvp_config.local.lua",
+      "sha256": "784b0f77dc78011c451793898013bcf764d5128f2b53f600083cf3575d338559",
+      "bytes": 354,
+      "kind": "public_example_copy_local_only",
+      "derived_from": "src/ce_mvp_alpha_config.example.lua"
+    }
+  ],
+  "maintained_file_count": 13,
+  "total_file_count": 15,
+  "ce_host_observation": "NOT_RUN",
+  "native_qualification": "NOT_ESTABLISHED",
+  "publication_authorized": false
+}
