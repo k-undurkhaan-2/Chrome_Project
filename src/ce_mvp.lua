@@ -1,11 +1,16 @@
--- Loading is inert. Only start() reads the local config and initiates a run.
+-- Loading is inert. Standard Alpha requires explicit supplied test input.
+-- Only an explicitly selected engineering/qualification Start reads local config.
 if rawget(_G, 'H3A7_CE_MVP') then return H3A7_CE_MVP end
 local source=debug.getinfo(1,'S').source
 assert(source:sub(1,1)=='@', 'Load ce_mvp.lua from its saved file')
 local dir=assert(source:sub(2):match('^(.*[\\/])'))
 local api, instance, startup_error = {}, nil, nil
-local execution_mode, factory, run, starting = 'NORMAL', nil, nil, false
+local execution_mode, factory, run, starting = 'ALPHA_STANDARD', nil, nil, false
+local selection_locked, input_source, selection_error = false, nil, nil
 local controlled_fixture
+local function alpha()
+  return execution_mode=='ALPHA_STANDARD' or execution_mode=='ALPHA_CONTROLLED'
+end
 local function module(name, env)
   return assert(loadfile(dir .. name, 't', env or _G))()
 end
@@ -15,16 +20,33 @@ function api.configure_execution(request)
   if starting or (instance and (instance.status().running or instance.status().cleanup_pending)) then
     return false,'QSG_MODE_LOCKED'
   end
-  if execution_mode=='ALPHA_CONTROLLED' and type(request)=='table'
-      and request.mode=='ALPHA_CONTROLLED' and request.factory==nil then return true end
-  if execution_mode~='NORMAL' then return false,'QSG_MODE_LOCKED' end
-  if type(request)=='table' and request.mode=='ALPHA_CONTROLLED' then
-    execution_mode='ALPHA_CONTROLLED'
-    if request.factory~=nil then return false,'CONTROLLED_FACTORY_FORBIDDEN' end
+  if type(request)~='table' or getmetatable(request) then return false,'QSG_MODE_INVALID' end
+  if selection_locked then
+    -- Rechecking the same CT after an explicit Stop preserves its fixed selection.
+    if alpha() and not selection_error and request.mode==execution_mode
+        and request.factory==nil and request.input_source==input_source then
+      for key in pairs(request) do
+        if key~='mode' and key~='input_source' then return false,'QSG_MODE_LOCKED' end
+      end
+      return true
+    end
+    return false,'QSG_MODE_LOCKED'
+  end
+  if request.mode=='ALPHA_STANDARD' or request.mode=='ALPHA_CONTROLLED'
+      or request.mode=='ENGINEERING_BOUNDED' then
+    execution_mode=request.mode; selection_locked=true
+    for key in pairs(request) do
+      if key~='mode' and key~='input_source' then selection_error='EXECUTION_SELECTION_INVALID' end
+    end
+    if execution_mode=='ALPHA_STANDARD' then
+      if request.input_source~='OWNED_SYNTHETIC' then selection_error='ALPHA_INPUT_REQUIRED' end
+      input_source=request.input_source
+    elseif request.input_source~=nil then selection_error='EXECUTION_SELECTION_INVALID' end
+    if selection_error then return false,selection_error end
     return true
   end
-  if type(request)~='table' or request.mode~='QUALIFICATION' then return false,'QSG_MODE_INVALID' end
-  execution_mode='QUALIFICATION'
+  if request.mode~='QUALIFICATION' then return false,'QSG_MODE_INVALID' end
+  execution_mode='QUALIFICATION'; selection_locked=true
   if type(request.factory)~='table' or request.factory.version~='qsg.v1'
       or type(request.factory.prepare_start)~='function' then return false,'QSG_PLUGIN_MISSING' end
   factory=request.factory
@@ -41,15 +63,18 @@ function api.start()
     if not s.cleanup_ok then return reject('CLEANUP_UNCERTAIN_RELOAD_CE') end
   end
   if starting then return false,'QSG_START_IN_PROGRESS' end
-  starting=true
+  starting=true; selection_locked=true
   local pending_adapter
   local ok, result, detail=pcall(function()
     assert(_VERSION=='Lua 5.3', 'CE_ENTRYPOINT_REQUIRES_LUA_5_3')
+    assert(not selection_error, selection_error)
     -- No ambient CE/file/process APIs in the operator's data-only config chunk.
     local config, adapter
-    if execution_mode=='ALPHA_CONTROLLED' then
+    if alpha() then
       -- Fixed owned fixture: no caller-provided CE APIs, factory or private config.
       instance=nil; controlled_fixture=nil
+      assert(execution_mode=='ALPHA_CONTROLLED' or input_source=='OWNED_SYNTHETIC',
+        'ALPHA_INPUT_REQUIRED: explicitly select owned supplied input before Start; reload CE to change selection')
       controlled_fixture,adapter=module('ce_mvp_adapter.lua').new_controlled(module)
       config=controlled_fixture.cfg
     else
@@ -61,18 +86,18 @@ function api.start()
       assert(factory,'QSG_PLUGIN_MISSING')
       run=factory.prepare_start(validated)
       adapter=module('ce_mvp_adapter.lua').new(validated,_G,module,run.observation_source,run)
-    elseif execution_mode=='NORMAL' then
+    elseif execution_mode=='ENGINEERING_BOUNDED' then
       adapter=module('ce_mvp_adapter.lua').new(validated,_G,module)
     end
     pending_adapter=adapter
     instance=core.new(config,adapter,api.start,
-      execution_mode=='ALPHA_CONTROLLED' and 'ALPHA_STOP_ONLY' or nil)
+      alpha() and 'ALPHA_STOP_ONLY' or nil)
     if controlled_fixture then controlled_fixture.loop=instance end
     if run then run.bind_core(instance) end
     return instance.start()
   end)
   starting=false
-  if execution_mode~='NORMAL' and (not ok or result~=true) then
+  if execution_mode~='ENGINEERING_BOUNDED' and (not ok or result~=true) then
     if run then pcall(run.revoke,'QSG_START_FAILED') end
     if instance then pcall(instance.stop) end
     if pending_adapter then pcall(pending_adapter.close) end
@@ -96,7 +121,7 @@ end
 -- Explicit fixture access reuses its existing step/fault controls. It never
 -- exposes or forwards host CE target APIs, and is absent in native modes.
 function api.controlled_fixture()
-  return execution_mode=='ALPHA_CONTROLLED' and controlled_fixture or nil
+  return alpha() and controlled_fixture or nil
 end
 function api.evaluation()
   return instance and instance.evaluation() or nil
@@ -126,7 +151,15 @@ function api.status()
     qualification='IMPLEMENTED_PENDING_CE_QUALIFICATION'}
   s.startup_error=startup_error
   s.execution_mode=execution_mode
-  if execution_mode=='ALPHA_CONTROLLED' then
+  s.product_profile=alpha() and 'ALPHA_FULL'
+    or (execution_mode=='QUALIFICATION' and 'STRICT_QUALIFICATION' or 'ENGINEERING_BOUNDED')
+  if alpha() then
+    if not instance and startup_error then s.state='ERROR' end
+    s.input_source=execution_mode=='ALPHA_CONTROLLED' and 'OWNED_SYNTHETIC' or input_source
+    s.data_provenance=controlled_fixture and 'synthetic' or 'UNAVAILABLE'
+    s.lifecycle_policy='ALPHA_STOP_ONLY'; s.automatic_recovery=false
+    s.attachment_handle_status='ATTACHMENT_HANDLE_UNVERIFIED'
+    s.authorization_status='NOT_PRODUCTION_AUTHORIZED'
     s.action_permitted=false; s.native_operation_status='NOT_RUN'
     s.native_readback_status='NOT_RUN'; s.semantic_validity='UNVERIFIED_SYNTHETIC_ONLY'
     s.native_qualification='QSG_NATIVE_BACKEND_NOT_QUALIFIED'
@@ -146,7 +179,7 @@ function api.status()
       'result_ready','scan_complete','collection_complete','collection_phase',
       'attachment_handle_status','authorization_status','execution_mode','lifecycle_policy',
       'automatic_recovery','action_permitted','native_operation_status','native_readback_status',
-      'semantic_validity','native_qualification'}) do
+      'semantic_validity','native_qualification','product_profile','input_source','data_provenance'}) do
     local value=s[k]
     if type(value)=='number' and (k:find('address',1,true) or k:find('_bits',1,true)) then
       value=string.format('0x%X',value)

@@ -301,17 +301,17 @@ def test_example_cannot_use_ambient_apis_and_missing_files_do_not_fallback(host,
     assert w.evaluations == 0 and len(w.lines) == 2
 
 
-@pytest.fixture
-def controlled_ct(tmp_path):
+@pytest.fixture(params=["controlled", "standard"])
+def controlled_ct(tmp_path, request):
     """Prepared ID1 + real loader; every ambient target primitive is forbidden."""
     import shutil
     from test_h3_a7_ce_mvp import ROOT
 
-    source_dir = portable_source(tmp_path, "controlled")
+    source_dir = portable_source(tmp_path, request.param)
     fixture_path = source_dir.parent / "tests/fixtures/ce_mvp_mock.lua"
     fixture_path.parent.mkdir(parents=True)
     shutil.copyfile(ROOT / "tests/fixtures/ce_mvp_mock.lua", fixture_path)
-    path = prepare(source_dir, alpha_controlled=True)
+    path = prepare(source_dir, alpha_controlled=request.param == "controlled")
     lua = import_module("lupa.lua53").LuaRuntime(unpack_returned_tuples=True,
                                                 max_memory=256 * 1024 * 1024)
     lua.execute("""
@@ -341,6 +341,8 @@ def controlled_ct(tmp_path):
         end
       end
     """)
+    lua.globals().test_entry_mode = request.param
+    lua.globals().test_entry_path = (source_dir / "ce_mvp.lua").as_posix()
     yield lua, table_lua(path), source_dir
     api = lua.globals().H3A7_CE_MVP
     if api:
@@ -351,6 +353,11 @@ def controlled_ct(tmp_path):
 
 
 def start_controlled(lua, scripts):
+    if lua.globals().test_entry_mode == "standard":
+        lua.execute("""
+          local m=dofile(test_entry_path)
+          assert(m.configure_execution({mode='ALPHA_STANDARD',input_source='OWNED_SYNTHETIC'}))
+        """)
     lua.execute(scripts[0])
     api = lua.globals().H3A7_CE_MVP
     w = api.controlled_fixture()
@@ -377,7 +384,10 @@ def test_controlled_id1_full_result_original_gates_and_no_native_calls(controlle
     assert len(w.writes) == 1 and len(w.scans) == 0
     assert w.loop.status().last_written_bits == w.loop.status().last_readback_bits == 0x42FA0000
     s = api.status()
-    assert s.execution_mode == "ALPHA_CONTROLLED" and s.lifecycle_policy == "ALPHA_STOP_ONLY"
+    expected_mode = "ALPHA_STANDARD" if lua.globals().test_entry_mode == "standard" else "ALPHA_CONTROLLED"
+    assert s.execution_mode == expected_mode and s.lifecycle_policy == "ALPHA_STOP_ONLY"
+    assert s.product_profile == "ALPHA_FULL" and s.data_provenance == "synthetic"
+    assert s.input_source == "OWNED_SYNTHETIC"
     assert s.action_permitted is False and s.automatic_recovery is False
     assert s.native_operation_status == s.native_readback_status == "NOT_RUN"
     assert s.native_qualification == "QSG_NATIVE_BACKEND_NOT_QUALIFIED"
@@ -501,7 +511,7 @@ def test_controlled_id1_incomplete_or_invalid_input_never_operates(controlled_ct
       end
     """)
     if fault == "missing_input":
-        with pytest.raises(Exception, match="CONTROLLED_INPUT_MISSING"): lua.execute(scripts[0])
+        with pytest.raises(Exception, match="CONTROLLED_INPUT_MISSING"): start_controlled(lua, scripts)
         assert lua.globals().H3A7_CE_MVP.evaluation() is None
         return
     api, w = start_controlled(lua, scripts); w.step(40)
@@ -578,7 +588,7 @@ def test_controlled_mode_cannot_switch_to_native_or_qualification(controlled_ct)
     lua, scripts, _ = controlled_ct
     api, w = start_controlled(lua, scripts)
     api.stop(); w.clean()
-    for mode in ("NORMAL", "QUALIFICATION"):
+    for mode in ("NORMAL", "QUALIFICATION", "ENGINEERING_BOUNDED"):
         assert api.configure_execution(lua.table_from({"mode": mode})) == (False, "QSG_MODE_LOCKED")
 
 
@@ -588,3 +598,47 @@ def test_controlled_preparation_requires_existing_fixture_without_overwriting(tm
     with pytest.raises(ValueError, match="MISSING_CONTROLLED_FIXTURE"):
         prepare(source_dir, alpha_controlled=True)
     assert path.read_bytes() == previous
+
+
+def test_standard_default_requires_explicit_input_without_config_or_native_fallback(controlled_ct):
+    lua, scripts, source_dir = controlled_ct
+    scripts = table_lua(prepare(source_dir))  # ordinary generation, no controlled flag
+    assert "local controlled=false" in scripts[0]
+    lua.globals().syntaxcheck = True
+    for script in scripts: lua.execute(script)
+    assert len(lua.globals().h.loaded) == 0
+    lua.globals().syntaxcheck = False
+    api = lua.execute("return dofile(test_entry_path)")
+    before = len(lua.globals().h.loaded)
+    assert api.status().execution_mode == "ALPHA_STANDARD"
+    assert api.status().product_profile == "ALPHA_FULL"
+    assert api.controlled_fixture() is None and api.evaluation() is None
+    assert len(lua.globals().h.loaded) == before
+    with pytest.raises(Exception, match="ALPHA_INPUT_REQUIRED"):
+        lua.execute(scripts[0])
+    s = api.status()
+    assert s.state == "ERROR" and not s.running and s.data_provenance == "UNAVAILABLE"
+    assert s.action_permitted is False and s.automatic_recovery is False
+    assert api.evaluation() is None and lua.globals().h.evaluations == 0
+    assert len(lua.globals().h.loaded) == 0  # dofile itself does not call the loadfile hook
+    for mode in ("ALPHA_CONTROLLED", "ENGINEERING_BOUNDED", "QUALIFICATION"):
+        assert api.configure_execution(lua.table_from({"mode": mode})) == (False, "QSG_MODE_LOCKED")
+
+
+@pytest.mark.parametrize("selection", [
+    {"mode": "ALPHA_STANDARD"},
+    {"mode": "ALPHA_STANDARD", "input_source": "native"},
+    {"mode": "ALPHA_STANDARD", "input_source": "OWNED_SYNTHETIC", "factory": True},
+    {"mode": "ALPHA_CONTROLLED", "input_source": "OWNED_SYNTHETIC"},
+    {"mode": "ENGINEERING_BOUNDED", "input_source": "OWNED_SYNTHETIC"},
+])
+def test_invalid_explicit_selection_latches_fail_closed(controlled_ct, selection):
+    lua, _, _ = controlled_ct
+    api = lua.execute("return dofile(test_entry_path)")
+    accepted, reason = api.configure_execution(lua.table_from(selection))
+    assert accepted is False
+    assert api.start()[0] is False
+    assert reason in api.status().startup_error
+    assert api.controlled_fixture() is None and api.evaluation() is None
+    assert api.configure_execution(lua.table_from({"mode": "QUALIFICATION"})) == (False, "QSG_MODE_LOCKED")
+    assert len(lua.globals().h.loaded) == 0

@@ -138,6 +138,7 @@ class ScenarioSession:
         if loader:
             factory = lua.execute((ROOT / "tests/fixtures/qualification/g1_mock_loader.lua").read_text())
             api, state["env"] = factory(w, lua.table_from(SOURCES), str(self.tmp_path / "absent" / "ce_mvp_config.local.lua"))
+            assert api.configure_execution(lua.table_from({"mode": "ENGINEERING_BOUNDED"})) is True
         self.gate.start(run, scenario, target.identity, target.allocation_id)
         if api:
             assert api.start() == (True, None)
@@ -254,6 +255,7 @@ def l12_evidence(session):
     lua, w = world("lua53")
     factory = lua.execute((ROOT / "tests/fixtures/qualification/g1_mock_loader.lua").read_text())
     api, env = factory(w, lua.table_from(SOURCES), str(session.tmp_path / "absent" / "ce_mvp_config.local.lua"))
+    assert api.configure_execution(lua.table_from({"mode": "ENGINEERING_BOUNDED"})) is True
     guard_module = lua.execute((ROOT / "tests/fixtures/ce_mvp_prestart_guard.lua").read_text())
     # A separate inert import under a fresh guard supplies L01's synthetic record.
     guard = guard_module.new(env, "synthetic"); guard.install()

@@ -59,7 +59,9 @@ def main() -> None:
     print(f"Prepared: {output}")
     print("Load this local CT in CE; the G1 READ ONLY example is an explicit, one-shot entry.")
     print("ID1 uses the owned table fixture; no native target calls." if sys.argv[1:]
-          else "Native Start remains separate and explicit. Local config is unchanged.")
+          else "ID1 defaults to ALPHA_STANDARD/full; no implicit input or native acquisition. "
+               "Select owned synthetic input explicitly before Start. "
+               "Legacy ENGINEERING_BOUNDED and QUALIFICATION require explicit selection.")
 
 
 if __name__ == "__main__":

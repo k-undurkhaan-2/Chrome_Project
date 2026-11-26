@@ -225,6 +225,7 @@ def test_lp03_mock_capture_preserves_loader_and_product_return_arity(tmp_path,op
     lua,w=world('lua53'); w.config_missing=True; w.capture_loader_diagnostics=opt_in
     factory=lua.execute((ROOT/'tests/fixtures/qualification/g1_mock_loader.lua').read_text())
     api,env=factory(w,lua.table_from(SOURCES),str(tmp_path/'ce_mvp_config.local.lua'))
+    assert api.configure_execution(lua.table_from({'mode':'ENGINEERING_BOUNDED'})) is True
     result=lua.eval("function(api) local r=table.pack(api.start()); return r.n,r[1],#r[2] end")(api)
     assert result[0:2]==(2,False) and result[2]<=240
     assert (w.raw_start_error is not None)==opt_in

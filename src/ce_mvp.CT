@@ -15,6 +15,7 @@ if H3A7_CE_MVP then
     'CE_MVP_DIFFERENT_INSTALLATION_RELOAD_CE')
 end
 local m=dofile(entrypoint)
+-- Default ALPHA_STANDARD has no implicit input. Explicit selections are latched.
 local controlled=false -- G1_ALPHA_CONTROLLED
 if controlled then
   local configured,reason=m.configure_execution({mode='ALPHA_CONTROLLED'})

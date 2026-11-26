@@ -529,7 +529,7 @@ def test_loader_is_inert_and_singleton(runtime):
     assert lua.eval("api==api2") is True
     ok, reason = api.start()
     assert ok is False
-    assert ("UNEXPECTED_FILE_ACCESS" if lua.eval("_VERSION") == "Lua 5.3"
+    assert ("ALPHA_INPUT_REQUIRED" if lua.eval("_VERSION") == "Lua 5.3"
             else "CE_ENTRYPOINT_REQUIRES_LUA_5_3") in reason
 
 
@@ -670,6 +670,7 @@ def test_actual_loader_and_ct_start_stop_scripts_under_mock_ce(runtime, tmp_path
     table_path = prepare(source_dir)
     entry = SOURCES["ce_mvp.lua"]
     api = lua.execute(entry, name="@" + (source_dir / "ce_mvp.lua").as_posix())
+    assert api.configure_execution(lua.table_from({"mode": "ENGINEERING_BOUNDED"})) is True
     if lua.eval("_VERSION") != "Lua 5.3":
         assert api.start()[0] is False
         assert w.open_calls == 0
@@ -1290,6 +1291,8 @@ def test_portable_real_file_loading_has_no_config_fallback_or_implicit_enable(tm
     source_dir = portable_source(tmp_path)
     start = table_lua(prepare(source_dir))[0]
     lua.execute("openProcess=function() error('UNEXPECTED_ATTACH') end")
+    api = lua.execute(SOURCES["ce_mvp.lua"], name="@" + (source_dir / "ce_mvp.lua").as_posix())
+    assert api.configure_execution(lua.table_from({"mode": "ENGINEERING_BOUNDED"})) is True
     with pytest.raises(Exception, match="ce_mvp_config.local.lua"):
         lua.execute(start)
     assert lua.globals().H3A7_CE_MVP.status().state == "STOPPED"
@@ -1334,6 +1337,8 @@ def test_portable_unicode_paths_route_to_exact_siblings_under_unicode_file_io(tm
       dofile=function(path) return assert(loadfile(path,'t',_G))() end
       openProcess=function() error('UNEXPECTED_ATTACH') end
     """)
+    api = lua.execute(SOURCES["ce_mvp.lua"], name="@" + (source_dir / "ce_mvp.lua").as_posix())
+    assert api.configure_execution(lua.table_from({"mode": "ENGINEERING_BOUNDED"})) is True
     with pytest.raises(Exception, match="INVALID_TARGET_PID"):
         lua.execute(table_lua(output)[0])
     assert loaded == [source_dir / name for name in
