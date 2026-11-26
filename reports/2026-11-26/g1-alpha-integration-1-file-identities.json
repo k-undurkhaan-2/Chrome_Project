@@ -2,8 +2,8 @@
   "task": "G1-ALPHA-INTEGRATION-1",
   "authority": "APPROVE_G1_ALPHA_INTEGRATION_1_STANDARD_ID1_FULL_POPULATION",
   "integration_starting_head": "4aed7bc48202271e5d08400d53511cf4828cbf01",
-  "source_commit": "398b3dad7b41dacd893d376625404d26c71b6b3f",
-  "package_path": "D:\\armedforces.io-v2\\reports\\2026-11-26\\g1-alpha-integration-1-manual",
+  "source_commit": "6190a9f93ec72560ca5db5e616bc4cd411795efc",
+  "package_path": "D:\\armedforces.io-v2\\reports\\2026-11-26\\g1-alpha-integration-1-manual-final",
   "execution_mode": "ALPHA_STANDARD",
   "product_profile": "ALPHA_FULL",
   "default_input_source": null,
@@ -15,84 +15,84 @@
   "files": [
     {
       "path": "src/ce_mvp.lua",
-      "source_commit": "398b3dad7b41dacd893d376625404d26c71b6b3f",
+      "source_commit": "6190a9f93ec72560ca5db5e616bc4cd411795efc",
       "git_blob": "5d651f6e9e026e54b9897772a406de5ee42044a5",
       "sha256": "3e79bbe492066ff88747ea514fd3029a21d06ad0f797c15d55371f54984b1b98",
       "bytes": 10779
     },
     {
       "path": "src/ce_mvp_core.lua",
-      "source_commit": "398b3dad7b41dacd893d376625404d26c71b6b3f",
+      "source_commit": "6190a9f93ec72560ca5db5e616bc4cd411795efc",
       "git_blob": "a71f5e2f2e75013b2644333511950863be654336",
       "sha256": "fd6c336069df55ecda5cfe3156436e2ada5aaf8ac1521801135b5ddf4b8ff938",
       "bytes": 19762
     },
     {
       "path": "src/ce_mvp_adapter.lua",
-      "source_commit": "398b3dad7b41dacd893d376625404d26c71b6b3f",
+      "source_commit": "6190a9f93ec72560ca5db5e616bc4cd411795efc",
       "git_blob": "cc007a94842a79ff3f1dfd10b245e3636d8ffd07",
       "sha256": "1143a9d74bd6f0d5b7f94db21b47a2fc0fa22f991c09fe4273993a8f2edaffae",
       "bytes": 36236
     },
     {
       "path": "src/mvp0_foundlist_collector.lua",
-      "source_commit": "398b3dad7b41dacd893d376625404d26c71b6b3f",
-      "git_blob": "ee8b7023ec15e20cf79cd9b908b2e133b0e10dd1",
-      "sha256": "c5dcecb92bcc26f4304cc68f65b9e40c18fb4ae6d491ef336486280b7d1da5e2",
-      "bytes": 96331
+      "source_commit": "6190a9f93ec72560ca5db5e616bc4cd411795efc",
+      "git_blob": "cd92d84e69ab84250006b4d156dd492c265549cb",
+      "sha256": "efc91853c8ed3aa6e8ec059259e5789225747298912fb15dac620a0a1a70e9e4",
+      "bytes": 96505
     },
     {
       "path": "src/mvp0_candidate_report.lua",
-      "source_commit": "398b3dad7b41dacd893d376625404d26c71b6b3f",
+      "source_commit": "6190a9f93ec72560ca5db5e616bc4cd411795efc",
       "git_blob": "1026904fd810e421acfc7439f2f0b3c6f73d934c",
       "sha256": "2fa9d93ba34ff140aead6e87c1d59a5e149720d894bb0f7bd14267ab10182694",
       "bytes": 107482
     },
     {
       "path": "src/ce_mvp_readonly.lua",
-      "source_commit": "398b3dad7b41dacd893d376625404d26c71b6b3f",
+      "source_commit": "6190a9f93ec72560ca5db5e616bc4cd411795efc",
       "git_blob": "9e33046f33a2c6a0a9f1369d5c7e22a5766e353b",
       "sha256": "37cdc21c4474dc4f9d9c855eb873f6a593d7d35065eb7195fbdda63a010de625",
       "bytes": 4648
     },
     {
       "path": "src/mvp0_offline_scoring.lua",
-      "source_commit": "398b3dad7b41dacd893d376625404d26c71b6b3f",
+      "source_commit": "6190a9f93ec72560ca5db5e616bc4cd411795efc",
       "git_blob": "f6890fcafdb7b7b791612947b4d5573d06dfce97",
       "sha256": "4e3677c62b5cbe3a2ee9b827f6f76cece688e8fdda870315b773eb8f81c55f50",
       "bytes": 10760
     },
     {
       "path": "src/examples/g1_alpha_population.example.lua",
-      "source_commit": "398b3dad7b41dacd893d376625404d26c71b6b3f",
+      "source_commit": "6190a9f93ec72560ca5db5e616bc4cd411795efc",
       "git_blob": "ff8dc27646a342a6ce510d7748206c5bed212abc",
       "sha256": "73713925da9b0cc484eb5fcfed79a12b72e2f8656f5b9e0c77068c0350b12e02",
       "bytes": 929
     },
     {
       "path": "src/ce_mvp_config.example.lua",
-      "source_commit": "398b3dad7b41dacd893d376625404d26c71b6b3f",
+      "source_commit": "6190a9f93ec72560ca5db5e616bc4cd411795efc",
       "git_blob": "46b80ccfc4164025778cb5e527202cd8ff1f30c8",
       "sha256": "c473b01d35e2ea068cc318b026f39039f6b9af91971f7d6b5d4dfdadd0346013",
       "bytes": 2659
     },
     {
       "path": "src/ce_mvp.CT",
-      "source_commit": "398b3dad7b41dacd893d376625404d26c71b6b3f",
+      "source_commit": "6190a9f93ec72560ca5db5e616bc4cd411795efc",
       "git_blob": "6d5ce076d566375e75986a4c4ab1d0c1cabf9492",
       "sha256": "cf058608ad1277726351739927448320d115f99108ca9076bb21074b4732b6df",
       "bytes": 2306
     },
     {
       "path": "src/prepare_ce_mvp.py",
-      "source_commit": "398b3dad7b41dacd893d376625404d26c71b6b3f",
+      "source_commit": "6190a9f93ec72560ca5db5e616bc4cd411795efc",
       "git_blob": "ab2207174fbdfff2fb153fd12188119da4db4907",
       "sha256": "07a4bd5270b00f5caa6b336473995e145ed32eb42c7e1bbf360fd684b9a3e452",
       "bytes": 3248
     },
     {
       "path": "tests/fixtures/ce_mvp_mock.lua",
-      "source_commit": "398b3dad7b41dacd893d376625404d26c71b6b3f",
+      "source_commit": "6190a9f93ec72560ca5db5e616bc4cd411795efc",
       "git_blob": "a10e57c21bc1c37e57edf8675f5b32dac6f5b39a",
       "sha256": "9e0f977ba1acdc3c844fd23e55ab99096e7a7277e3841e10fba3e259e0cfa3a5",
       "bytes": 13188
@@ -100,24 +100,31 @@
     {
       "path": "src/ce_mvp.local.CT",
       "generated_from": "src/ce_mvp.CT; prepare(source_dir) / default CLI without flags",
-      "sha256": "3bdab824338de25b487c2be78379532a350ad942646ffdc4342dfa40d44e6069",
-      "bytes": 2955
+      "sha256": "023ed8e3d1a41841b3f22e826a55f2e23f3860d2ef73c6859079123d4797f4d6",
+      "bytes": 3003
     }
   ],
   "preparation_command": [
     "D:\\armedforces.io-v2\\.venv\\Scripts\\python.exe",
-    "D:\\armedforces.io-v2\\reports\\2026-11-26\\g1-alpha-integration-1-manual\\src\\prepare_ce_mvp.py"
+    "D:\\armedforces.io-v2\\reports\\2026-11-26\\g1-alpha-integration-1-manual-final\\src\\prepare_ce_mvp.py"
   ],
   "preparation_exit": 0,
-  "preparation_stdout": "Prepared: D:\\armedforces.io-v2\\reports\\2026-11-26\\g1-alpha-integration-1-manual\\src\\ce_mvp.local.CT\nLoad this local CT in CE; the G1 READ ONLY example is an explicit, one-shot entry.\nID1 defaults to ALPHA_STANDARD/full; no implicit input or native acquisition. Select owned synthetic input explicitly before Start. Legacy ENGINEERING_BOUNDED and QUALIFICATION require explicit selection.\n",
+  "preparation_stdout": "Prepared: D:\\armedforces.io-v2\\reports\\2026-11-26\\g1-alpha-integration-1-manual-final\\src\\ce_mvp.local.CT\nLoad this local CT in CE; the G1 READ ONLY example is an explicit, one-shot entry.\nID1 defaults to ALPHA_STANDARD/full; no implicit input or native acquisition. Select owned synthetic input explicitly before Start. Legacy ENGINEERING_BOUNDED and QUALIFICATION require explicit selection.\n",
   "ce_host_manual_acceptance": "NOT_RUN",
   "native_operation": "NOT_RUN",
   "native_readback": "NOT_RUN",
+  "superseded_candidate": {
+    "source_commit": "398b3dad7b41dacd893d376625404d26c71b6b3f",
+    "package_path": "D:\\armedforces.io-v2\\reports\\2026-11-26\\g1-alpha-integration-1-manual",
+    "ct_sha256": "3bdab824338de25b487c2be78379532a350ad942646ffdc4342dfa40d44e6069",
+    "manifest_commit": "31abbc0a7ba1c3760f943f1be49e58772db42c1e",
+    "reason": "Invalid returned rank row must not publish COMPLETE; prior package preserved, no CE-host acceptance claimed"
+  },
   "package_validation": {
     "result": "PASS_STANDARD_PACKAGE_SMOKE",
     "engine": "Python 3.14.3 / Lupa 2.8 / genuine Lua 5.3; not CE host",
-    "source_commit": "398b3dad7b41dacd893d376625404d26c71b6b3f",
-    "generated_ct_sha256": "3bdab824338de25b487c2be78379532a350ad942646ffdc4342dfa40d44e6069",
+    "source_commit": "6190a9f93ec72560ca5db5e616bc4cd411795efc",
+    "generated_ct_sha256": "023ed8e3d1a41841b3f22e826a55f2e23f3860d2ef73c6859079123d4797f4d6",
     "execution_mode": "ALPHA_STANDARD",
     "product_profile": "ALPHA_FULL",
     "explicit_input_source": "OWNED_SYNTHETIC",
@@ -131,31 +138,31 @@
     "complete": {
       "status": "COMPLETE",
       "counts": {
-        "ranked": 3,
-        "eligible": 3,
-        "excluded": 0,
         "duplicates": 0,
-        "selected": 3,
         "distinct": 3,
+        "excluded": 0,
+        "eligible": 3,
+        "ranked": 3,
+        "selected": 3,
         "fully_scored": 3,
         "supplied": 3
       },
       "identities": {
-        "supplied": {
-          "1": 1048872,
-          "2": 1049384,
-          "3": 1049896
-        },
-        "distinct": {
-          "1": 1048872,
-          "2": 1049384,
-          "3": 1049896
-        },
-        "eligible": {
-          "1": 1048872,
-          "2": 1049384,
-          "3": 1049896
-        }
+        "supplied": [
+          1048872,
+          1049384,
+          1049896
+        ],
+        "distinct": [
+          1048872,
+          1049384,
+          1049896
+        ],
+        "eligible": [
+          1048872,
+          1049384,
+          1049896
+        ]
       },
       "ranked": [
         1048872,
@@ -186,11 +193,12 @@
     "ambient_target_api_calls": 0,
     "native_operation": "NOT_RUN",
     "native_readback": "NOT_RUN",
-    "lupa_only_first_step_measurement": "measured_step_ms=6 lua_kib_before=773.0712890625 lua_kib_after=1735.7509765625",
+    "lupa_only_first_step_measurement": "measured_step_ms=120 lua_kib_before=773.5576171875 lua_kib_after=1736.5380859375",
     "configured_test_allocator_cap_bytes": 268435456,
     "ce_host_manual_acceptance": "NOT_RUN",
     "ce_host_ui_peak_capacity": "UNKNOWN",
-    "default_absent_input": "ERROR/ALPHA_INPUT_REQUIRED; zero module/config/target calls",
+    "absent_input_check": "PASS; ERROR without published completion or operation",
+    "invalid_result_input_check": "PASS; ERROR without published completion or operation",
     "file_hashes_reverified_after_execution": 13
   }
 }

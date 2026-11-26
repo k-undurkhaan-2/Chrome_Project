@@ -27,8 +27,8 @@ No release decision is implied or exercised.
   `2e6d3d5403d9ed5f156d313998ef3ac867b4735b77a67b920d8ac34cad5439a8`.
   Its delivery report, identity manifest and package are preserved. The new
   candidate does not inherit that manual PASS, 63 ms observation or Lua readings.
-- New candidate source HEAD: `398b3dad7b41dacd893d376625404d26c71b6b3f`.
-  The subsequent documentation-only handoff commit introduces this report; its
+- Final candidate source HEAD: `6190a9f93ec72560ca5db5e616bc4cd411795efc`.
+  The subsequent documentation-only handoff update binds this final candidate; its
   exact final remote SHA and independent readback are provided in the final
   response and local `g1-alpha-integration-1-verification-receipt.local.json`.
 
@@ -64,6 +64,11 @@ changing scoring, thresholds or eligibility rules. A full result must satisfy:
 
 `supplied = distinct + duplicates`; `distinct = eligible + excluded`;
 `eligible = selected = fully_scored = ranked`.
+
+The boundary also rejects non-finite final scores or invalid hard-pass flags
+before publishing completion. This closes the final-check defect described below:
+the original action gate already denied the invalid row, but its evaluation could
+still appear COMPLETE. Valid scoring and admission behavior are unchanged.
 
 The existing selected-candidate interface feeds the original core. Identity,
 structural, recommendation/admission, prewrite, immediate readback and cleanup
@@ -128,6 +133,8 @@ independently returned the exact HEAD, parent, changed-path set and
 | `a2c2783a0023481842d39c45ea6641f1698981c4` | `4aed7bc48202271e5d08400d53511cf4828cbf01` | `src/ce_mvp.CT`; `src/ce_mvp.lua`; `src/prepare_ce_mvp.py`; `tests/qualification/support.py`; `tests/qualification/test_l12_evidence_v2.py`; `tests/test_ce_mvp_readonly.py`; `tests/test_h3_a7_ce_mvp.py` |
 | `29ae0763a5f93a48cf7f326325ca26144edacc53` | `a2c2783a0023481842d39c45ea6641f1698981c4` | `src/mvp0_foundlist_collector.lua`; `tests/test_ce_mvp_readonly.py`; `tests/test_offline_collector_interface.py` |
 | `398b3dad7b41dacd893d376625404d26c71b6b3f` | `29ae0763a5f93a48cf7f326325ca26144edacc53` | `src/ce_mvp.lua`; `src/ce_mvp_adapter.lua`; `src/ce_mvp_core.lua`; `tests/test_ce_mvp_readonly.py`; `tests/test_h3_a7_ce_mvp.py` |
+| `31abbc0a7ba1c3760f943f1be49e58772db42c1e` | `398b3dad7b41dacd893d376625404d26c71b6b3f` | `README.md`; `docs/g1_alpha_integration_1_manual_acceptance.md`; `reports/2026-11-26/g1-alpha-integration-1-delivery.md`; `reports/2026-11-26/g1-alpha-integration-1-file-identities.json` |
+| `6190a9f93ec72560ca5db5e616bc4cd411795efc` | `31abbc0a7ba1c3760f943f1be49e58772db42c1e` | `src/mvp0_foundlist_collector.lua`; `tests/test_ce_mvp_readonly.py`; `tests/test_offline_collector_interface.py` |
 
 One local verification command incorrectly compared a PowerShell culture-sorted
 path list to a Git-ordered string. Work paused; direct remote readback confirmed
@@ -138,8 +145,8 @@ GPG/keyring and Schannel checks were unavailable; the already-authorized standar
 host (SID `S-1-5-21-1353174265-123074972-3048594297-1001`) verified and signed normally.
 No identity, credentials, signing configuration, remote or protection was changed.
 
-The final handoff unit contains only `README.md`, the new Chinese manual sheet,
-this report and the new identity manifest. Its parent is the candidate source
+The final handoff update contains only the Chinese manual sheet, this report and
+the identity manifest. Its parent is the final candidate source
 HEAD above; final-response verification binds its exact SHA without introducing a
 self-referential commit hash into this file.
 
@@ -196,6 +203,19 @@ accuracy observations.
 11. Each commit's exact diff/staged paths and `git diff --check` passed. Unrelated
     modified documents, untracked work, private config, historical packages,
     generated CT and runtime/test output trees were excluded from staging.
+12. A final single-case check used `& '.venv/Scripts/python.exe' -` and the existing
+    entry harness to inject a NaN score after AC5 returned. Its first probe used a
+    relative harness path and was rejected by the preserved installation-binding
+    gate; repeating with the correct absolute path exposed **ERROR / zero writes,
+    but evaluation_status=COMPLETE and a published invalid result**. The three-line
+    row validation extension now rejects it before publication. This additional
+    defect was found after the first handoff commit; it is not omitted from history.
+13. Final result-boundary, ID1/ID2/ID3 and shared interface run:
+    `& '.venv/Scripts/python.exe' -m pytest -q tests/test_offline_collector_interface.py tests/test_ce_mvp_readonly.py --basetemp=reports/2026-11-26/g1i-envelope-final`
+    — **349 passed, 13.77 s**, including non-finite scores and missing hard-pass
+    flags in both standard and historical controlled paths. A patch tool partially
+    applied the source edit before returning an error; the actual diff was inspected
+    and the remaining test edits applied, with no duplicate or unrelated edits.
 
 There are no unresolved failures in these scoped checks. The entire repository
 suite and historical AC8/G1 campaigns were not rerun; their historical outcomes
@@ -203,14 +223,14 @@ remain scoped and unchanged.
 
 ## New candidate and actual package verification
 
-- Package: `D:\armedforces.io-v2\reports\2026-11-26\g1-alpha-integration-1-manual\`.
+- Final package: `D:\armedforces.io-v2\reports\2026-11-26\g1-alpha-integration-1-manual-final\`.
 - Open its `src\ce_mvp.local.CT`, SHA-256
-  **`3bdab824338de25b487c2be78379532a350ad942646ffdc4342dfa40d44e6069`**, **2955 bytes**.
+  **`023ed8e3d1a41841b3f22e826a55f2e23f3860d2ef73c6859079123d4797f4d6`**, **3003 bytes**.
 - [13-file manifest](g1-alpha-integration-1-file-identities.json): every maintained
   file has source commit, Git blob, SHA-256 and byte length. Files were copied from
   exact committed blobs into a new directory, never over an existing local CT.
 - Actual default preparation command:
-  `& '.venv/Scripts/python.exe' 'D:\armedforces.io-v2\reports\2026-11-26\g1-alpha-integration-1-manual\src\prepare_ce_mvp.py'`
+  `& '.venv/Scripts/python.exe' 'D:\armedforces.io-v2\reports\2026-11-26\g1-alpha-integration-1-manual-final\src\prepare_ce_mvp.py'`
   — exit 0, no mode flags, `controlled=false`, ALPHA_STANDARD default.
 - Candidate verification used `& '.venv/Scripts/python.exe' -` with the existing
   `tests/test_ce_mvp_readonly.py` Lua 5.3 harness. It executed the **actual packaged**
@@ -222,17 +242,29 @@ remain scoped and unchanged.
   independent Rank-1 46, runner-up -36; ACCEPT/HIGH/no review; one table-only
   operation/readback at `0x42FA0000`. Zero ambient target calls and zero fixture
   native scan objects. Default input omission separately failed ALPHA_INPUT_REQUIRED
-  before any config/module/target call.
+  before any dependent module/config/target call. The final actual package also
+  rejected the injected invalid returned score with evaluation_status=ERROR,
+  no published completion and no operation.
 - Mapping fault: ERROR / ALPHA_STOP:MAPPING_CHANGED, cleanup_ok=true, no recovery
   after 200 fixture ticks with a replacement. Explicit restart produced a fresh
   evaluation; CT disable produced STOPPED/OPERATOR_STOP and no activity after
   200 ticks. ID2 observation caused no extra evaluation, read/write/open/scan or
   evidence mutation. ID3 remained independent/read-only. All 13 file hashes and
   the exact file set were reverified after execution.
-- The first ten-tick **Lupa-only** smoke measured **6 ms**, Lua before/after
-  **773.0712890625 / 1735.7509765625 KiB**. These are not CE measurements or process
+- The final package's first ten-tick **Lupa-only** smoke measured **120 ms**, Lua before/after
+  **773.5576171875 / 1736.5380859375 KiB**. These are not CE measurements or process
   peak/capacity claims. The CE manual sheet uses the host's actual clock when the
   maintainer runs it; its future values must be recorded independently.
+
+The earlier `g1-alpha-integration-1-manual` package remains on disk, source
+`398b3dad7b41dacd893d376625404d26c71b6b3f`, CT SHA-256
+`3bdab824338de25b487c2be78379532a350ad942646ffdc4342dfa40d44e6069`.
+Its first smoke passed the then-selected checks (6 ms; Lua
+773.0712890625 / 1735.7509765625 KiB), but the later invalid-result check required
+the fix above. Its original manifest/report remain immutable in commit
+`31abbc0a7ba1c3760f943f1be49e58772db42c1e`. It is **superseded, not the final manual
+acceptance candidate**, and never received CE-host acceptance. Neither it nor the
+historically accepted PREP-3-R1 package was overwritten.
 
 ## Retained restrictions, unknowns and handoff
 

@@ -8,11 +8,13 @@
 ## 1. 核对候选与环境
 
 - 使用 Windows x64、**CE 7.6 / Lua 5.3**，新建 CE 会话，始终保持 **No Process Selected**。
-- 候选目录：`D:\armedforces.io-v2\reports\2026-11-26\g1-alpha-integration-1-manual\`。
+- 候选目录：`D:\armedforces.io-v2\reports\2026-11-26\g1-alpha-integration-1-manual-final\`。
 - 打开其中 `src\ce_mvp.local.CT`；ID1 Start/Stop、ID2 Status、ID3 READ ONLY 初始均不勾选。
-- 源码：`398b3dad7b41dacd893d376625404d26c71b6b3f`。
-- CT SHA-256：`3bdab824338de25b487c2be78379532a350ad942646ffdc4342dfa40d44e6069`；2955 字节。
+- 源码：`6190a9f93ec72560ca5db5e616bc4cd411795efc`。
+- CT SHA-256：`023ed8e3d1a41841b3f22e826a55f2e23f3860d2ef73c6859079123d4797f4d6`；3003 字节。
 - [13 文件身份清单](../reports/2026-11-26/g1-alpha-integration-1-file-identities.json)与[交付/验证回执](../reports/2026-11-26/g1-alpha-integration-1-delivery.md)记录精确来源和验证。
+
+只使用上述 **manual-final** 候选。先前生成的 `g1-alpha-integration-1-manual` 已由最终结果边界修复后的候选替代，仍保留为历史输出，未获 CE 人工接受；不要用它代替本单候选。
 
 CT 由维护模板的**默认准备命令、不带 `--alpha-controlled`**生成，保留 `controlled=false`；默认加载器是 `ALPHA_STANDARD`，产品 profile 是 `ALPHA_FULL`。不会自动选择模拟输入，也不会读取私有配置或补做 native 采集。输入缺失时 Start 返回 `ALPHA_INPUT_REQUIRED` 并保持无动作；先误启动的会话须重开 CE 后正确选择输入，不删除单例或绕过模式锁。
 
@@ -21,7 +23,7 @@ CT 由维护模板的**默认准备命令、不带 `--alpha-controlled`**生成�
 在 PowerShell 核对完整文件集及每个哈希/长度：
 
 ```powershell
-$candidate = 'D:\armedforces.io-v2\reports\2026-11-26\g1-alpha-integration-1-manual'
+$candidate = 'D:\armedforces.io-v2\reports\2026-11-26\g1-alpha-integration-1-manual-final'
 $manifest = Get-Content -LiteralPath 'D:\armedforces.io-v2\reports\2026-11-26\g1-alpha-integration-1-file-identities.json' -Raw | ConvertFrom-Json
 $actual = @(Get-ChildItem -LiteralPath $candidate -File -Recurse | ForEach-Object { $_.FullName.Substring($candidate.Length + 1).Replace('\','/') })
 if (Compare-Object @($manifest.files.path) $actual -CaseSensitive) { throw 'Candidate file set mismatch' }
@@ -40,7 +42,7 @@ foreach ($f in $manifest.files) {
 print('CE_LUA_VERSION=' .. _VERSION)
 print('EXISTING_SINGLETON=' .. tostring(H3A7_CE_MVP~=nil))
 assert(_VERSION=='Lua 5.3' and H3A7_CE_MVP==nil, 'Use a fresh CE 7.6 session')
-local m=dofile('D:/armedforces.io-v2/reports/2026-11-26/g1-alpha-integration-1-manual/src/ce_mvp.lua')
+local m=dofile('D:/armedforces.io-v2/reports/2026-11-26/g1-alpha-integration-1-manual-final/src/ce_mvp.lua')
 assert(m.configure_execution({mode='ALPHA_STANDARD',input_source='OWNED_SYNTHETIC'}))
 local s=m.status()
 assert(s.execution_mode=='ALPHA_STANDARD' and s.product_profile=='ALPHA_FULL' and not s.running)
