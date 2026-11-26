@@ -157,6 +157,62 @@ def test_process_scope_relocation_retires_old_address_and_preserves_one_write_pe
     w.loop.stop(); w.clean()
 
 
+def alpha_stop_runtime(lua, w):
+    # The construction policy is not an operator data-config/native gate override.
+    lua.execute("""
+      w.start=function()
+        local cfg=w.core.validate(w.cfg)
+        w.adapter=w.adapter_module.new(cfg,w.ce,w.load,'synthetic')
+        w.loop=w.core.new(w.cfg,w.adapter,nil,'ALPHA_STOP_ONLY')
+        return w.loop.start()
+      end
+    """)
+
+
+@pytest.mark.parametrize("fault", ["empty", "unmapped", "unreadable", "structure",
+                                  "identity", "exit", "write", "readback", "cancel"])
+def test_alpha_stop_policy_cleans_up_without_any_recovery(runtime, fault):
+    lua, w = runtime
+    alpha_stop_runtime(lua, w)
+    if fault == "empty":
+        w.start(); w.until_state("ERROR")
+        assert w.loop.status().stop_reason == "ALPHA_STOP:NO_CANDIDATE"
+    elif fault in ("write", "readback"):
+        w.object(0x100128)
+        w.fail["write_nil" if fault == "write" else "write_no_change"] = True
+        w.start(); w.until_state("ERROR")
+        assert w.loop.status().stop_reason == ("WRITE_FAILED" if fault == "write" else "READBACK_MISMATCH")
+    else:
+        obj = good(w)
+        if fault == "unmapped": obj.mapped = False
+        elif fault == "unreadable": obj.readable = False
+        elif fault == "structure": obj.memory[obj.addr + 0x30] = 8
+        elif fault == "identity": w.creation += 1
+        elif fault == "exit": w.alive = False
+        else: w.loop.stop()
+        if fault != "cancel": w.until_state("ERROR")
+        if fault in ("unmapped", "unreadable", "structure"):
+            assert w.loop.status().invalid_count == 1
+            assert w.loop.status().stop_reason.startswith("ALPHA_STOP:")
+    status = w.loop.status()
+    assert status.lifecycle_policy == "ALPHA_STOP_ONLY" and status.automatic_recovery is False
+    assert status.cleanup_ok and not status.running and status.rescan_attempts == 0
+    assert status.retry_at is None and status.candidate_address is None
+    before = (w.reads, len(w.writes), len(w.scans), w.open_calls)
+    w.object(0x101128); w.step(200)
+    assert (w.reads, len(w.writes), len(w.scans), w.open_calls) == before
+    assert all("RESCAN_BACKOFF" not in line for _, line in status.events.items())
+    assert w.loop.start() == (False, "RUN_ALREADY_FINISHED")
+    w.clean()
+
+
+def test_alpha_stop_policy_rejects_unknown_construction_policy(runtime):
+    lua, w = runtime
+    with pytest.raises(Exception, match="INVALID_LIFECYCLE_POLICY"):
+        lua.execute("w.core.new(w.cfg,{},nil,'automatic')")
+    assert w.open_calls == w.reads == len(w.writes) == 0
+
+
 def test_finite_numeric_drift_and_transient_unreadability_do_not_write(runtime):
     _, w = runtime
     o = good(w)

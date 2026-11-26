@@ -114,14 +114,20 @@ function M.validate(input)
   return c
 end
 
-function M.new(config, adapter, public_start_probe)
+function M.new(config, adapter, public_start_probe, lifecycle_policy)
+  lifecycle_policy = lifecycle_policy or 'ENGINEERING_RECOVERY'
+  if lifecycle_policy ~= 'ENGINEERING_RECOVERY' and lifecycle_policy ~= 'ALPHA_STOP_ONLY' then
+    fail('INVALID_LIFECYCLE_POLICY')
+  end
+  local stop_only = lifecycle_policy == 'ALPHA_STOP_ONLY'
   local c = M.validate(config)
   local a = adapter
   local s = {state='STOPPED', running=false, pid=c.target_pid, scan_count=0,
     write_count=0, monitor_checks=0, invalid_count=0, rescan_attempts=0,
     qualification='IMPLEMENTED_PENDING_CE_QUALIFICATION',
     attachment_handle_status='ATTACHMENT_HANDLE_UNVERIFIED',
-    authorization_status='NOT_PRODUCTION_AUTHORIZED'}
+    authorization_status='NOT_PRODUCTION_AUTHORIZED',
+    lifecycle_policy=lifecycle_policy, automatic_recovery=not stop_only}
   local busy, timer, scan, selected, epoch = false, nil, nil, nil, 0
   local retired, events, last_time, next_check, scan_started, retry_at = {}, {}, nil, nil, nil, nil
   local cleanup_failed = false
@@ -263,6 +269,7 @@ function M.new(config, adapter, public_start_probe)
   a.set_guard(guard)
   local function backoff(reason, now)
     guard(); dispose_scan()
+    if stop_only then fail('ALPHA_STOP:' .. reason) end
     if s.rescan_attempts >= c.max_rescan_attempts then fail('RESCAN_LIMIT_EXHAUSTED') end
     s.rescan_attempts = s.rescan_attempts + 1
     local delay = math.min(c.max_backoff_ms, c.rescan_backoff_ms * 2^(s.rescan_attempts-1))
@@ -344,7 +351,7 @@ function M.new(config, adapter, public_start_probe)
       else
         s.invalid_count = s.invalid_count + 1
         s.last_invalidation = reason or 'ADDRESS_INVALID'
-        if s.invalid_count >= c.invalid_confirmations then
+        if stop_only or s.invalid_count >= c.invalid_confirmations then
           retired[selected.address] = true; s.last_address = selected.address
           observe('address_retired', {address=selected.address,reason=s.last_invalidation}, 'retirements')
           selected = nil; s.candidate_address = nil
