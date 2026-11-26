@@ -2246,6 +2246,57 @@ local function run_offline(opts, request)
     reason_count = reason_count + 1
   end
   complete(reason_count == #recommendation.rationale)
+  -- Reconcile the returned envelope with the actual supplied identities, not
+  -- just its own counts. AC5 remains the sole scorer and eligibility authority;
+  -- this repeats its existing table-membership predicate at the handoff boundary.
+  local function dense(values)
+    complete(type(values) == 'table' and getmetatable(values) == nil)
+    local n = 0
+    for key in pairs(values) do
+      complete(type(key) == 'number' and key % 1 == 0 and key >= 1 and key <= #values)
+      n = n + 1
+    end
+    complete(n == #values)
+    return n
+  end
+  local function same_members(actual, expected)
+    complete(dense(actual) == #expected)
+    local remaining = {}
+    for _, id in ipairs(expected) do remaining[id] = (remaining[id] or 0) + 1 end
+    for _, id in ipairs(actual) do
+      complete(remaining[id] ~= nil and remaining[id] > 0)
+      remaining[id] = remaining[id] - 1
+    end
+  end
+  local supplied, distinct, eligible, seen, allowed = {}, {}, {}, {}, {}
+  complete(dense(request.records) == counts.supplied)
+  for _, record in ipairs(request.records) do
+    local id = record.addr -- AC5 has already validated the original records.
+    supplied[#supplied + 1] = id
+    if not seen[id] then
+      seen[id] = true; distinct[#distinct + 1] = id
+      if record.mapped and record.protect == 4
+          and record.memory[id] == opts.target_value_pattern then
+        eligible[#eligible + 1] = id; allowed[id] = true
+      end
+    end
+  end
+  same_members(completed.identities.supplied, supplied)
+  same_members(completed.identities.distinct, distinct)
+  same_members(completed.identities.eligible, eligible)
+  local selected = completed.collection.candidate_value_addrs
+  dense(selected)
+  local selected_seen, ranked = {}, {}
+  for _, id in ipairs(selected) do
+    complete(allowed[id] and not selected_seen[id]); selected_seen[id] = true
+  end
+  complete(dense(result.ranked) == counts.ranked)
+  for _, row in ipairs(result.ranked) do
+    complete(type(row) == 'table' and type(row.candidate) == 'table')
+    ranked[#ranked + 1] = row.candidate.value_addr
+  end
+  same_members(ranked, selected)
+  if mode == 'full' then same_members(selected, eligible) end
   return completed
 end
 

@@ -96,6 +96,13 @@ def test_handoff_is_once_isolated_and_preserves_the_entire_ac5_return(runtime):
     "r.result.recommendation.recommendation=nil", "r.result.recommendation.confidence=nil",
     "r.result.recommendation.score_gap=nil", "r.result.recommendation.rationale=nil",
     "r.result.recommendation.rationale[1]=false", "r.result.manual_review=nil",
+    "r.identities.supplied[2]=r.identities.supplied[1]",
+    "r.identities.distinct[2]=r.identities.distinct[1]",
+    "r.identities.eligible[2]=r.identities.eligible[1]",
+    "r.collection.candidate_value_addrs[2]=r.collection.candidate_value_addrs[1]",
+    "r.result.ranked[2]=r.result.ranked[1]",
+    "r.identities.supplied[4]=999; r.counts.supplied=4; r.counts.duplicates=1",
+    "r.identities.eligible.extra=999",
 ])
 def test_incomplete_ac5_envelope_is_unsuccessful(runtime, mutation):
     lua, w = runtime
