@@ -1,48 +1,45 @@
-"""Offline preparation only: bind the CT template to this installation's Lua files."""
+"""Embed the native runner and unchanged ranker in a standalone Cheat Table."""
 from pathlib import Path
 import sys
 import xml.etree.ElementTree as ET
 
 
-MARKER = "local entrypoint=nil -- H3A7_LOCAL_ENTRYPOINT"
-READONLY_MARKER = "local entrypoint=nil -- G1_READONLY_LOCAL_ENTRYPOINT"
-CONTROLLED_MARKER = "local controlled=false -- G1_ALPHA_CONTROLLED"
-MODULES = (
-    "ce_mvp.lua", "ce_mvp_core.lua", "ce_mvp_adapter.lua",
-    "mvp0_foundlist_collector.lua", "mvp0_candidate_report.lua",
-    "ce_mvp_readonly.lua", "mvp0_offline_scoring.lua",
-)
-REQUIRED_FILES = (*MODULES, "examples/g1_alpha_population.example.lua")
+MODULES = ("ce_mvp.lua", "mvp0_candidate_report.lua", "mvp0_foundlist_collector.lua")
+CONFIG_MARKER = "local config_path=nil -- CE_MVP_CONFIG_PATH"
+SOURCES_MARKER = "local sources={} -- CE_MVP_SOURCES"
 
 
 def lua_path(path: str) -> str:
-    # Fixed-width decimal UTF-8 bytes are valid Lua 5.3 string escapes. No path
-    # character can close a Lua quote, XML element, CDATA section or AA block.
     if not path or any(ord(c) < 32 for c in path):
-        raise ValueError("INVALID_ENTRYPOINT_PATH")
+        raise ValueError("INVALID_CONFIG_PATH")
     return '"' + "".join(f"\\{byte:03d}" for byte in path.encode("utf-8")) + '"'
 
 
-def prepare(source_dir: Path, *, alpha_controlled: bool = False) -> Path:
+def lua_source(source: str) -> str:
+    equals = "===="
+    while "]" + equals + "]" in source:
+        equals += "="
+    # Lua skips the first newline in a long string, preserving source contents.
+    return "[" + equals + "[\n" + source + "]" + equals + "]"
+
+
+def prepare(source_dir: Path, output: Path | None = None) -> Path:
     source_dir = source_dir.resolve(strict=True)
-    for name in REQUIRED_FILES:
-        if not (source_dir / name).is_file():
-            raise ValueError(f"MISSING_MODULE: {source_dir / name}")
+    sources = {name: (source_dir / name).read_text(encoding="utf-8") for name in MODULES}
     template = (source_dir / "ce_mvp.CT").read_text(encoding="utf-8")
-    rendered = template
-    if alpha_controlled:
-        fixture = source_dir.parent / "tests/fixtures/ce_mvp_mock.lua"
-        if not fixture.is_file():
-            raise ValueError(f"MISSING_CONTROLLED_FIXTURE: {fixture}")
-        if template.count(CONTROLLED_MARKER) != 1:
-            raise ValueError("INVALID_CT_TEMPLATE: expected one controlled marker")
-        rendered = rendered.replace(CONTROLLED_MARKER, "local controlled=true -- G1_ALPHA_CONTROLLED")
-    for marker, name in ((MARKER, "ce_mvp.lua"), (READONLY_MARKER, "ce_mvp_readonly.lua")):
+    for marker in (CONFIG_MARKER, SOURCES_MARKER):
         if template.count(marker) != 1:
-            raise ValueError("INVALID_CT_TEMPLATE: expected one marker for " + name)
-        rendered = rendered.replace(marker, "local entrypoint=" + lua_path((source_dir / name).as_posix()))
+            raise ValueError("INVALID_CT_TEMPLATE: " + marker)
+    config = source_dir / "ce_mvp_config.local.lua"
+    embedded = "local sources={\n" + ",\n".join(
+        "  ['" + name + "']=" + lua_source(source) for name, source in sources.items()
+    ) + "\n}"
+    # Close/reopen XML CDATA if a module itself contains its terminator.
+    embedded = embedded.replace("]]>", "]]]]><![CDATA[>")
+    rendered = template.replace(CONFIG_MARKER, "local config_path=" + lua_path(config.as_posix()))
+    rendered = rendered.replace(SOURCES_MARKER, embedded)
     ET.fromstring(rendered)
-    output = source_dir / "ce_mvp.local.CT"
+    output = output or source_dir / "ce_mvp.local.CT"
     if output.is_symlink():
         raise ValueError("OUTPUT_IS_SYMLINK")
     output.write_bytes(rendered.encode("utf-8"))
@@ -50,22 +47,15 @@ def prepare(source_dir: Path, *, alpha_controlled: bool = False) -> Path:
 
 
 def main() -> None:
-    if sys.argv[1:] not in ([], ["--alpha-controlled"]):
-        raise SystemExit("Usage: python src/prepare_ce_mvp.py [--alpha-controlled]")
+    if sys.argv[1:]:
+        raise SystemExit("Usage: python src/prepare_ce_mvp.py")
     try:
-        output = prepare(Path(__file__).resolve().parent, alpha_controlled=bool(sys.argv[1:]))
+        output = prepare(Path(__file__).resolve().parent)
     except (OSError, ValueError, ET.ParseError) as exc:
         raise SystemExit(f"CE_MVP_PREPARE_FAILED: {exc}") from exc
     print(f"Prepared: {output}")
-    print("Load this local CT in CE; the G1 READ ONLY example is an explicit, one-shot entry.")
-    print("ID1 uses the owned table fixture; no native target calls." if sys.argv[1:]
-          else "ID1 validates the original ce_mvp_config.example.lua contract at Start. "
-               "Copy to the sibling ce_mvp_config.local.lua only if absent; preserve private files. "
-               "Safe defaults refuse Start. Valid target config reaches existing full adapter admission; "
-               "QSG_NATIVE_BACKEND_NOT_QUALIFIED blocks native access and operation. "
-               "See docs/ce_mvp_quickstart.md (current English guide). "
-               "ce_mvp_alpha_config.example.lua selects only the existing owned synthetic fixture defaults. "
-               "Legacy ENGINEERING_BOUNDED and QUALIFICATION require explicit selection.")
+    print("Open this CT in CE and check ID1. Keep ce_mvp_config.local.lua beside it.")
+    print("All runtime Lua is embedded; Python and repository modules are not needed in CE.")
 
 
 if __name__ == "__main__":

@@ -1,37 +1,36 @@
 # armedforces.io-v2
 
-**BLOCKED_G1_ALPHA_PRODUCT_CLOSURE.** The standard CT reads the original
-configuration and reaches the existing adapter's full-evaluation admission
-boundary. A qualified native identity/acquisition/operation facility is not
-established. A valid PID and write intent therefore still produce a safe refusal
-before target access. This is not a completed native product.
+This branch delivers a standalone Cheat Engine table for the configured PID:
+check ID1 to attach, scan the configured Float32 value, rank the complete initial
+address pool with the original Single algorithm, write rank 1 after its hard
+filter passes, and periodically restore values below the configured write value.
+The first unreadable value (CE displays question marks) stops writing and clears
+ID1. REVIEW is allowed; recommendation labels do not add another write gate.
 
-The existing owned-scan snapshot interface now connects to AC6/AC5 full
-supplied-population scoring behind the existing qualification boundary. ID2
-distinguishes operation return, verified readback, monitoring, coverage and
-cleanup. Alpha retains stop-only behavior; engineering and strict qualification
-remain separate.
+Open **`src/ce_mvp.local.CT`** in Cheat Engine 7.6 x64 and keep the existing
+**`ce_mvp_config.local.lua`** beside it. The prepared CT embeds the runner and both
+original algorithm files. The runtime only needs these two files; it has no
+fixed PID, synthetic-input requirement, external Python process, engineering
+mode, qualification workflow or core/adapter dependency.
 
-English is the sole current official product documentation edition:
+- ID1: start; uncheck to stop.
+- ID2: print progress and the last observed state to the Lua console.
+- ID3: display the selected address and its live Float value; its freeze control
+  is disabled by the runner so all writes remain under ID1's control.
 
-- [Installation, original configuration and standard CT use](docs/ce_mvp_quickstart.md)
-- [Product and retained engineering/qualification contract](docs/architecture/h3_a7_ce_mvp_contract.md)
-- [Current unpublished release notes](reports/2026-11-26/g1-alpha-pre-release-prep-1-release-notes-draft.md)
-- [Consolidated product handoff, acceptance matrix and verification](reports/2026-11-26/g1-alpha-product-closure-delivery.md)
+Changing PID requires only a config edit followed by a new ID1 Start. Build a
+fresh table after editing runner or algorithm source:
 
-The design environment remains Windows x64, Cheat Engine 7.6 and embedded Lua
-5.3. Python performs one-time offline CT preparation only. Preserve private
-configuration and path-bound CTs. ID1 is explicit Start/Stop, ID2 observes cached
-state, and ID3 is an independent read-only synthetic example.
+```powershell
+& .venv/Scripts/python.exe src/prepare_ce_mvp.py
+```
 
-Historical reports, manifests, AC/PAIR, M6 acceptance and qualification runbooks
-retain their original candidate and authority. They are not alternate current
-guides or acceptance of this candidate. No application-specific exporter or
-mandatory SDK is required; its absence alone is not a new prerequisite.
+The builder preserves the local config. The original count budgets do not
+truncate the initial pool. The existing Single scorer, including its hard
+filter, score, rank order and recommendation, is unchanged.
 
-This non-profit project is for learning and research in explicitly authorized,
-operator-owned disposable environments. Unauthorized or unethical use is
-prohibited. Configuration, scoring and tests do not confer permission to access
-a third-party application or game. Native qualification, independent product
-effectiveness acceptance and publication authority remain separate.
-No Tag, Release, PR, new remote branch or version-field change is authorized.
+See [usage and configuration](docs/ce_mvp_quickstart.md), the
+[product regressions](tests/test_ce_mvp_native.py), the
+[real CE smoke driver](tests/ce_mvp_native_smoke.py), and the
+[delivery evidence](reports/2026-11-27/ce-native-id1-delivery.md).
+Historical engineering modules and reports are not dependencies of this product.

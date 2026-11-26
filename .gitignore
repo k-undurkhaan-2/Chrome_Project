@@ -45,3 +45,8 @@ docs/codex_tasks/
 # Product closure: isolated checkout, generated candidate and private receipts.
 /reports/2026-11-26/g1-alpha-product-closure-local/
 /reports/2026-11-26/g1pc-*/
+
+# Native ID1 test scratch, private CT backups and disposable smoke artifacts.
+/reports/2026-11-26/ce-native-id1-tests-*/
+/reports/2026-11-26/ce-native-id1-local/
+/reports/2026-11-27/ce-native-id1-product/
