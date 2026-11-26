@@ -11,6 +11,14 @@
 
 *There are some pre-release and current workflow here.*
 
+G1-ALPHA-PREP-1 provides a runnable **read-only cooperative-data candidate** via
+`src/run_alpha_candidate.py`. See the [Chinese launch and manual acceptance
+sheet](docs/g1_alpha_manual_acceptance.md) for the public example, dependencies,
+full-population results, stop behavior and known limitations. Delivery is
+`PARTIAL_G1_ALPHA_PREP_1`: application action/readback and live lifecycle
+integration are unavailable; Alpha Pre-release remains blocked pending a
+separate maintainer decision and applicable qualification constraints.
+
 >*This script is developed by Cheat Engine and written with the assistance of ChatGPT Codex and GPT-5.4 Thinking.*
 
 ## Disclaimer
