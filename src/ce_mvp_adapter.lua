@@ -662,7 +662,7 @@ end
 function M.new(cfg, ce, load_module, observation_source, execution)
   return new_adapter(cfg,ce,load_module,observation_source,execution)
 end
-function M.new_controlled(load_module)
+function M.new_controlled(load_module, config)
   -- Fixed owned test seam shared by standard Alpha and historical controlled
   -- selection. The native constructor cannot receive records or a new writer.
   local w=load_module('../tests/fixtures/ce_mvp_mock.lua').new(load_module)
@@ -670,8 +670,23 @@ function M.new_controlled(load_module)
   assert(type(population)=='table' and type(population.records)=='table', 'CONTROLLED_INPUT_MISSING')
   w.objects=population.records
   for _,record in ipairs(w.objects) do record.readable=true; record.alloc=0x100000 end
-  w.cfg.diagnostics={enabled=true,session_token='g1-alpha-controlled',event_limit=512}
+  if config then
+    -- Never reinterpret an operator PID as the fixture's identity or fill in
+    -- missing product parameters from fixture defaults.
+    assert(config.target_pid==w.pid, 'ALPHA_SYNTHETIC_IDENTITY_MISMATCH')
+    w.cfg=config
+  else
+    w.cfg.diagnostics={enabled=true,session_token='g1-alpha-controlled',event_limit=512}
+  end
   local cfg=load_module('ce_mvp_core.lua').validate(w.cfg)
+  if config then
+    -- Full supplied membership retains no intake/ranking count budget. The
+    -- admitted search settings must reach AC6 instead of the example's defaults.
+    population.options={population_mode='full',target_value_pattern=cfg.scan.target_bits,
+      target_value_float=cfg.scan.target_value_float,
+      filter_target_match=cfg.scan.filter_target_match,
+      use_prescore_selection=cfg.scan.use_prescore_selection}
+  end
   return w,new_adapter(cfg,w.ce,load_module,'synthetic',nil,population)
 end
 return M

@@ -1,6 +1,11 @@
--- Copy to ce_mvp_config.local.lua in this directory, then edit ONCE.
--- This sample cannot start: replace PID=0 and deliberately enable writes only
--- for an operator-approved target. The local copy is ignored by Git.
+-- Original product contract. Copy ONCE to the sibling ce_mvp_config.local.lua
+-- only if absent; never overwrite an existing private configuration.
+-- Safe placeholders are structurally valid but cannot Start. Configuration is
+-- neither runtime capability nor execution authorization. Standard Alpha still
+-- has no qualified external input/operation consumer; see docs/g1_alpha_f01_r1_config_zh.md.
+-- Optional standard-only input_source='OWNED_SYNTHETIC' explicitly selects the
+-- existing fixed table test environment (identity 101), never a native target.
+-- Engineering/qualification selection and execution validation remain separate.
 return {
   target_pid = 0, -- exact positive PID; never a process-name fallback
   screening_profile = 'single',
@@ -17,7 +22,9 @@ return {
     target_value_pattern = 0x42C80000, -- exact bits must agree with rounded value
     -- Original Single collector defaults, independent of CE's raw hit count.
     -- Raw admission 1..65536; final ranking 1..128, at most scan_budget.
-    -- Reduced coverage permits a valid NORMAL Scope ACCEPT, without global proof.
+    -- These two count budgets apply ONLY to engineering/qualification intake.
+    -- Standard Alpha full supplied evaluation does not truncate by these budgets.
+    -- Bounded address scope conflicts with the standard Alpha profile.
     scan_budget = 2000,
     max_candidates = 20,
     filter_target_match = true,
@@ -27,11 +34,11 @@ return {
     -- collection_slice_ms = 10, -- 1..25, checked between those operations
   },
   monitor_interval_ms = 1000,
-  invalid_confirmations = 2,
+  invalid_confirmations = 2, -- engineering only; Alpha stops at first observed invalidity
   min_rescan_spacing_ms = 2000,
   rescan_backoff_ms = 1000,
   max_backoff_ms = 30000,
-  max_rescan_attempts = 5, -- total retries/relocations per Start, not reset on success
+  max_rescan_attempts = 5, -- engineering recovery only; all four recovery fields are dormant in Alpha
   scan_timeout_ms = 120000, -- includes cooperative collection/ranking time
   log_limit = 200, -- bounded status history + console/file lines per Start
   -- Optional, read-only bounded evidence in Lua tables; no native operations.

@@ -779,7 +779,6 @@ def test_f01_normal_id1_uses_bound_config_without_api_selection(standard_ct, tmp
     ("return {schema='g1.alpha.config.v1',mode='ALPHA_STANDARD',input_source='OWNED_SYNTHETIC',PRIVATE_FIELD='PRIVATE_VALUE'}", "UNKNOWN_FIELD"),
     ("return {schema='g1.alpha.config.v1',mode='ALPHA_STANDARD',input_source='OWNED_SYNTHETIC',factory=function() end}", "UNKNOWN_FIELD"),
     ("return {schema='g1.alpha.config.v1',mode='ALPHA_STANDARD',input_source='OWNED_SYNTHETIC',write_enabled=true}", "UNKNOWN_FIELD"),
-    ("return {target_pid=101,write_enabled=true}", "UNKNOWN_FIELD"),
 ])
 def test_f01_invalid_config_rejects_before_fixture_and_sanitizes_id2(standard_ct, text, reason):
     lua, scripts, source_dir = standard_ct
@@ -876,3 +875,216 @@ def test_f01_explicit_selection_takes_precedence_without_reading_config(controll
     api, w = start_controlled(lua, scripts); w.until_state("MONITORING")
     assert api.status().config_source == "EXPLICIT_API" and api.status().config_admission == "ACCEPTED"
     assert lua.globals().h.config_reads == 0 and private.read_text(encoding="utf-8") == text
+
+
+def original_config(source_dir, edit="", *, owned=False):
+    # Exercise the maintained original template, not a parallel test schema.
+    template = (source_dir / "ce_mvp_config.example.lua").read_text(encoding="utf-8")
+    selection = "c.input_source='OWNED_SYNTHETIC';" if owned else ""
+    return alpha_config(source_dir, "local c=(function()\n" + template
+                        + "\nend)(); " + selection + edit + "; return c")
+
+
+@pytest.mark.parametrize("version", ["lua53", "lua54"])
+def test_f01_r1_contract_validation_keeps_original_execution_guards(version):
+    lua, w = make_runtime(version)
+    c = lua.execute((SRC / "ce_mvp_config.example.lua").read_text(encoding="utf-8"))
+    validated = w.core.validate_contract(c)
+    assert validated.target_pid == 0 and validated.write_enabled is False
+    with pytest.raises(Exception, match="INVALID_TARGET_PID"): w.core.validate(c)
+    c.target_pid = 101
+    with pytest.raises(Exception, match="WRITE_DISABLED"): w.core.validate(c)
+    c.write_enabled = True
+    assert plain(w.core.validate(c)) == plain(w.core.validate_contract(c))
+
+
+@pytest.mark.parametrize("edit,reason,readiness", [
+    ("", "ALPHA_CONFIG_TARGET_REQUIRED", "BLOCKED_SAFE_DEFAULT"),
+    ("c.target_pid=101", "WRITE_DISABLED", "BLOCKED_CONFIGURED_INTENT"),
+    ("c.target_pid=7654321;c.write_enabled=true", "ALPHA_STANDARD_INPUT_UNAVAILABLE", "BLOCKED_CAPABILITY"),
+    ("c.target_pid=7654321;c.write_enabled=true;c.input_source='OWNED_SYNTHETIC'",
+     "ALPHA_SYNTHETIC_IDENTITY_MISMATCH", "BLOCKED_CAPABILITY"),
+    ("c.target_pid=101;c.write_enabled=true;c.input_source='PRIVATE_VALUE'",
+     "ALPHA_CONFIG_INPUT_UNSUPPORTED", "BLOCKED_CAPABILITY"),
+    ("c.scan.start_address='0x100000';c.scan.stop_address='0x11FFFF'",
+     "ALPHA_PROFILE_BOUNDED_SCOPE", "BLOCKED_PROFILE"),
+    ("c.diagnostics={enabled=true,session_token='PRIVATE_VALUE',event_limit=32,cleanup_start_probe=true}",
+     "ALPHA_PROFILE_QUALIFICATION_PROBE", "BLOCKED_PROFILE"),
+])
+def test_f01_r1_valid_contract_is_not_capability_or_authorization(standard_ct, edit, reason, readiness):
+    lua, scripts, source_dir = standard_ct
+    private = original_config(source_dir, edit); before = private.read_bytes()
+    for code in scripts[2:4]: lua.execute(code)
+    assert lua.globals().h.config_reads == 0
+    with pytest.raises(Exception, match=reason): lua.execute(scripts[0])
+    api = lua.globals().H3A7_CE_MVP; s = api.status()
+    assert s.config_file_status == "READ" and s.config_contract == "ORIGINAL"
+    assert s.config_validation == "VALID" and s.config_admission == "ACCEPTED"
+    assert s.config_application == "NOT_APPLIED" and s.execution_readiness == readiness
+    assert s.config_error is None and s.config_block == reason
+    assert s.authorization_status == "NOT_PRODUCTION_AUTHORIZED" and not s.action_permitted
+    assert s.native_qualification == "QSG_NATIVE_BACKEND_NOT_QUALIFIED"
+    assert s.qualification == "IMPLEMENTED_PENDING_CE_QUALIFICATION"
+    assert s.attachment_handle_status == "ATTACHMENT_HANDLE_UNVERIFIED"
+    assert api.controlled_fixture() is None and api.evaluation() is None
+    assert "ce_mvp_adapter.lua" not in array(lua.globals().h.loaded)
+    assert lua.globals().h.evaluations == 0
+    for code in scripts[2:4]: lua.execute(code)
+    assert lua.globals().h.config_reads == 1 and private.read_bytes() == before
+    lines = "\n".join(array(lua.globals().h.lines))
+    assert "PRIVATE_VALUE" not in lines and "7654321" not in lines and source_dir.as_posix() not in lines
+    original_config(source_dir, "c.target_pid=101;c.write_enabled=true", owned=True)
+    assert api.start() == (False, reason) and lua.globals().h.config_reads == 1
+
+
+@pytest.mark.parametrize("edit,reason", [
+    ("c.PRIVATE_FIELD='PRIVATE_VALUE'", "UNKNOWN_CONFIG_FIELD"),
+    ("c.scan.PRIVATE_FIELD='PRIVATE_VALUE'", "UNKNOWN_SCAN_FIELD"),
+    ("c.diagnostics.PRIVATE_FIELD='PRIVATE_VALUE'", "UNKNOWN_DIAGNOSTICS_FIELD"),
+    ("c.engineering_extensions.PRIVATE_FIELD=false", "UNKNOWN_EXTENSION_FIELD"),
+    ("c.engineering_extensions.strict_attachment=true", "UNSUPPORTED_ENGINEERING_EXTENSION"),
+    ("c.target_pid=nil", "INVALID_TARGET_PID"),
+    ("c.target_pid='PRIVATE_VALUE'", "INVALID_TARGET_PID"),
+    ("c.write_enabled='PRIVATE_VALUE'", "INVALID_WRITE_ENABLED"),
+    ("c.screening_profile='full'", "UNSUPPORTED_PROFILE"),
+    ("c.value_type='double'", "UNSUPPORTED_VALUE_TYPE"),
+    ("c.write_value=0/0", "INVALID_FLOAT32"),
+    ("c.scan={}", "INVALID_FLOAT32"),
+    ("c.scan.target_value_pattern=0", "SCAN_PATTERN_MISMATCH"),
+    ("c.scan.scan_budget=65537", "INVALID_SCAN_SETTINGS"),
+    ("c.scan.max_candidates=129", "INVALID_SCAN_SETTINGS"),
+    ("c.scan.process_candidate_limit=128", "OBSOLETE_PROCESS_BUDGET_USE_LEGACY_INTAKE_SETTINGS"),
+    ("c.scan.collection_slice_ms=26", "INVALID_COLLECTION_BUDGET"),
+    ("c.max_rescan_attempts=-1", "INVALID_MAX_RESCAN_ATTEMPTS"),
+    ("c.monitor_interval_ms=0", "INVALID_MONITOR_INTERVAL_MS"),
+    ("c.scan_timeout_ms=0", "INVALID_SCAN_TIMEOUT_MS"),
+    ("c.log_path='PRIVATE_VALUE'", "INVALID_LOG_PATH"),
+    ("c.diagnostics={enabled=true}", "INVALID_DIAGNOSTICS"),
+    ("c.input_source=function() end", "ALPHA_CONFIG_FIELD_TYPE"),
+])
+def test_f01_r1_original_validator_rejections_are_sanitized(standard_ct, edit, reason):
+    lua, scripts, source_dir = standard_ct
+    original_config(source_dir, edit)
+    with pytest.raises(Exception, match=reason): lua.execute(scripts[0])
+    api = lua.globals().H3A7_CE_MVP; s = api.status()
+    assert s.config_contract == "ORIGINAL" and s.config_validation == "INVALID"
+    assert s.config_error == reason and s.config_application == "NOT_APPLIED"
+    assert api.controlled_fixture() is None and lua.globals().h.evaluations == 0
+    assert "ce_mvp_adapter.lua" not in array(lua.globals().h.loaded)
+    assert "PRIVATE_" not in "\n".join(array(lua.globals().h.lines))
+
+
+def test_f01_r1_original_fields_reach_existing_consumers_without_fixture_defaults(standard_ct):
+    lua, scripts, source_dir = standard_ct
+    log = source_dir.parent / "owned-runtime.log"
+    private = original_config(source_dir, """
+      c.target_pid=101;c.write_enabled=true;c.write_value=137.25
+      c.monitor_interval_ms=250;c.invalid_confirmations=20
+      c.scan.scan_budget=1;c.scan.max_candidates=1
+      c.scan.collection_batch_size=16;c.scan.collection_slice_ms=1
+      c.log_limit=16;c.log_path=[[%s]]
+      c.diagnostics={enabled=true,session_token='PRIVATE_VALUE',event_limit=32}
+    """ % log, owned=True)
+    before = private.read_bytes()
+    lua.execute("""
+      h.inject=function(name,m)
+        if name=='mvp0_offline_scoring.lua' then
+          local run=m.run
+          m.run=function(records,opts,...) h.consumer_options=opts; return run(records,opts,...) end
+        end
+      end
+    """)
+    lua.execute(scripts[0]); api = lua.globals().H3A7_CE_MVP; w = api.controlled_fixture()
+    assert api.status().raw_admission_budget is None and api.status().ranking_budget is None
+    w.until_state("MONITORING")
+    # Observe actual downstream operations/results, separately from admission labels.
+    assert w.loop.status().last_written == w.loop.status().last_readback == 137.25
+    assert len(w.writes) == 1 and len(w.scans) == 0
+    assert api.evaluation().counts.ranked == 3  # no bounded fallback to 1
+    opts = lua.globals().h.consumer_options
+    assert opts.population_mode == "full" and opts.scan_budget is None and opts.max_candidates is None
+    assert opts.target_value_pattern == 0x42C80000 and opts.target_value_float == 100.0
+    assert opts.filter_target_match and opts.use_prescore_selection
+    w.step(4); assert w.loop.status().monitor_checks == 0
+    w.step(1); assert w.loop.status().monitor_checks == 1
+    assert api.evidence().session_token == "PRIVATE_VALUE" and len(api.evidence().events) <= 32
+    assert log.exists() and "written=137.25" in log.read_text()
+    frozen = (w.reads, len(w.writes), w.open_calls, len(w.scans), lua.globals().h.evaluations,
+              lua.globals().h.config_reads, plain(api.evidence()), log.read_bytes())
+    s = api.status()
+    assert s.config_application == "APPLIED_OWNED_SYNTHETIC" and s.runtime_capability == "OWNED_SYNTHETIC_ONLY"
+    assert s.config_effects.invalid_confirmations == "ENGINEERING_ONLY_STOP_FIRST"
+    assert s.config_effects["scan.scan_budget"] == "ENGINEERING_ONLY_FULL_POPULATION"
+    assert s.pid is None and s.events is None and s.last_written is None
+    s.config_effects.write_value = "FORGED"
+    for code in scripts[2:4]: lua.execute(code)
+    assert api.status().config_effects.write_value == "APPLIED_OWNED_SYNTHETIC"
+    assert frozen == (w.reads, len(w.writes), w.open_calls, len(w.scans), lua.globals().h.evaluations,
+                      lua.globals().h.config_reads, plain(api.evidence()), log.read_bytes())
+    lines = "\n".join(array(lua.globals().h.lines))
+    assert "PRIVATE_VALUE" not in lines and "137.25" not in lines and str(log) not in lines
+    # Alpha ignores historical delay/recovery knobs explicitly: stop on first fault.
+    w.objects[1].mapped = False; w.step(5)
+    assert not w.loop.status().running and w.loop.status().invalid_count == 1
+    assert w.loop.status().rescan_attempts == 0 and not w.loop.status().automatic_recovery
+    assert len(w.lines) <= 16 and len(log.read_text().splitlines()) <= 16
+    w.clean(); assert private.read_bytes() == before
+    prior = (w.reads, len(w.writes), w.open_calls, lua.globals().h.config_reads)
+    lua.execute(scripts[4]); lua.execute(scripts[5])
+    assert prior == (w.reads, len(w.writes), w.open_calls, lua.globals().h.config_reads)
+
+
+def test_f01_r1_configured_search_bits_filter_unchanged_owned_records(standard_ct):
+    lua, scripts, source_dir = standard_ct
+    original_config(source_dir, """
+      c.target_pid=101;c.write_enabled=true
+      c.scan.target_value_float=42;c.scan.target_value_pattern=0x42280000
+    """, owned=True)
+    lua.execute(scripts[0]); api = lua.globals().H3A7_CE_MVP; w = api.controlled_fixture()
+    w.step(20)
+    assert api.evaluation().counts.eligible == api.evaluation().counts.ranked == 0
+    assert api.evaluation().status == "EMPTY" and len(w.writes) == 0
+    assert w.objects[1].memory[w.objects[1].addr] == 0x42C80000  # never rewrite input to fit config
+    assert "NO_CANDIDATE" in w.loop.status().stop_reason
+    assert not api.status().running and not api.status().action_permitted
+    w.clean()
+
+
+def test_f01_r1_configured_timeout_and_checkpoint_budget_are_effective(standard_ct):
+    lua, scripts, source_dir = standard_ct
+    original_config(source_dir, """
+      c.target_pid=101;c.write_enabled=true;c.scan_timeout_ms=1000
+      c.scan.collection_batch_size=16;c.scan.collection_slice_ms=1
+    """, owned=True)
+    lua.execute(scripts[0]); api = lua.globals().H3A7_CE_MVP; w = api.controlled_fixture()
+    w.step(3)  # supplied evaluation + qualifier checks yield at the configured checkpoint
+    assert w.loop.status().state == "SCREENING" and len(w.writes) == 0
+    w.time = w.time + 1000; w.step()
+    assert w.loop.status().stop_reason == "SCAN_TIMEOUT" and len(w.writes) == 0
+    w.clean()
+
+
+def test_f01_r1_clean_restart_revalidates_original_and_clears_applied_state(standard_ct):
+    lua, scripts, source_dir = standard_ct
+    original_config(source_dir, "c.target_pid=101;c.write_enabled=true", owned=True)
+    lua.execute(scripts[0]); api = lua.globals().H3A7_CE_MVP
+    api.controlled_fixture().until_state("MONITORING"); api.stop()
+    original_config(source_dir)  # safe original template; cannot retain successful application
+    with pytest.raises(Exception, match="ALPHA_CONFIG_TARGET_REQUIRED"): lua.execute(scripts[0])
+    s = api.status()
+    assert s.config_validation == "VALID" and s.config_application == "NOT_APPLIED"
+    assert s.runtime_capability == "STANDARD_INPUT_UNAVAILABLE"
+    assert api.evaluation() is None and not s.evaluation_completed and s.ranking_best_score is None
+    assert api.controlled_fixture() is None and lua.globals().h.config_reads == 2
+
+
+def test_f01_r1_private_log_failure_is_sanitized_and_cannot_start(standard_ct):
+    lua, scripts, source_dir = standard_ct
+    log = source_dir / "PRIVATE_DIRECTORY" / "PRIVATE_VALUE.log"
+    original_config(source_dir, "c.target_pid=101;c.write_enabled=true;c.log_path=[[%s]]" % log, owned=True)
+    with pytest.raises(Exception, match="LOG_OUTPUT_FAILED"): lua.execute(scripts[0])
+    api = lua.globals().H3A7_CE_MVP
+    assert not api.status().running and api.status().cleanup_ok
+    for code in scripts[2:4]: lua.execute(code)
+    assert "PRIVATE_" not in "\n".join(array(lua.globals().h.lines))
+    assert not log.exists()

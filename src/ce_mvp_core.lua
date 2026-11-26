@@ -38,15 +38,17 @@ local function address(v)
   if not integer(v, 0x10000, 0x7FFFFFFFFFFF) then fail('INVALID_SCAN_ADDRESS') end
   return math.tointeger(v)
 end
-function M.validate(input)
+local function validate(input, contract_only)
   fields(input, ROOT, 'CONFIG')
   local c = {}
   for k, v in pairs(input) do c[k] = v end
-  if not integer(c.target_pid, 1, 0xFFFFFFFF) then fail('INVALID_TARGET_PID') end
+  if not integer(c.target_pid, contract_only and 0 or 1, 0xFFFFFFFF) then fail('INVALID_TARGET_PID') end
   c.target_pid = math.tointeger(c.target_pid)
   if c.screening_profile ~= 'single' then fail('UNSUPPORTED_PROFILE') end
   if c.value_type ~= 'float32' then fail('UNSUPPORTED_VALUE_TYPE') end
-  if c.write_enabled ~= true then fail('WRITE_DISABLED') end
+  if contract_only then
+    if type(c.write_enabled)~='boolean' then fail('INVALID_WRITE_ENABLED') end
+  elseif c.write_enabled ~= true then fail('WRITE_DISABLED') end
   c.write_value, c.write_bits = M.float32(c.write_value)
   for k, bounds in pairs({monitor_interval_ms={100,60000}, invalid_confirmations={1,20},
       rescan_backoff_ms={100,600000}, max_backoff_ms={100,600000},
@@ -113,6 +115,11 @@ function M.validate(input)
   end
   return c
 end
+
+-- Recognition of a safe template is separate from admission to an executing core.
+-- The original execution validator and its error ordering remain unchanged.
+function M.validate_contract(input) return validate(input, true) end
+function M.validate(input) return validate(input, false) end
 
 function M.new(config, adapter, public_start_probe, lifecycle_policy)
   lifecycle_policy = lifecycle_policy or 'ENGINEERING_RECOVERY'

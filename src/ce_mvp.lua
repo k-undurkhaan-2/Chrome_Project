@@ -1,5 +1,5 @@
--- Loading is inert. Standard Alpha admits only explicit owned synthetic input,
--- selected by API or the installation's trusted local config at explicit Start.
+-- Loading is inert. Standard Alpha recognizes the original product config.
+-- Runtime capability and authorization remain separate from data validation.
 if rawget(_G, 'H3A7_CE_MVP') then return H3A7_CE_MVP end
 local source=debug.getinfo(1,'S').source
 assert(source:sub(1,1)=='@', 'Load ce_mvp.lua from its saved file')
@@ -8,6 +8,11 @@ local api, instance, startup_error = {}, nil, nil
 local execution_mode, factory, run, starting = 'ALPHA_STANDARD', nil, nil, false
 local selection_locked, input_source, selection_error = false, nil, nil
 local config_source, config_admission, config_error = 'NONE', 'NOT_CHECKED', nil
+local config_state={config_file_status='NOT_READ',config_contract='NOT_CHECKED',
+  config_validation='NOT_CHECKED',profile_compatibility='NOT_CHECKED',
+  config_application='NOT_APPLIED',runtime_capability='NOT_CHECKED',
+  execution_readiness='NOT_CHECKED'}
+local config_effects={}
 local controlled_fixture
 local function alpha()
   return execution_mode=='ALPHA_STANDARD' or execution_mode=='ALPHA_CONTROLLED'
@@ -17,24 +22,89 @@ local function module(name, env)
 end
 local function reject_config(reason)
   config_admission='REJECTED'; config_error=reason
+  config_state.config_validation=(reason=='ALPHA_CONFIG_MISSING' or reason=='ALPHA_CONFIG_UNREADABLE')
+    and 'NOT_RUN' or 'INVALID'
   -- Like a rejected explicit selection, correction requires a fresh CE session.
   selection_error=reason=='ALPHA_CONFIG_MISSING'
     and 'ALPHA_INPUT_REQUIRED: ALPHA_CONFIG_MISSING' or reason
   error(selection_error,0)
 end
+local function block_config(reason, readiness)
+  config_state.config_block=reason
+  config_state.execution_readiness=readiness
+  selection_error=reason; error(reason,0)
+end
+local function safe_runtime_error(value)
+  return type(value)=='string' and value:match('^[A-Z][A-Z0-9_:,]*$')
+    and value or 'ALPHA_RUNTIME_FAILURE'
+end
+local function original_config(c)
+  config_state.config_contract='ORIGINAL'
+  local selected=c.input_source
+  c.input_source=nil -- existing optional Alpha selection, not an original field
+  local ok,validated=pcall(module('ce_mvp_core.lua').validate_contract,c)
+  if not ok then
+    -- The shared validator emits fixed codes. Never publish a Lua/OS exception.
+    local code=type(validated)=='string' and validated:match('^[A-Z][A-Z0-9_]+$')
+    reject_config(code or 'ALPHA_CONFIG_VALIDATION_FAILED')
+  end
+  if selected~=nil and type(selected)~='string' then reject_config('ALPHA_CONFIG_FIELD_TYPE') end
+  config_state.config_validation='VALID'; config_admission='ACCEPTED'
+  config_state.profile_compatibility='COMPATIBLE_WITH_ENGINEERING_ONLY_FIELDS'
+  config_state.runtime_capability=selected==nil and 'STANDARD_INPUT_UNAVAILABLE'
+    or (selected=='OWNED_SYNTHETIC' and 'OWNED_SYNTHETIC_ONLY' or 'UNSUPPORTED_INPUT')
+  for _,key in ipairs({'target_pid','screening_profile','value_type','write_value','write_enabled',
+      'monitor_interval_ms','scan_timeout_ms','log_limit','log_path','diagnostics',
+      'scan.mode','scan.target_value_float','scan.target_value_pattern',
+      'scan.filter_target_match','scan.use_prescore_selection',
+      'scan.collection_batch_size','scan.collection_slice_ms'}) do
+    config_effects[key]='NOT_APPLIED'
+  end
+  for _,key in ipairs({'invalid_confirmations','min_rescan_spacing_ms','rescan_backoff_ms',
+      'max_backoff_ms','max_rescan_attempts'}) do config_effects[key]='ENGINEERING_ONLY_STOP_FIRST' end
+  for _,key in ipairs({'scan.scan_budget','scan.max_candidates'}) do
+    config_effects[key]='ENGINEERING_ONLY_FULL_POPULATION'
+  end
+  config_effects.engineering_extensions='DISABLED'
+  if validated.scan.mode=='bounded' or validated.diagnostics.cleanup_start_probe then
+    config_state.profile_compatibility='CONFLICT'
+    local reason=validated.scan.mode=='bounded' and 'ALPHA_PROFILE_BOUNDED_SCOPE'
+      or 'ALPHA_PROFILE_QUALIFICATION_PROBE'
+    block_config(reason,'BLOCKED_PROFILE')
+  end
+  if validated.target_pid==0 then block_config('ALPHA_CONFIG_TARGET_REQUIRED','BLOCKED_SAFE_DEFAULT') end
+  if not validated.write_enabled then block_config('WRITE_DISABLED','BLOCKED_CONFIGURED_INTENT') end
+  if selected==nil then block_config('ALPHA_STANDARD_INPUT_UNAVAILABLE','BLOCKED_CAPABILITY') end
+  if selected~='OWNED_SYNTHETIC' then block_config('ALPHA_CONFIG_INPUT_UNSUPPORTED','BLOCKED_CAPABILITY') end
+  -- The only existing configured consumer is the fixed owned table environment.
+  -- Do not rebind that environment to a purported external identity.
+  if validated.target_pid~=101 then
+    block_config('ALPHA_SYNTHETIC_IDENTITY_MISMATCH','BLOCKED_CAPABILITY')
+  end
+  input_source=selected
+  return c
+end
 local function standard_config()
   config_source='LOCAL_CONFIG'; config_admission='NOT_CHECKED'; config_error=nil
+  config_state={config_file_status='NOT_READ',config_contract='NOT_CHECKED',
+    config_validation='NOT_CHECKED',profile_compatibility='NOT_CHECKED',
+    config_application='NOT_APPLIED',runtime_capability='NOT_CHECKED',
+    execution_readiness='NOT_CHECKED'}
+  config_effects={}
   input_source=nil
   -- Read one snapshot from the bound installation. Never expose OS/file errors.
   local opened,file,_,code=pcall(function() return io.open(dir .. 'ce_mvp_config.local.lua','rb') end)
   if not opened or not file then
+    config_state.config_file_status=opened and code==2 and 'MISSING' or 'UNREADABLE'
     reject_config(opened and code==2 and 'ALPHA_CONFIG_MISSING' or 'ALPHA_CONFIG_UNREADABLE')
   end
   local read_ok,text=pcall(file.read,file,'*a')
   local close_ok,closed=pcall(file.close,file)
   if not read_ok or type(text)~='string' or not close_ok or not closed then
+    config_state.config_file_status='UNREADABLE'
     reject_config('ALPHA_CONFIG_UNREADABLE')
   end
+  config_state.config_file_status='READ'
   -- Trusted local Lua convention, NOT an arbitrary-code sandbox or time bound.
   -- The empty environment removes ambient APIs; only the returned data is admitted.
   local chunk=load(text,'@ce_mvp_config.local.lua','t',{})
@@ -42,6 +112,10 @@ local function standard_config()
   local ok,c=pcall(chunk)
   if not ok then reject_config('ALPHA_CONFIG_EVALUATION_FAILED') end
   if type(c)~='table' or getmetatable(c) then reject_config('ALPHA_CONFIG_SHAPE') end
+  if c.target_pid~=nil or c.scan~=nil or (c.schema==nil and c.mode==nil and next(c)) then
+    return original_config(c)
+  end
+  config_state.config_contract='SYNTHETIC_SELECTOR_V1'
   for key in pairs(c) do
     if key~='schema' and key~='mode' and key~='input_source' then
       reject_config('ALPHA_CONFIG_UNKNOWN_FIELD')
@@ -56,6 +130,9 @@ local function standard_config()
   if c.input_source~='OWNED_SYNTHETIC' then reject_config('ALPHA_CONFIG_INPUT') end
   -- All fields are validated before publishing selection or creating the fixture.
   execution_mode=c.mode; input_source=c.input_source; config_admission='ACCEPTED'
+  config_state.config_validation='VALID'
+  config_state.profile_compatibility='SYNTHETIC_SELECTION_ONLY'
+  config_state.runtime_capability='OWNED_SYNTHETIC_ONLY'
 end
 -- Explicit construction dependency, never discovered from the data-only config.
 -- Selecting qualification latches even when its factory is invalid.
@@ -119,15 +196,16 @@ function api.start()
     if selection_error then error(selection_error,0) end
     local config, adapter
     if alpha() then
+      config_state.runtime_capability='OWNED_SYNTHETIC_ONLY'
       -- Clear completed data at this admitted fresh-Start boundary, before config
       -- validation. Running/cleanup rejection above must retain its protections.
       instance=nil; controlled_fixture=nil
       if execution_mode=='ALPHA_STANDARD' and config_source~='EXPLICIT_API' then
-        standard_config()
+        config=standard_config()
       end
       assert(execution_mode=='ALPHA_CONTROLLED' or input_source=='OWNED_SYNTHETIC',
         'ALPHA_INPUT_REQUIRED: explicitly select owned supplied input before Start; reload CE to change selection')
-      controlled_fixture,adapter=module('ce_mvp_adapter.lua').new_controlled(module)
+      controlled_fixture,adapter=module('ce_mvp_adapter.lua').new_controlled(module,config)
       config=controlled_fixture.cfg
     else
       config=assert(loadfile(dir .. 'ce_mvp_config.local.lua', 't', {}))()
@@ -144,6 +222,24 @@ function api.start()
     pending_adapter=adapter
     instance=core.new(config,adapter,api.start,
       alpha() and 'ALPHA_STOP_ONLY' or nil)
+    if alpha() then
+      config_state.config_application=config_state.config_contract=='ORIGINAL'
+        and 'APPLIED_OWNED_SYNTHETIC' or 'FIXTURE_DEFAULTS_ONLY'
+      config_state.execution_readiness='OWNED_TEST_ONLY'
+      for key,value in pairs(config_effects) do
+        if value=='NOT_APPLIED' then config_effects[key]='APPLIED_OWNED_SYNTHETIC' end
+      end
+      if config_state.config_contract=='ORIGINAL' then
+        config_effects.target_pid='MATCHED_FIXED_SYNTHETIC_IDENTITY'
+        config_effects.screening_profile='SINGLE_SCORER_FULL_POPULATION'
+        config_effects.write_enabled='OWNED_TEST_INTENT_ONLY'
+        config_effects['scan.mode']='APPLIED_SYNTHETIC_SCOPE_GUARD'
+        config_effects['scan.collection_batch_size']='APPLIED_ADAPTER_CHECKPOINTS_ONLY'
+        config_effects['scan.collection_slice_ms']='APPLIED_ADAPTER_CHECKPOINTS_ONLY'
+        if not config.log_path then config_effects.log_path='NOT_CONFIGURED' end
+        if not config.diagnostics or not config.diagnostics.enabled then config_effects.diagnostics='DISABLED' end
+      end
+    end
     if controlled_fixture then controlled_fixture.loop=instance end
     if run then run.bind_core(instance) end
     return instance.start()
@@ -155,8 +251,13 @@ function api.start()
     if pending_adapter then pcall(pending_adapter.close) end
     if run then pcall(run.finish) end
   end
-  if not ok then startup_error=tostring(result):sub(1,240); print('[H3-A7] ' .. startup_error); return false,startup_error end
+  if not ok then
+    startup_error=config_state.config_contract=='ORIGINAL' and safe_runtime_error(result)
+      or tostring(result):sub(1,240)
+    print('[H3-A7] ' .. startup_error); return false,startup_error
+  end
   startup_error=nil
+  if result~=true and config_state.config_contract=='ORIGINAL' then detail=safe_runtime_error(detail) end
   return result,detail
 end
 function api.stop()
@@ -205,6 +306,8 @@ function api.status()
   s.execution_mode=execution_mode
   s.config_source=config_source; s.config_admission=config_admission
   s.config_error=config_error
+  for k,v in pairs(config_state) do s[k]=v end
+  s.config_effects={}; for k,v in pairs(config_effects) do s.config_effects[k]=v end
   s.product_profile=alpha() and 'ALPHA_FULL'
     or (execution_mode=='QUALIFICATION' and 'STRICT_QUALIFICATION' or 'ENGINEERING_BOUNDED')
   -- scan_mode is the legacy address-scope setting, not a scoring-mode claim.
@@ -232,6 +335,18 @@ function api.status()
       elseif startup_error or s.state=='ERROR' then s.evaluation_status='ERROR' end
     end
   end
+  if config_state.config_contract=='ORIGINAL' then
+    -- ID2 publishes applicability, never operator values or private log errors.
+    for _,key in ipairs({'pid','identity_token','candidate_address','last_address',
+        'last_written','last_written_bits','last_readback','last_readback_bits',
+        'scan_start_address','scan_stop_address','ranking_best_address','ranking_second_address',
+        'raw_admission_budget','ranking_budget','events'}) do
+      s[key]=nil
+    end
+    for _,key in ipairs({'last_error','stop_reason','startup_error','log_error'}) do
+      if s[key] then s[key]=safe_runtime_error(s[key]) end
+    end
+  end
   for _,k in ipairs({'state','running','pid','identity_token','candidate_address','last_address',
       'last_written','last_written_bits','last_readback','last_readback_bits','scan_count',
       'write_count','monitor_checks','invalid_count','rescan_attempts','retry_at',
@@ -249,6 +364,8 @@ function api.status()
       'automatic_recovery','action_permitted','native_operation_status','native_readback_status',
       'semantic_validity','native_qualification','product_profile','input_source','data_provenance',
       'config_source','config_admission','config_error',
+      'config_file_status','config_contract','config_validation','profile_compatibility',
+      'config_application','runtime_capability','execution_readiness','config_block',
       'scan_mode_domain','acquisition_mode','external_acquisition_status','scoring_mode','coverage_scope',
       'evaluation_status','evaluation_completed','population_mode','population_complete','identity_reconciled',
       'evaluation_supplied','evaluation_distinct','evaluation_duplicates','evaluation_eligible',
@@ -261,6 +378,9 @@ function api.status()
     end
     print('[H3-A7] ' .. k .. '=' .. tostring(value))
   end
+  local effect_keys={}; for key in pairs(config_effects) do effect_keys[#effect_keys+1]=key end
+  table.sort(effect_keys)
+  for _,key in ipairs(effect_keys) do print('[H3-A7] config_effect.' .. key .. '=' .. config_effects[key]) end
   return s
 end
 _G.H3A7_CE_MVP=api

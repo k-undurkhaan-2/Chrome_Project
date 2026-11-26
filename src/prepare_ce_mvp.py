@@ -59,9 +59,10 @@ def main() -> None:
     print(f"Prepared: {output}")
     print("Load this local CT in CE; the G1 READ ONLY example is an explicit, one-shot entry.")
     print("ID1 uses the owned table fixture; no native target calls." if sys.argv[1:]
-          else "ID1 defaults to ALPHA_STANDARD/full; no implicit input or native acquisition. "
-               "Copy ce_mvp_alpha_config.example.lua to the sibling ce_mvp_config.local.lua "
-               "only if absent, or explicitly select owned synthetic input by API before Start. "
+          else "ID1 validates the original ce_mvp_config.example.lua contract at Start. "
+               "Copy to the sibling ce_mvp_config.local.lua only if absent; preserve private files. "
+               "Safe defaults refuse Start; valid config does not supply external input or authorization. "
+               "ce_mvp_alpha_config.example.lua selects only the existing owned synthetic fixture defaults. "
                "Legacy ENGINEERING_BOUNDED and QUALIFICATION require explicit selection.")
 
 
