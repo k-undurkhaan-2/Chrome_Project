@@ -590,6 +590,55 @@ def test_controlled_id1_faults_preserve_gates_cleanup_and_stop_policy(controlled
     w.clean()
 
 
+@pytest.mark.parametrize("fault,operation,readback", [
+    ("none", "API_SUCCEEDED", "VERIFIED"),
+    ("write_false", "FAILED", "NOT_RUN"),
+    ("write_throw", "ATTEMPTED_UNCONFIRMED", "NOT_RUN"),
+    ("bits_mismatch", "API_SUCCEEDED", "MISMATCH"),
+    ("float_mismatch", "API_SUCCEEDED", "MISMATCH"),
+    ("missing", "API_SUCCEEDED", "FAILED"),
+    ("read_throw", "API_SUCCEEDED", "ATTEMPTED_UNCONFIRMED"),
+])
+def test_id2_keeps_operation_readback_and_monitor_outcomes_independent(
+        controlled_ct, fault, operation, readback):
+    lua, scripts, _ = controlled_ct
+    api, w = start_controlled(lua, scripts)
+    assert api.status().operation_status == api.status().readback_status == "NOT_RUN"
+    if fault == "write_false": w.fail.write_nil = True
+    elif fault == "write_throw": w.fail.write = "throw"
+    elif fault == "bits_mismatch": w.fail.write_no_change = True
+    elif fault == "float_mismatch": w.fail.readback_float = 42.0
+    elif fault in ("missing", "read_throw"):
+        lua.globals().outcome_fault = fault
+        lua.execute("""
+          cw.hook=function(event)
+            if #cw.writes>0 then
+              if outcome_fault=='missing' then cw.fail.unreadable=0x100128
+              elseif event=='read_float' then error('READBACK_TEST_FAILURE',0) end
+            end
+          end
+        """)
+    w.step(40)
+    s = api.status()
+    assert (s.operation_status, s.readback_status) == (operation, readback)
+    if fault == "none":
+        assert s.monitor_status == "VALID"
+        w.objects[1].mapped = False
+        w.step(40)
+        assert api.status().monitor_status == "INVALID"
+    assert not api.status().running and api.status().cleanup_ok
+    before = (w.reads, len(w.writes), len(w.scans), w.open_calls)
+    for code in scripts[2:4]: lua.execute(code)
+    w.step(100)
+    assert (w.reads, len(w.writes), len(w.scans), w.open_calls) == before
+    assert api.status().readback_status == readback
+    # Outcomes describe this run only; an explicit new Start has fresh caches.
+    lua.execute(scripts[1]); lua.execute(scripts[0])
+    assert api.status().operation_status == api.status().readback_status == "NOT_RUN"
+    api.stop()
+    w.clean()
+
+
 def test_controlled_id1_actual_allocator_failure_does_not_report_completion(controlled_ct):
     lua, scripts, _ = controlled_ct
     original_limit = lua.get_max_memory()

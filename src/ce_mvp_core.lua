@@ -131,6 +131,7 @@ function M.new(config, adapter, public_start_probe, lifecycle_policy)
   local a = adapter
   local s = {state='STOPPED', running=false, pid=c.target_pid, scan_count=0,
     write_count=0, monitor_checks=0, invalid_count=0, rescan_attempts=0,
+    operation_status='NOT_RUN', readback_status='NOT_RUN', monitor_status='NOT_RUN',
     qualification='IMPLEMENTED_PENDING_CE_QUALIFICATION',
     attachment_handle_status='ATTACHMENT_HANDLE_UNVERIFIED',
     authorization_status='NOT_PRODUCTION_AUTHORIZED',
@@ -332,15 +333,26 @@ function M.new(config, adapter, public_start_probe, lifecycle_policy)
       guard()
       s.write_count = s.write_count + 1
       s.last_address = selected.address; s.last_written = c.write_value; s.last_written_bits = c.write_bits
-      if a.write_float(selected.address, c.write_value) ~= true then fail('WRITE_FAILED') end
+      -- Cache each boundary separately. A thrown operation or readback leaves
+      -- an unconfirmed attempt, never a successful verification claim.
+      s.operation_status='ATTEMPTED_UNCONFIRMED'
+      if a.write_float(selected.address, c.write_value) ~= true then
+        s.operation_status='FAILED'; fail('WRITE_FAILED')
+      end
+      s.operation_status='API_SUCCEEDED'
       guard(); transition('READBACK')
+      s.readback_status='ATTEMPTED_UNCONFIRMED'
       local bits, value = a.readback(selected.address)
       s.last_readback_bits, s.last_readback = bits, value
       observe('readback_result', {address=selected.address,write_intent_bits=c.write_bits,
         readback_bits=bits,readback_float=value})
-      if bits ~= c.write_bits or not finite(value) then fail('READBACK_MISMATCH') end
+      if bits == nil or not finite(value) then
+        s.readback_status='FAILED'; fail('READBACK_MISMATCH')
+      end
+      if bits ~= c.write_bits then s.readback_status='MISMATCH'; fail('READBACK_MISMATCH') end
       local _, value_bits = M.float32(value)
-      if value_bits ~= c.write_bits then fail('READBACK_MISMATCH') end
+      if value_bits ~= c.write_bits then s.readback_status='MISMATCH'; fail('READBACK_MISMATCH') end
+      s.readback_status='VERIFIED'
       observe('readback_verified', {address=selected.address,write_intent_bits=c.write_bits,
         readback_bits=bits,float_bits=value_bits}, 'verified_writes')
       guard(); s.invalid_count = 0; next_check = now + c.monitor_interval_ms
@@ -350,8 +362,10 @@ function M.new(config, adapter, public_start_probe, lifecycle_policy)
     elseif s.state == 'MONITORING' and now >= next_check then
       next_check = now + c.monitor_interval_ms
       s.monitor_checks = s.monitor_checks + 1
+      s.monitor_status='CHECK_UNCONFIRMED'
       local valid, reason = a.valid(selected)
       guard()
+      s.monitor_status=valid==true and 'VALID' or 'INVALID'
       observe('monitor_result', {address=selected.address,valid=valid==true,reason=reason},
         valid and 'valid_monitor_checks' or 'invalid_monitor_checks')
       if valid then s.invalid_count = 0

@@ -350,6 +350,7 @@ function api.status()
   for _,k in ipairs({'state','running','pid','identity_token','candidate_address','last_address',
       'last_written','last_written_bits','last_readback','last_readback_bits','scan_count',
       'write_count','monitor_checks','invalid_count','rescan_attempts','retry_at',
+      'operation_status','readback_status','monitor_status',
       'last_check_ms','last_invalidation','last_error','stop_reason','startup_error',
       'cleanup_pending','cleanup_ok','cleanup_error','log_error','qualification',
       'cycle_id','scan_mode','scope_resolved','scan_start_address','scan_stop_address','bounds_source',
