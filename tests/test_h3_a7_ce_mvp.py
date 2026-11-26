@@ -1191,7 +1191,8 @@ def test_l01_prestart_api_guard_is_inert_counts_attempts_and_restores(runtime):
 def portable_source(tmp_path, name="relocated checkout [test] & 'quoted'"):
     source_dir = tmp_path / name / "src"
     source_dir.mkdir(parents=True)
-    for name in (*REQUIRED_FILES, "ce_mvp_config.example.lua", "ce_mvp.CT", "prepare_ce_mvp.py"):
+    for name in (*REQUIRED_FILES, "ce_mvp_config.example.lua", "ce_mvp_alpha_config.example.lua",
+                 "ce_mvp.CT", "prepare_ce_mvp.py"):
         (source_dir / name).parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(SRC / name, source_dir / name)
     return source_dir

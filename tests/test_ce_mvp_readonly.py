@@ -303,19 +303,35 @@ def test_example_cannot_use_ambient_apis_and_missing_files_do_not_fallback(host,
 
 @pytest.fixture(params=["controlled", "standard"])
 def controlled_ct(tmp_path, request):
+    yield from prepared_ct(tmp_path, request.param)
+
+
+@pytest.fixture
+def standard_ct(tmp_path):
+    yield from prepared_ct(tmp_path, "standard")
+
+
+def prepared_ct(tmp_path, mode):
     """Prepared ID1 + real loader; every ambient target primitive is forbidden."""
     import shutil
     from test_h3_a7_ce_mvp import ROOT
 
-    source_dir = portable_source(tmp_path, request.param)
+    source_dir = portable_source(tmp_path, mode)
     fixture_path = source_dir.parent / "tests/fixtures/ce_mvp_mock.lua"
     fixture_path.parent.mkdir(parents=True)
     shutil.copyfile(ROOT / "tests/fixtures/ce_mvp_mock.lua", fixture_path)
-    path = prepare(source_dir, alpha_controlled=request.param == "controlled")
+    path = prepare(source_dir, alpha_controlled=mode == "controlled")
     lua = import_module("lupa.lua53").LuaRuntime(unpack_returned_tuples=True,
                                                 max_memory=256 * 1024 * 1024)
     lua.execute("""
-      h={forbidden=0,loaded={},lines={},evaluations=0}
+      h={forbidden=0,loaded={},lines={},evaluations=0,config_reads=0}
+      local open=io.open
+      io.open=function(path,...)
+        if path:match('ce_mvp_config%.local%.lua$') then
+          h.config_reads=h.config_reads+1; h.config_path=path
+        end
+        return open(path,...)
+      end
       for name in ('openProcess getOpenedProcessID getOpenedProcessHandle getAddressSafe '
           ..'executeCodeLocalEx createMemoryStream readIntegerLocal readQwordLocal '
           ..'createMemScan createFoundList createTimer readInteger readFloat writeFloat '
@@ -341,7 +357,7 @@ def controlled_ct(tmp_path, request):
         end
       end
     """)
-    lua.globals().test_entry_mode = request.param
+    lua.globals().test_entry_mode = mode
     lua.globals().test_entry_path = (source_dir / "ce_mvp.lua").as_posix()
     yield lua, table_lua(path), source_dir
     api = lua.globals().H3A7_CE_MVP
@@ -646,6 +662,8 @@ def test_standard_default_requires_explicit_input_without_config_or_native_fallb
     assert s.evaluation_status == "ERROR" and not s.evaluation_completed and not s.identity_reconciled
     assert api.evaluation() is None and lua.globals().h.evaluations == 0
     assert len(lua.globals().h.loaded) == 0  # dofile itself does not call the loadfile hook
+    assert s.config_source == "LOCAL_CONFIG" and s.config_admission == "REJECTED"
+    assert s.config_error == "ALPHA_CONFIG_MISSING" and lua.globals().h.config_reads == 1
     for mode in ("ALPHA_CONTROLLED", "ENGINEERING_BOUNDED", "QUALIFICATION"):
         assert api.configure_execution(lua.table_from({"mode": mode})) == (False, "QSG_MODE_LOCKED")
 
@@ -658,7 +676,8 @@ def test_standard_default_requires_explicit_input_without_config_or_native_fallb
     {"mode": "ENGINEERING_BOUNDED", "input_source": "OWNED_SYNTHETIC"},
 ])
 def test_invalid_explicit_selection_latches_fail_closed(controlled_ct, selection):
-    lua, _, _ = controlled_ct
+    lua, _, source_dir = controlled_ct
+    alpha_config(source_dir)  # A valid local config must not repair an invalid API selection.
     api = lua.execute("return dofile(test_entry_path)")
     accepted, reason = api.configure_execution(lua.table_from(selection))
     assert accepted is False
@@ -667,6 +686,7 @@ def test_invalid_explicit_selection_latches_fail_closed(controlled_ct, selection
     assert api.controlled_fixture() is None and api.evaluation() is None
     assert api.configure_execution(lua.table_from({"mode": "QUALIFICATION"})) == (False, "QSG_MODE_LOCKED")
     assert len(lua.globals().h.loaded) == 0
+    assert lua.globals().h.config_reads == 0
 
 
 def test_id2_observes_standard_or_controlled_state_without_work(controlled_ct):
@@ -687,3 +707,172 @@ def test_id2_observes_standard_or_controlled_state_without_work(controlled_ct):
     for text in ("scoring_mode=full", "scan_mode_domain=configured_address_scope",
                  "evaluation_ranked=3", "ranking_recommendation=ACCEPT"):
         assert text in lines
+
+
+def alpha_config(source_dir, text=None):
+    path = source_dir / "ce_mvp_config.local.lua"
+    if text is None:
+        text = (source_dir / "ce_mvp_alpha_config.example.lua").read_text(encoding="utf-8")
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+def test_f01_normal_id1_uses_bound_config_without_api_selection(standard_ct, tmp_path, monkeypatch):
+    lua, scripts, source_dir = standard_ct
+    private = alpha_config(source_dir); original = private.read_bytes()
+    # A different CWD, containing an invalid decoy, must not select the config.
+    (tmp_path / private.name).write_text("PRIVATE_CWD_DECOY", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    lua.globals().syntaxcheck = True
+    for script in scripts: lua.execute(script)
+    lua.globals().syntaxcheck = False
+    lua.execute(scripts[2]); lua.execute(scripts[3])
+    assert lua.globals().H3A7_CE_MVP is None and lua.globals().h.config_reads == 0
+    # Actual default generated CT ID1, no preceding configure_execution call.
+    assert "local controlled=false" in scripts[0]
+    lua.execute(scripts[0])
+    api = lua.globals().H3A7_CE_MVP; w = api.controlled_fixture()
+    assert lua.globals().h.config_reads == 1
+    assert lua.globals().h.config_path == private.as_posix()
+    w.until_state("MONITORING")
+    s = api.status(); e = api.evaluation()
+    assert s.config_source == "LOCAL_CONFIG" and s.config_admission == "ACCEPTED" and s.config_error is None
+    assert s.execution_mode == "ALPHA_STANDARD" and s.input_source == "OWNED_SYNTHETIC"
+    assert s.data_provenance == "synthetic" and s.lifecycle_policy == "ALPHA_STOP_ONLY"
+    assert e.completed and e.population_mode == "full" and e.counts.ranked == 3
+    assert e.result.best.final_score == 46 and e.result.second.final_score == -36
+    assert s.action_permitted is False and s.native_operation_status == "NOT_RUN"
+    assert s.native_readback_status == "NOT_RUN" and s.external_acquisition_status == "NOT_RUN"
+    before = (w.reads, len(w.writes), w.open_calls, len(w.scans), lua.globals().h.evaluations)
+    for script in scripts[2:4]: lua.execute(script)
+    assert before == (w.reads, len(w.writes), w.open_calls, len(w.scans), lua.globals().h.evaluations)
+    assert api.start() == (False, "ALREADY_RUNNING") and lua.globals().h.config_reads == 1
+    for mode in ("ALPHA_CONTROLLED", "ENGINEERING_BOUNDED", "QUALIFICATION"):
+        assert api.configure_execution(lua.table_from({"mode": mode})) == (False, "QSG_MODE_LOCKED")
+    lua.execute(scripts[1]); w.clean()
+    lua.execute(scripts[0])  # An explicit clean restart revalidates the same permitted selection.
+    fresh = api.controlled_fixture(); fresh.until_state("MONITORING")
+    assert lua.globals().h.config_reads == 2 and lua.globals().h.evaluations == 2
+    lua.execute(scripts[1]); fresh.clean()
+    prior = (fresh.reads, len(fresh.writes), fresh.open_calls, len(fresh.scans))
+    lua.execute(scripts[4]); lua.execute(scripts[5])  # ID3 stays independent/read-only.
+    assert prior == (fresh.reads, len(fresh.writes), fresh.open_calls, len(fresh.scans))
+    assert lua.globals().h.config_reads == 2 and private.read_bytes() == original
+
+
+@pytest.mark.parametrize("text,reason", [
+    ("return nil", "SHAPE"), ("return function() end", "SHAPE"),
+    ("return 'PRIVATE_VALUE'", "SHAPE"), ("return {", "SYNTAX"),
+    ("return missing.PRIVATE_VALUE", "EVALUATION_FAILED"),
+    ("return {}", "REQUIRED_FIELD"),
+    ("return {schema='g1.alpha.config.v1',mode='ALPHA_STANDARD'}", "REQUIRED_FIELD"),
+    ("return {mode='ALPHA_STANDARD',input_source='OWNED_SYNTHETIC'}", "REQUIRED_FIELD"),
+    ("return {schema='g1.alpha.config.v1',input_source='OWNED_SYNTHETIC'}", "REQUIRED_FIELD"),
+    ("return {schema=1,mode='ALPHA_STANDARD',input_source='OWNED_SYNTHETIC'}", "FIELD_TYPE"),
+    ("return {schema='g1.alpha.config.v1',mode={},input_source='OWNED_SYNTHETIC'}", "FIELD_TYPE"),
+    ("return {schema='g1.alpha.config.v1',mode='ALPHA_STANDARD',input_source=function() end}", "FIELD_TYPE"),
+    ("return {schema='v2',mode='ALPHA_STANDARD',input_source='OWNED_SYNTHETIC'}", "SCHEMA"),
+    ("return {schema='g1.alpha.config.v1',mode='ENGINEERING_BOUNDED',input_source='OWNED_SYNTHETIC'}", "MODE"),
+    ("return {schema='g1.alpha.config.v1',mode='QUALIFICATION',input_source='OWNED_SYNTHETIC'}", "MODE"),
+    ("return {schema='g1.alpha.config.v1',mode='ALPHA_CONTROLLED',input_source='OWNED_SYNTHETIC'}", "MODE"),
+    ("return {schema='g1.alpha.config.v1',mode='ALPHA_STANDARD',input_source='PRIVATE_VALUE'}", "INPUT"),
+    ("return {schema='g1.alpha.config.v1',mode='ALPHA_STANDARD',input_source='OWNED_SYNTHETIC',PRIVATE_FIELD='PRIVATE_VALUE'}", "UNKNOWN_FIELD"),
+    ("return {schema='g1.alpha.config.v1',mode='ALPHA_STANDARD',input_source='OWNED_SYNTHETIC',factory=function() end}", "UNKNOWN_FIELD"),
+    ("return {schema='g1.alpha.config.v1',mode='ALPHA_STANDARD',input_source='OWNED_SYNTHETIC',write_enabled=true}", "UNKNOWN_FIELD"),
+    ("return {target_pid=101,write_enabled=true}", "UNKNOWN_FIELD"),
+])
+def test_f01_invalid_config_rejects_before_fixture_and_sanitizes_id2(standard_ct, text, reason):
+    lua, scripts, source_dir = standard_ct
+    private = alpha_config(source_dir, text); original = private.read_bytes()
+    api = lua.execute("return dofile(test_entry_path)")
+    assert api.status().config_admission == "NOT_CHECKED" and lua.globals().h.config_reads == 0
+    reason = "ALPHA_CONFIG_" + reason
+    with pytest.raises(Exception, match=reason): lua.execute(scripts[0])
+    s = api.status()
+    assert s.config_admission == "REJECTED" and s.config_source == "LOCAL_CONFIG" and s.config_error == reason
+    assert s.startup_error == reason and s.input_source is None and s.data_provenance == "UNAVAILABLE"
+    assert s.evaluation_status == "ERROR" and not s.evaluation_completed and not s.running
+    assert api.controlled_fixture() is None and api.evaluation() is None
+    assert lua.globals().h.evaluations == 0 and len(lua.globals().h.loaded) == 0
+    for script in scripts[2:4]: lua.execute(script)
+    assert lua.globals().h.config_reads == 1 and private.read_bytes() == original
+    lines = "\n".join(array(lua.globals().h.lines))
+    assert "PRIVATE_" not in lines and source_dir.as_posix() not in lines
+    assert "config_error=" + reason in lines
+    alpha_config(source_dir)  # Repair on disk cannot bypass the failed selection latch.
+    assert api.start()[0] is False and lua.globals().h.config_reads == 1
+    assert api.configure_execution(lua.table_from({"mode": "ALPHA_STANDARD", "input_source": "OWNED_SYNTHETIC"})) == (False, "QSG_MODE_LOCKED")
+
+
+@pytest.mark.parametrize("fault", ["denied", "open_throws", "read_nil", "read_throws", "close_nil"])
+def test_f01_unreadable_config_has_no_path_or_os_error_leak(standard_ct, fault):
+    lua, scripts, source_dir = standard_ct
+    private = alpha_config(source_dir); original = private.read_bytes()
+    lua.globals().config_fault = fault
+    lua.execute("""
+      io.open=function()
+        h.config_reads=h.config_reads+1
+        if config_fault=='denied' then return nil,'PRIVATE_OS_PATH',13 end
+        if config_fault=='open_throws' then error('PRIVATE_OS_PATH') end
+        return {
+          read=function()
+            if config_fault=='read_throws' then error('PRIVATE_OS_PATH') end
+            if config_fault=='close_nil' then return 'return {}' end
+            return nil,'PRIVATE_OS_PATH'
+          end,
+          close=function() h.closed=true; if config_fault~='close_nil' then return true end end
+        }
+      end
+    """)
+    with pytest.raises(Exception, match="ALPHA_CONFIG_UNREADABLE"): lua.execute(scripts[0])
+    api = lua.globals().H3A7_CE_MVP
+    assert api.status().config_error == "ALPHA_CONFIG_UNREADABLE"
+    assert api.controlled_fixture() is None and len(lua.globals().h.loaded) == 0
+    assert lua.globals().h.evaluations == 0 and private.read_bytes() == original
+    if fault not in ("denied", "open_throws"): assert lua.globals().h.closed
+    assert "PRIVATE_OS_PATH" not in "\n".join(array(lua.globals().h.lines))
+
+
+@pytest.mark.parametrize("missing", [False, True])
+def test_f01_config_error_after_clean_stop_clears_completed_result(standard_ct, missing):
+    lua, scripts, source_dir = standard_ct
+    private = alpha_config(source_dir)
+    lua.execute(scripts[0]); api = lua.globals().H3A7_CE_MVP; w = api.controlled_fixture()
+    w.until_state("MONITORING"); assert api.evaluation().completed
+    if missing: private.unlink()
+    else: private.write_text("return {}", encoding="utf-8")
+    # Edits are not evaluated by ID2 or by a rejected running Start.
+    lua.execute(scripts[2]); assert api.start() == (False, "ALREADY_RUNNING")
+    assert lua.globals().h.config_reads == 1
+    lua.execute(scripts[1]); w.clean()
+    loaded = len(lua.globals().h.loaded)
+    with pytest.raises(Exception, match="ALPHA_INPUT_REQUIRED" if missing else "ALPHA_CONFIG_REQUIRED_FIELD"):
+        lua.execute(scripts[0])
+    assert lua.globals().h.config_reads == 2 and len(lua.globals().h.loaded) == loaded
+    assert lua.globals().h.evaluations == 1 and api.evaluation() is None and api.controlled_fixture() is None
+    s = api.status()
+    assert s.evaluation_status == "ERROR" and not s.evaluation_completed and not s.identity_reconciled
+    assert s.ranking_best_address is None and s.config_admission == "REJECTED"
+    alpha_config(source_dir)
+    with pytest.raises(Exception, match="ALPHA_"): lua.execute(scripts[0])
+    assert lua.globals().h.config_reads == 2  # Reloading the same singleton cannot repair the latch.
+
+
+def test_f01_cleanup_uncertainty_precedes_config_read(standard_ct):
+    lua, scripts, source_dir = standard_ct
+    alpha_config(source_dir)
+    lua.execute(scripts[0]); api = lua.globals().H3A7_CE_MVP; w = api.controlled_fixture()
+    w.until_state("MONITORING"); w.fail.close = True; api.stop()
+    alpha_config(source_dir, "return {}")
+    assert api.start() == (False, "CLEANUP_UNCERTAIN_RELOAD_CE")
+    assert lua.globals().h.config_reads == 1 and not api.status().cleanup_ok
+    assert api.status().config_admission == "ACCEPTED"
+
+
+@pytest.mark.parametrize("text", ["return {}", "return {schema='g1.alpha.config.v1',mode='QUALIFICATION'}"])
+def test_f01_explicit_selection_takes_precedence_without_reading_config(controlled_ct, text):
+    lua, scripts, source_dir = controlled_ct
+    private = alpha_config(source_dir, text)
+    api, w = start_controlled(lua, scripts); w.until_state("MONITORING")
+    assert api.status().config_source == "EXPLICIT_API" and api.status().config_admission == "ACCEPTED"
+    assert lua.globals().h.config_reads == 0 and private.read_text(encoding="utf-8") == text

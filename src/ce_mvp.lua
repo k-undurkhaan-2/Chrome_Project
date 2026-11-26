@@ -1,5 +1,5 @@
--- Loading is inert. Standard Alpha requires explicit supplied test input.
--- Only an explicitly selected engineering/qualification Start reads local config.
+-- Loading is inert. Standard Alpha admits only explicit owned synthetic input,
+-- selected by API or the installation's trusted local config at explicit Start.
 if rawget(_G, 'H3A7_CE_MVP') then return H3A7_CE_MVP end
 local source=debug.getinfo(1,'S').source
 assert(source:sub(1,1)=='@', 'Load ce_mvp.lua from its saved file')
@@ -7,12 +7,55 @@ local dir=assert(source:sub(2):match('^(.*[\\/])'))
 local api, instance, startup_error = {}, nil, nil
 local execution_mode, factory, run, starting = 'ALPHA_STANDARD', nil, nil, false
 local selection_locked, input_source, selection_error = false, nil, nil
+local config_source, config_admission, config_error = 'NONE', 'NOT_CHECKED', nil
 local controlled_fixture
 local function alpha()
   return execution_mode=='ALPHA_STANDARD' or execution_mode=='ALPHA_CONTROLLED'
 end
 local function module(name, env)
   return assert(loadfile(dir .. name, 't', env or _G))()
+end
+local function reject_config(reason)
+  config_admission='REJECTED'; config_error=reason
+  -- Like a rejected explicit selection, correction requires a fresh CE session.
+  selection_error=reason=='ALPHA_CONFIG_MISSING'
+    and 'ALPHA_INPUT_REQUIRED: ALPHA_CONFIG_MISSING' or reason
+  error(selection_error,0)
+end
+local function standard_config()
+  config_source='LOCAL_CONFIG'; config_admission='NOT_CHECKED'; config_error=nil
+  input_source=nil
+  -- Read one snapshot from the bound installation. Never expose OS/file errors.
+  local opened,file,_,code=pcall(function() return io.open(dir .. 'ce_mvp_config.local.lua','rb') end)
+  if not opened or not file then
+    reject_config(opened and code==2 and 'ALPHA_CONFIG_MISSING' or 'ALPHA_CONFIG_UNREADABLE')
+  end
+  local read_ok,text=pcall(file.read,file,'*a')
+  local close_ok,closed=pcall(file.close,file)
+  if not read_ok or type(text)~='string' or not close_ok or not closed then
+    reject_config('ALPHA_CONFIG_UNREADABLE')
+  end
+  -- Trusted local Lua convention, NOT an arbitrary-code sandbox or time bound.
+  -- The empty environment removes ambient APIs; only the returned data is admitted.
+  local chunk=load(text,'@ce_mvp_config.local.lua','t',{})
+  if not chunk then reject_config('ALPHA_CONFIG_SYNTAX') end
+  local ok,c=pcall(chunk)
+  if not ok then reject_config('ALPHA_CONFIG_EVALUATION_FAILED') end
+  if type(c)~='table' or getmetatable(c) then reject_config('ALPHA_CONFIG_SHAPE') end
+  for key in pairs(c) do
+    if key~='schema' and key~='mode' and key~='input_source' then
+      reject_config('ALPHA_CONFIG_UNKNOWN_FIELD')
+    end
+  end
+  for _,key in ipairs({'schema','mode','input_source'}) do
+    if c[key]==nil then reject_config('ALPHA_CONFIG_REQUIRED_FIELD') end
+    if type(c[key])~='string' then reject_config('ALPHA_CONFIG_FIELD_TYPE') end
+  end
+  if c.schema~='g1.alpha.config.v1' then reject_config('ALPHA_CONFIG_SCHEMA') end
+  if c.mode~='ALPHA_STANDARD' then reject_config('ALPHA_CONFIG_MODE') end
+  if c.input_source~='OWNED_SYNTHETIC' then reject_config('ALPHA_CONFIG_INPUT') end
+  -- All fields are validated before publishing selection or creating the fixture.
+  execution_mode=c.mode; input_source=c.input_source; config_admission='ACCEPTED'
 end
 -- Explicit construction dependency, never discovered from the data-only config.
 -- Selecting qualification latches even when its factory is invalid.
@@ -35,6 +78,8 @@ function api.configure_execution(request)
   if request.mode=='ALPHA_STANDARD' or request.mode=='ALPHA_CONTROLLED'
       or request.mode=='ENGINEERING_BOUNDED' then
     execution_mode=request.mode; selection_locked=true
+    config_source='EXPLICIT_API'
+    config_admission=alpha() and 'ACCEPTED' or 'NOT_APPLICABLE'
     for key in pairs(request) do
       if key~='mode' and key~='input_source' then selection_error='EXECUTION_SELECTION_INVALID' end
     end
@@ -42,11 +87,15 @@ function api.configure_execution(request)
       if request.input_source~='OWNED_SYNTHETIC' then selection_error='ALPHA_INPUT_REQUIRED' end
       input_source=request.input_source
     elseif request.input_source~=nil then selection_error='EXECUTION_SELECTION_INVALID' end
-    if selection_error then return false,selection_error end
+    if selection_error then
+      config_admission='REJECTED'; config_error=selection_error
+      return false,selection_error
+    end
     return true
   end
   if request.mode~='QUALIFICATION' then return false,'QSG_MODE_INVALID' end
   execution_mode='QUALIFICATION'; selection_locked=true
+  config_source='EXPLICIT_API'; config_admission='NOT_APPLICABLE'
   if type(request.factory)~='table' or request.factory.version~='qsg.v1'
       or type(request.factory.prepare_start)~='function' then return false,'QSG_PLUGIN_MISSING' end
   factory=request.factory
@@ -67,12 +116,15 @@ function api.start()
   local pending_adapter
   local ok, result, detail=pcall(function()
     assert(_VERSION=='Lua 5.3', 'CE_ENTRYPOINT_REQUIRES_LUA_5_3')
-    assert(not selection_error, selection_error)
-    -- No ambient CE/file/process APIs in the operator's data-only config chunk.
+    if selection_error then error(selection_error,0) end
     local config, adapter
     if alpha() then
-      -- Fixed owned fixture: no caller-provided CE APIs, factory or private config.
+      -- Clear completed data at this admitted fresh-Start boundary, before config
+      -- validation. Running/cleanup rejection above must retain its protections.
       instance=nil; controlled_fixture=nil
+      if execution_mode=='ALPHA_STANDARD' and config_source~='EXPLICIT_API' then
+        standard_config()
+      end
       assert(execution_mode=='ALPHA_CONTROLLED' or input_source=='OWNED_SYNTHETIC',
         'ALPHA_INPUT_REQUIRED: explicitly select owned supplied input before Start; reload CE to change selection')
       controlled_fixture,adapter=module('ce_mvp_adapter.lua').new_controlled(module)
@@ -151,6 +203,8 @@ function api.status()
     qualification='IMPLEMENTED_PENDING_CE_QUALIFICATION'}
   s.startup_error=startup_error
   s.execution_mode=execution_mode
+  s.config_source=config_source; s.config_admission=config_admission
+  s.config_error=config_error
   s.product_profile=alpha() and 'ALPHA_FULL'
     or (execution_mode=='QUALIFICATION' and 'STRICT_QUALIFICATION' or 'ENGINEERING_BOUNDED')
   -- scan_mode is the legacy address-scope setting, not a scoring-mode claim.
@@ -194,6 +248,7 @@ function api.status()
       'attachment_handle_status','authorization_status','execution_mode','lifecycle_policy',
       'automatic_recovery','action_permitted','native_operation_status','native_readback_status',
       'semantic_validity','native_qualification','product_profile','input_source','data_provenance',
+      'config_source','config_admission','config_error',
       'scan_mode_domain','acquisition_mode','external_acquisition_status','scoring_mode','coverage_scope',
       'evaluation_status','evaluation_completed','population_mode','population_complete','identity_reconciled',
       'evaluation_supplied','evaluation_distinct','evaluation_duplicates','evaluation_eligible',
