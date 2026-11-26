@@ -1,5 +1,10 @@
 # G1-ALPHA-PREP-3-R1：中文人工验收操作单
 
+> 2026-11-26 M6 登记：维护者已决定 `APPROVE_G1_ALPHA_PREP_3_R1_CONTROLLED_MANUAL_ACCEPTANCE`，
+> 对本文精确候选的限定结果为 `PASS_G1_ALPHA_PREP_3_R1_CONTROLLED_MANUAL_ACCEPTANCE`。
+> 见[独立人工验收回执](../reports/2026-11-26/g1-alpha-prep-3-r1-manual-acceptance.md)。
+> 以下正文保留交付时的历史状态；该 PASS 不代表默认标准运行、native 资格或发布许可。
+
 ## 1. 生效范围修正（2026-11-26）
 
 维护者决定：`APPROVE_G1_ALPHA_PREP_3_R1_REMOVE_MANDATORY_COOPERATIVE_INTERFACE`。以 `f1a3cc2132e41c0b334089e340e774fdcf488dda` 为基线，取消专用应用 exporter、动作/回读 API、生命周期 API 作为 Alpha 架构验收的强制前提。已有协作接口可以使用；接口缺失本身不再构成阻断，也不新增应用 SDK 前提。
