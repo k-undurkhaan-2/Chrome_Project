@@ -395,6 +395,16 @@ def test_controlled_id1_full_result_original_gates_and_no_native_calls(controlle
     assert s.attachment_handle_status == "ATTACHMENT_HANDLE_UNVERIFIED"
     assert not s.global_uniqueness_proven and s.decision_scope == "OWNED_SYNTHETIC_FULL"
     assert s.write_admission_basis == "SYNTHETIC_ONLY_SCOPE_ACCEPT"
+    assert s.scan_mode == "bounded" and s.scan_mode_domain == "configured_address_scope"
+    assert s.acquisition_mode == "supplied_records" and s.external_acquisition_status == "NOT_RUN"
+    assert s.scoring_mode == s.population_mode == "full"
+    assert s.evaluation_status == "COMPLETE" and s.evaluation_completed and s.identity_reconciled
+    assert s.population_complete and s.coverage_scope == "supplied_distinct_eligible_only"
+    for key, value in e.counts.items(): assert s["evaluation_" + key] == value
+    assert s.ranking_best_address == 0x100128 and s.ranking_best_score == 46
+    assert s.ranking_second_score == -36 and s.ranking_score_gap == 82
+    assert s.ranking_recommendation == "ACCEPT" and s.ranking_confidence == "HIGH"
+    assert s.ranking_manual_review_required is False
     before = plain(api.evaluation()); e.result.best.final_score = -999
     assert plain(api.evaluation()) == before
     assert lua.globals().h.evaluations == 1
@@ -442,6 +452,11 @@ def test_controlled_id1_complete_ranking_is_separate_from_operation_admission(co
     api, w = start_controlled(lua, scripts)
     w.until_state("MONITORING" if kind == "duplicates" else "ERROR")
     e = api.evaluation(); c = e.counts
+    s = api.status()
+    assert s.evaluation_status == e.status and s.evaluation_completed and s.identity_reconciled
+    assert s.collection_phase == "supplied_full_complete"
+    assert s.ranking_recommendation == e.result.recommendation.recommendation
+    assert s.ranking_manual_review_required == e.result.recommendation.manual_review_required
     assert e.completed and e.population_complete
     assert c.supplied == c.distinct + c.duplicates and c.distinct == c.eligible + c.excluded
     assert c.eligible == c.selected == c.fully_scored == c.ranked
@@ -484,6 +499,8 @@ def test_controlled_id1_failure_cannot_publish_partial_or_stale_ranking(controll
     w.step(40)
     assert not w.loop.status().running and w.loop.status().state in ("STOPPED", "ERROR")
     assert api.evaluation() is None and len(w.writes) == 0 and w.loop.status().result_ready is False
+    assert api.status().evaluation_status == ("CANCELLED" if fault == "H3A7_CE_MVP.stop()" else "ERROR")
+    assert not api.status().evaluation_completed and not api.status().identity_reconciled
     assert lua.globals().h.evaluations == 2
     w.step(200)
     assert lua.globals().h.evaluations == 2 and len(w.scans) == 0
@@ -521,6 +538,7 @@ def test_controlled_id1_incomplete_or_invalid_input_never_operates(controlled_ct
     api, w = start_controlled(lua, scripts); w.step(40)
     assert w.loop.status().state == "ERROR" and not w.loop.status().running
     assert api.evaluation() is None and len(w.writes) == 0 and w.loop.status().result_ready is False
+    assert api.status().evaluation_status == "ERROR" and not api.status().population_complete
     w.clean()
 
 
@@ -623,6 +641,7 @@ def test_standard_default_requires_explicit_input_without_config_or_native_fallb
     s = api.status()
     assert s.state == "ERROR" and not s.running and s.data_provenance == "UNAVAILABLE"
     assert s.action_permitted is False and s.automatic_recovery is False
+    assert s.evaluation_status == "ERROR" and not s.evaluation_completed and not s.identity_reconciled
     assert api.evaluation() is None and lua.globals().h.evaluations == 0
     assert len(lua.globals().h.loaded) == 0  # dofile itself does not call the loadfile hook
     for mode in ("ALPHA_CONTROLLED", "ENGINEERING_BOUNDED", "QUALIFICATION"):
@@ -646,3 +665,23 @@ def test_invalid_explicit_selection_latches_fail_closed(controlled_ct, selection
     assert api.controlled_fixture() is None and api.evaluation() is None
     assert api.configure_execution(lua.table_from({"mode": "QUALIFICATION"})) == (False, "QSG_MODE_LOCKED")
     assert len(lua.globals().h.loaded) == 0
+
+
+def test_id2_observes_standard_or_controlled_state_without_work(controlled_ct):
+    lua, scripts, _ = controlled_ct
+    api, w = start_controlled(lua, scripts)
+    for phase in ("pending", "completed", "stopped"):
+        if phase == "completed": w.until_state("MONITORING")
+        if phase == "stopped": lua.execute(scripts[1])
+        before = (w.reads, len(w.writes), w.open_calls, len(w.scans), len(w.native_calls),
+                  lua.globals().h.evaluations, plain(api.evidence()))
+        lua.execute(scripts[2]); lua.execute(scripts[3])
+        assert (w.reads, len(w.writes), w.open_calls, len(w.scans), len(w.native_calls),
+                lua.globals().h.evaluations, plain(api.evidence())) == before
+        s = api.status()
+        assert s.evaluation_status == ("NOT_RUN" if phase == "pending" else "COMPLETE")
+        assert s.evaluation_completed == (phase != "pending")
+    lines = "\n".join(array(lua.globals().h.lines))
+    for text in ("scoring_mode=full", "scan_mode_domain=configured_address_scope",
+                 "evaluation_ranked=3", "ranking_recommendation=ACCEPT"):
+        assert text in lines

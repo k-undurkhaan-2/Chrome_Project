@@ -153,6 +153,10 @@ function api.status()
   s.execution_mode=execution_mode
   s.product_profile=alpha() and 'ALPHA_FULL'
     or (execution_mode=='QUALIFICATION' and 'STRICT_QUALIFICATION' or 'ENGINEERING_BOUNDED')
+  -- scan_mode is the legacy address-scope setting, not a scoring-mode claim.
+  s.scan_mode_domain='configured_address_scope'
+  s.scoring_mode=alpha() and 'full' or 'bounded'
+  s.acquisition_mode=alpha() and 'supplied_records' or 'native_scan'
   if alpha() then
     if not instance and startup_error then s.state='ERROR' end
     s.input_source=execution_mode=='ALPHA_CONTROLLED' and 'OWNED_SYNTHETIC' or input_source
@@ -163,6 +167,16 @@ function api.status()
     s.action_permitted=false; s.native_operation_status='NOT_RUN'
     s.native_readback_status='NOT_RUN'; s.semantic_validity='UNVERIFIED_SYNTHETIC_ONLY'
     s.native_qualification='QSG_NATIVE_BACKEND_NOT_QUALIFIED'
+    s.external_acquisition_status='NOT_RUN'
+    s.coverage_scope='supplied_distinct_eligible_only'
+    s.evaluation_completed=s.evaluation_completed==true
+    s.population_complete=s.population_complete==true
+    s.identity_reconciled=s.identity_reconciled==true
+    s.evaluation_status=s.evaluation_status or 'NOT_RUN'
+    if not s.evaluation_completed and not s.running then
+      if s.stop_reason=='OPERATOR_STOP' then s.evaluation_status='CANCELLED'
+      elseif startup_error or s.state=='ERROR' then s.evaluation_status='ERROR' end
+    end
   end
   for _,k in ipairs({'state','running','pid','identity_token','candidate_address','last_address',
       'last_written','last_written_bits','last_readback','last_readback_bits','scan_count',
@@ -179,7 +193,13 @@ function api.status()
       'result_ready','scan_complete','collection_complete','collection_phase',
       'attachment_handle_status','authorization_status','execution_mode','lifecycle_policy',
       'automatic_recovery','action_permitted','native_operation_status','native_readback_status',
-      'semantic_validity','native_qualification','product_profile','input_source','data_provenance'}) do
+      'semantic_validity','native_qualification','product_profile','input_source','data_provenance',
+      'scan_mode_domain','acquisition_mode','external_acquisition_status','scoring_mode','coverage_scope',
+      'evaluation_status','evaluation_completed','population_mode','population_complete','identity_reconciled',
+      'evaluation_supplied','evaluation_distinct','evaluation_duplicates','evaluation_eligible',
+      'evaluation_excluded','evaluation_selected','evaluation_fully_scored','evaluation_ranked',
+      'ranking_best_address','ranking_best_score','ranking_second_address','ranking_second_score',
+      'ranking_score_gap','ranking_confidence','ranking_recommendation','ranking_manual_review_required'}) do
     local value=s[k]
     if type(value)=='number' and (k:find('address',1,true) or k:find('_bits',1,true)) then
       value=string.format('0x%X',value)

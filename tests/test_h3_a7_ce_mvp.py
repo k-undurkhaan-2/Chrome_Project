@@ -698,6 +698,9 @@ def test_actual_loader_and_ct_start_stop_scripts_under_mock_ce(runtime, tmp_path
     w.step(80)
     assert api.status().state == "MONITORING" and len(w.writes) == 1
     assert api.status().write_admission_basis == "LEGACY_SCOPE_ACCEPT"
+    assert api.status().product_profile == "ENGINEERING_BOUNDED"
+    assert api.status().scoring_mode == "bounded" and api.status().data_provenance == "synthetic"
+    assert api.status().lifecycle_policy == "ENGINEERING_RECOVERY"
     assert any(line == "[H3-A7] write_admission_basis=LEGACY_SCOPE_ACCEPT" for line in w.lines.values())
     assert api.evidence().scan_scope.write_admission_basis == "LEGACY_SCOPE_ACCEPT"
     lua.execute(stop_code); w.clean()

@@ -75,7 +75,28 @@ local function new_adapter(cfg, ce, load_module, observation_source, execution, 
   local scope=empty_scope()
   local start_address, stop_address
   function a.scan_scope()
-    local out={}; for k,v in pairs(scope) do out[k]=v end; return out
+    local out={}; for k,v in pairs(scope) do out[k]=v end
+    if population then
+      -- Snapshot cached evaluation metadata only: no scoring, reads or clocks.
+      local e=completed_evaluation
+      out.evaluation_status=e and e.status or (cycle_id==0 and 'NOT_RUN' or 'PENDING')
+      out.evaluation_completed=e~=nil
+      out.population_mode=e and e.population_mode
+      out.population_complete=e~=nil and e.population_complete
+      out.identity_reconciled=e~=nil -- AC6 verified exact supplied membership.
+      if e then
+        for k,v in pairs(e.counts) do out['evaluation_' .. k]=v end
+        local r=e.result
+        out.ranking_best_address=r.best and r.best.candidate.value_addr
+        out.ranking_best_score=r.best and r.best.final_score
+        out.ranking_second_address=r.second and r.second.candidate.value_addr
+        out.ranking_second_score=r.second and r.second.final_score
+        out.ranking_score_gap=r.score_gap; out.ranking_confidence=r.confidence
+        out.ranking_recommendation=r.recommendation.recommendation
+        out.ranking_manual_review_required=r.recommendation.manual_review_required
+      end
+    end
+    return out
   end
   function a.evaluation()
     local memo={}
@@ -382,7 +403,7 @@ local function new_adapter(cfg, ce, load_module, observation_source, execution, 
     scope.ranking_complete=bundle.selected_count==bundle.filtered_count and #r.ranked==bundle.selected_count
     scope.collection_complete=scope.raw_admission_complete and scope.ranking_complete
     scope.coverage=scope.collection_complete and 'full_population' or 'sampled_or_reduced'
-    scope.collection_phase='legacy_complete'
+    scope.collection_phase=population and 'supplied_full_complete' or 'legacy_complete'
     scope.scope_complete=scope.scan_complete and scope.collection_complete and not active_scan.read_failure
     observe('candidate_population', {cycle_id=cycle_id,raw_count=bundle.raw_count,scanned_count=bundle.scanned_count,
       raw_inspected_count=scope.raw_inspected_count,unique_count=bundle.unique_count,
@@ -531,7 +552,6 @@ local function new_adapter(cfg, ce, load_module, observation_source, execution, 
           scope.scan_complete=true -- supplied synthetic membership only, never native coverage
           scope.result_ready=true
           local selected=choose(bundle)
-          scope.collection_phase='supplied_full_complete'
           return selected
         end
         local bundle=collector.run({max_candidates=cfg.scan.max_candidates,
@@ -643,8 +663,8 @@ function M.new(cfg, ce, load_module, observation_source, execution)
   return new_adapter(cfg,ce,load_module,observation_source,execution)
 end
 function M.new_controlled(load_module)
-  -- Fixed fixture construction is the only full integration path. The native
-  -- constructor cannot receive a supplied population or a replacement writer.
+  -- Fixed owned test seam shared by standard Alpha and historical controlled
+  -- selection. The native constructor cannot receive records or a new writer.
   local w=load_module('../tests/fixtures/ce_mvp_mock.lua').new(load_module)
   local population=load_module('examples/g1_alpha_population.example.lua', {})
   assert(type(population)=='table' and type(population.records)=='table', 'CONTROLLED_INPUT_MISSING')

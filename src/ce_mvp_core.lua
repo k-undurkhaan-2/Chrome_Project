@@ -400,6 +400,7 @@ function M.new(config, adapter, public_start_probe, lifecycle_policy)
   end
   function api.status()
     local out = {}; for k, v in pairs(s) do out[k] = v end
+    out.data_provenance=a.observation_source or 'UNKNOWN'
     out.scan_mode=c.scan.mode
     for k,v in pairs(a.scan_scope and a.scan_scope() or {}) do out[k]=v end
     out.events = {}; for i, v in ipairs(events) do out.events[i] = v end
