@@ -16,7 +16,7 @@ import xml.etree.ElementTree as ET
 
 import pytest
 from fixtures import ce_mvp_target_layout as layout
-from prepare_ce_mvp import MODULES, lua_path, prepare
+from prepare_ce_mvp import MODULES, REQUIRED_FILES, lua_path, prepare
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -26,10 +26,14 @@ SOURCES = {name: (SRC / name).read_text(encoding="utf-8")
 
 @pytest.fixture(params=["lua53", "lua54"])
 def runtime(request):
+    return make_runtime(request.param)
+
+
+def make_runtime(version):
     # Missing interpreters are failures, not synthetic compatibility skips.
-    module = import_module("lupa." + request.param)
+    module = import_module("lupa." + version)
     lua = module.LuaRuntime(unpack_returned_tuples=True, max_memory=256 * 1024 * 1024)
-    assert lua.eval("_VERSION") == {"lua53": "Lua 5.3", "lua54": "Lua 5.4"}[request.param]
+    assert lua.eval("_VERSION") == {"lua53": "Lua 5.3", "lua54": "Lua 5.4"}[version]
     factory = lua.execute((ROOT / "tests/fixtures/ce_mvp_mock.lua").read_text(encoding="utf-8"))
     w = factory.new(lua.table_from(SOURCES))
     lua.globals().w = w
@@ -1127,7 +1131,8 @@ def test_l01_prestart_api_guard_is_inert_counts_attempts_and_restores(runtime):
 def portable_source(tmp_path, name="relocated checkout [test] & 'quoted'"):
     source_dir = tmp_path / name / "src"
     source_dir.mkdir(parents=True)
-    for name in (*MODULES, "ce_mvp_config.example.lua", "ce_mvp.CT", "prepare_ce_mvp.py"):
+    for name in (*REQUIRED_FILES, "ce_mvp_config.example.lua", "ce_mvp.CT", "prepare_ce_mvp.py"):
+        (source_dir / name).parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(SRC / name, source_dir / name)
     return source_dir
 
@@ -1141,7 +1146,7 @@ def table_lua(path):
 @pytest.mark.parametrize("name", ["ASCII with spaces [x] & 'quote'", "\u79fb\u52a8\u76ee\u5f55 [x] & 'quote'"])
 def test_portable_preparation_cli_is_deterministic_private_and_cwd_independent(tmp_path, name):
     source_dir = portable_source(tmp_path, name)
-    before = {p.name: p.read_bytes() for p in source_dir.iterdir()}
+    before = {p.relative_to(source_dir): p.read_bytes() for p in source_dir.rglob("*") if p.is_file()}
     result = subprocess.run([sys.executable, str(source_dir / "prepare_ce_mvp.py")],
                             cwd=tmp_path, capture_output=True)
     assert result.returncode == 0, result.stderr
@@ -1155,7 +1160,8 @@ def test_portable_preparation_cli_is_deterministic_private_and_cwd_independent(t
     assert prepare(source_dir).read_bytes() == first
     assert private.read_bytes() == b"this is deliberately not valid Lua\n"
     assert all((source_dir / name).read_bytes() == data for name, data in before.items())
-    assert {p.name for p in source_dir.iterdir()} == set(before) | {output.name, private.name}
+    assert {p.relative_to(source_dir) for p in source_dir.rglob("*") if p.is_file()} == (
+        set(before) | {Path(output.name), Path(private.name)})
 
 
 def test_portable_records_are_inert_and_template_requires_preparation(runtime, tmp_path):
@@ -1166,16 +1172,17 @@ def test_portable_records_are_inert_and_template_requires_preparation(runtime, t
         table = ET.parse(path)
         assert table.find("LuaScript") is None and table.findall(".//Active") == []
         records = table.findall(".//CheatEntry")
-        assert [r.findtext("ID") for r in records] == ["1", "2"]
+        assert [r.findtext("ID") for r in records] == ["1", "2", "3"]
         assert "Start (uncheck to Stop" in records[0].findtext("Description")
         assert "Status" in records[1].findtext("Description")
+        assert "READ ONLY" in records[2].findtext("Description")
         lua.globals().syntaxcheck = True
         for code in table_lua(path):
             lua.compile(code)
             lua.execute(code)
         lua.globals().syntaxcheck = False
         # Start-disable (Stop), Status-enable and Status-disable are inert before Start.
-        for code in table_lua(path)[1:]:
+        for code in table_lua(path)[1:4] + table_lua(path)[5:]:
             lua.execute(code)
     with pytest.raises(Exception, match="CE_MVP_TABLE_NOT_PREPARED"):
         lua.execute(table_lua(SRC / "ce_mvp.CT")[0])
@@ -1201,7 +1208,7 @@ def test_portable_invalid_paths_reject(path):
         lua_path(path)
 
 
-@pytest.mark.parametrize("missing", MODULES)
+@pytest.mark.parametrize("missing", REQUIRED_FILES)
 def test_portable_missing_module_fails_without_output_or_config(tmp_path, missing):
     source_dir = portable_source(tmp_path)
     (source_dir / missing).unlink()

@@ -41,5 +41,23 @@ if H3A7_CE_MVP then H3A7_CE_MVP.status() end
 {$asm}
 ]]></AssemblerScript>
     </CheatEntry>
+    <CheatEntry>
+      <ID>3</ID>
+      <Description>"G1 Full population - READ ONLY synthetic example (check once; uncheck is inert)"</Description>
+      <VariableType>Auto Assembler Script</VariableType>
+      <AssemblerScript><![CDATA[[ENABLE]
+{$lua}
+if syntaxcheck then return end
+local entrypoint=nil -- G1_READONLY_LOCAL_ENTRYPOINT
+assert(entrypoint, 'CE_MVP_TABLE_NOT_PREPARED: run src/prepare_ce_mvp.py, then load src/ce_mvp.local.CT')
+dofile(entrypoint).run_example()
+{$asm}
+[DISABLE]
+{$lua}
+if syntaxcheck then return end
+-- One synchronous invocation only. Disabling never evaluates or starts recovery.
+{$asm}
+]]></AssemblerScript>
+    </CheatEntry>
   </CheatEntries>
 </CheatTable>

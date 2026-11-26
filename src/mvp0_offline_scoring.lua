@@ -1,4 +1,4 @@
--- Pure table-data entry point. Not loaded by any CE or product entry point.
+-- Pure table-data entry point. CE's read-only entry uses the same isolated tables.
 -- load_module(name, env) loads the two existing scoring modules into env.
 local M = {}
 

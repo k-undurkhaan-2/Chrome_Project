@@ -5,10 +5,13 @@ import xml.etree.ElementTree as ET
 
 
 MARKER = "local entrypoint=nil -- H3A7_LOCAL_ENTRYPOINT"
+READONLY_MARKER = "local entrypoint=nil -- G1_READONLY_LOCAL_ENTRYPOINT"
 MODULES = (
     "ce_mvp.lua", "ce_mvp_core.lua", "ce_mvp_adapter.lua",
     "mvp0_foundlist_collector.lua", "mvp0_candidate_report.lua",
+    "ce_mvp_readonly.lua", "mvp0_offline_scoring.lua",
 )
+REQUIRED_FILES = (*MODULES, "examples/g1_alpha_population.example.lua")
 
 
 def lua_path(path: str) -> str:
@@ -21,14 +24,15 @@ def lua_path(path: str) -> str:
 
 def prepare(source_dir: Path) -> Path:
     source_dir = source_dir.resolve(strict=True)
-    for name in MODULES:
+    for name in REQUIRED_FILES:
         if not (source_dir / name).is_file():
             raise ValueError(f"MISSING_MODULE: {source_dir / name}")
     template = (source_dir / "ce_mvp.CT").read_text(encoding="utf-8")
-    if template.count(MARKER) != 1:
-        raise ValueError("INVALID_CT_TEMPLATE: expected one entrypoint marker")
-    entrypoint = (source_dir / "ce_mvp.lua").as_posix()
-    rendered = template.replace(MARKER, "local entrypoint=" + lua_path(entrypoint))
+    rendered = template
+    for marker, name in ((MARKER, "ce_mvp.lua"), (READONLY_MARKER, "ce_mvp_readonly.lua")):
+        if template.count(marker) != 1:
+            raise ValueError("INVALID_CT_TEMPLATE: expected one marker for " + name)
+        rendered = rendered.replace(marker, "local entrypoint=" + lua_path((source_dir / name).as_posix()))
     ET.fromstring(rendered)
     output = source_dir / "ce_mvp.local.CT"
     if output.is_symlink():
@@ -45,7 +49,8 @@ def main() -> None:
     except (OSError, ValueError, ET.ParseError) as exc:
         raise SystemExit(f"CE_MVP_PREPARE_FAILED: {exc}") from exc
     print(f"Prepared: {output}")
-    print("Load this local CT in CE; Start remains explicit. Local config is unchanged.")
+    print("Load this local CT in CE; the G1 READ ONLY example is an explicit, one-shot entry.")
+    print("Native Start remains separate and explicit. Local config is unchanged.")
 
 
 if __name__ == "__main__":
