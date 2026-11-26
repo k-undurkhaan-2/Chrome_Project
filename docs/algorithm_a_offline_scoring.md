@@ -48,10 +48,15 @@ interface retain their behavior. No cooperative application exporter, action/
 readback or application lifecycle interface is implemented here.
 
 See the [Chinese manual operation sheet](g1_alpha_manual_acceptance.md) for exact
-prepared file identities, a fresh no-target CE session, expected fields and stop
-conditions. Actual CE-host/AA observations remain NOT_RUN. The focused regression
-is `tests/test_ce_mvp_readonly.py`, using the existing synthetic Lua test fixture;
-this is no new qualification or accuracy campaign.
+retained file identities and the current `PARTIAL_G1_ALPHA_PREP_3` disposition.
+At PREP-2 delivery, CE-host/AA observations were NOT_RUN. The subsequent
+maintainer-confirmed no-target, ID3-only three-record positive observation is
+preserved in that sheet; it establishes no unseen AA, failure-control,
+large-population or lifecycle result. ID1 full integration remains blocked by
+the missing documented cooperative application interfaces. No runtime behavior
+or registered specification changes follow from this dated PREP-3 update.
+The existing focused regression is `tests/test_ce_mvp_readonly.py`, using the
+synthetic Lua fixture; it was not rerun for this documentation-only handoff.
 
 ## Connected read-only collector interface (AC6)
 
