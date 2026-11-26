@@ -7,7 +7,7 @@ import re
 import pytest
 
 import test_offline_full_population as ac5
-from test_h3_a7_ce_mvp import ROOT, runtime  # noqa: F401
+from test_offline_full_population import ROOT, runtime  # noqa: F401
 from test_stable_prescore_optimization import plain
 
 # Same contracts at the connected boundary, without copying the AC5 cases.
@@ -18,7 +18,7 @@ from test_offline_full_population import (  # noqa: F401
     test_full_exact_scores_context_order_recommendation_and_report,
     test_invalid_options_do_not_select_or_score,
     test_invalid_or_conflicting_records_are_errors,
-    test_metadata_truth_cannot_influence_scores_and_native_config_stays_closed,
+    test_metadata_truth_cannot_influence_scores,
     test_partial_or_corrupt_results_never_return_success,
     test_small_allocator_failure_propagates_original_exception,
     test_ties_are_deterministic_across_source_order,

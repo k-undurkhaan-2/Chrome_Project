@@ -3,11 +3,55 @@
 No adapter, loop, native calls, files, or truth labels enter the scoring path.
 """
 from importlib import import_module
+from pathlib import Path
 
 import pytest
 
-from test_h3_a7_ce_mvp import ROOT, legacy_reference, runtime  # noqa: F401
 from test_stable_prescore_optimization import array, plain
+
+
+ROOT = Path(__file__).resolve().parents[1]
+SOURCES = {name: (ROOT / "src" / name).read_text(encoding="utf-8")
+           for name in ("mvp0_candidate_report.lua", "mvp0_foundlist_collector.lua",
+                        "mvp0_offline_scoring.lua")}
+
+
+@pytest.fixture(params=["lua53", "lua54"])
+def runtime(request):
+    # Missing interpreters are failures, not synthetic compatibility skips.
+    module = import_module("lupa." + request.param)
+    lua = module.LuaRuntime(unpack_returned_tuples=True, max_memory=256 * 1024 * 1024)
+    assert lua.eval("_VERSION") == {"lua53": "Lua 5.3", "lua54": "Lua 5.4"}[request.param]
+    factory = lua.execute((ROOT / "tests/fixtures/offline_population.lua").read_text(encoding="utf-8"))
+    w = factory.new(lua.table_from(SOURCES))
+    lua.globals().w = w
+    return lua, w
+
+
+def legacy_reference(lua, w):
+    """Run the original Single pipeline over the same table-backed population."""
+    return lua.execute("""
+      local env={}; for k,v in pairs(_G) do env[k]=v end; env._G=env; env.print=function() end
+      env.readInteger=function(addr) return assert(w.locate(addr)).memory[addr] end
+      env.readFloat=function(addr) return string.unpack('<f',string.pack('<I4',env.readInteger(addr))) end
+      env.getAddress=function(addr) return type(addr)=='number' and addr or tonumber(addr,16) end
+      env.getCurrentMemscan=function() return {} end
+      env.createFoundList=function()
+        local fl={Count=0,Address={}}
+        for _,o in ipairs(w.objects) do
+          if o.mapped and o.protect==4 and o.memory[o.addr]==0x42C80000 then
+            fl.Address[fl.Count]=o.addr; fl.Count=fl.Count+1
+          end
+        end
+        fl.initialize=function() end; fl.destroy=function() end; return fl
+      end
+      local report=w.load('mvp0_candidate_report.lua',env)
+      local collector=w.load('mvp0_foundlist_collector.lua',env)
+      local settings=w.cfg.scan
+      return collector.run({scan_budget=settings.scan_budget,max_candidates=settings.max_candidates,
+        target_value_pattern=0x42C80000,target_value_float=100.0,filter_target_match=true,
+        use_prescore_selection=true,probe_full_foundlist=false,stable_filter_intersection_enabled=false})
+    """)
 
 
 SOURCE = ROOT / "src/mvp0_offline_scoring.lua"
@@ -272,13 +316,10 @@ def test_options_are_not_mutated_and_environment_has_no_live_fallback(runtime):
     no_native(w)
 
 
-def test_metadata_truth_cannot_influence_scores_and_native_config_stays_closed(runtime):
+def test_metadata_truth_cannot_influence_scores(runtime):
     lua, w = runtime
     records(w, 3, good=(2,))
     first = offline(lua, w, population_mode="full")
     lua.execute("for _,o in ipairs(w.objects) do o.expected='ACCEPT'; o.known_true=true end")
     assert plain(offline(lua, w, population_mode="full").result) == plain(first.result)
-    w.cfg.scan.population_mode = "full"
-    with pytest.raises(Exception):
-        w.core.validate(w.cfg)
     no_native(w)

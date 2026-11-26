@@ -1,61 +1,12 @@
 # Algorithm A offline population scoring
 
 `src/mvp0_offline_scoring.lua` provides `run(records, options, load_module)` for
-finite synthetic table records in Lua 5.3/5.4. It reuses the existing
+finite table records in Lua 5.3/5.4. It reuses the existing
 `MVP0FoundList.build_input` and `MVP0.run` pipeline in an isolated table-backed
 environment. The scorer, weights, cohort context, final comparator, confidence,
-recommendation and ordinary report are unchanged. Product configuration does not
-accept `population_mode`; the explicit table-only collector overload below is
-the engineering connection to this API. The dedicated CE read-only record also
-uses that overload, separately from the original native Start path.
-
-## CE-hosted read-only entry (G1-ALPHA-PREP-2)
-
-The maintained `src/ce_mvp.CT` adds record **3**, labelled **G1 Full population -
-READ ONLY synthetic example (check once; uncheck is inert)**. Prepare it with the
-existing `src/prepare_ce_mvp.py`; this binds the native and read-only entrypoints
-independently to their sibling Lua files. Loading the table or module, syntax
-checking, and disabling the new record do not evaluate anything. Deliberately
-enabling record 3 calls `src/ce_mvp_readonly.lua.run_example()` once, using only
-`src/examples/g1_alpha_population.example.lua`, the Lua representation of the
-maintained public three-record JSON example. There is no target selection.
-
-The saved Lua module also exposes `evaluate(records, options)` for a finite
-synthetic table explicitly supplied by its owner. This CE entry requires Lua
-5.3 and explicit `population_mode='full'`; AC5 rejects both count-budget fields.
-It supplies a fixed, sibling-file whitelist loader to AC6 and isolates the outer
-collector from ambient CE/process/action APIs. The entire AC6 return remains at
-`outcome.evaluation`, without changes to records, scoring, ordering, cohort
-adjustments, review flags or report. `proposed_rank1` is present only for a
-completed nonempty full result. EMPTY retains ordinary REJECT and no proposal.
-Action and application lifecycle are explicitly UNSUPPORTED, semantic validity
-is unverified, `action_permitted=false` and `automatic_recovery=false`.
-
-`run_example()` prints BEGIN, then the coverage counts, source/distinct/eligible/
-selected/ranked identity sequences, proposal, authority limits, unchanged
-ordinary report and a final COMPLETE marker. Errors propagate unchanged; no
-success result or marker is generated on scoring, validation, cancellation or
-allocator failure. There is no result cache, timer, retry or bounded fallback.
-Previous console output is not the outcome of the new invocation. `evaluate`
-itself returns the outcome without printing or retaining it.
-
-Execution is synchronous. Disabling record 3 is not an in-flight cancellation
-mechanism. This integration adds no worker, allocator ceiling, deadline or CE
-capacity guarantee. Existing offline worker limits cannot be transferred to CE;
-resource exhaustion or a host interruption is unsuccessful. The original native
-configuration, qualification gates, liveness/recovery and bounded engineering
-interface retain their behavior. No cooperative application exporter, action/
-readback or application lifecycle interface is implemented here.
-
-The [immutable PREP-3 sheet](https://github.com/k-undurkhaan-2/Chrome_Project/blob/f1a3cc2132e41c0b334089e340e774fdcf488dda/docs/g1_alpha_manual_acceptance.md)
-preserves that phase's PARTIAL disposition and the later reported no-target,
-ID3-only observation. It establishes no unseen AA, negative-control or lifecycle
-result. The subsequent PREP-3-R1 decision removed a mandatory application-specific
-cooperative interface; its absence is not a current prerequisite. The current
-[English product guide](ce_mvp_quickstart.md) describes the standard adapter/full
-evaluation connection and the remaining native qualification/authority blocker.
-The existing finite synthetic regressions remain in tests/test_ce_mvp_readonly.py.
-Registered historical decisions below retain their original scope and provenance.
+recommendation and ordinary report are unchanged. Use only artificial data or
+explicitly owned, authorized research inputs in the documented record format.
+The API reads supplied tables; it does not acquire data from a live process.
 
 ## Connected read-only collector interface (AC6)
 
@@ -119,9 +70,8 @@ All recommendation fields, including `manual_review_required`, are preserved.
 An observed ACCEPT grants no action or automatic execution authority. This
 interface has no action port, starts no product loop, and reads only the supplied
 synthetic tables. It does not attach to processes or collect real memory.
-The caller retains the Lua allocator and existing worker time, sampled memory,
-output and host-commit protections described below; this overload creates no
-worker or supervisor. The existing runtime and trusted loader are caller-owned.
+The caller retains its Lua allocator and host resource protections; this overload
+creates no worker or supervisor. The runtime and trusted loader are caller-owned.
 
 Connected regression: `.venv/Scripts/python.exe -B -m pytest
 tests/test_offline_collector_interface.py tests/test_offline_full_population.py`.
@@ -177,7 +127,7 @@ No absent/invalid budget or large sentinel opts into full evaluation.
 `target_value_float` must be finite; `session_id` must be a string. Optional
 `filter_target_match` and `use_prescore_selection` must be true (their defaults).
 All other options, including truth labels, probes and live settings, are errors.
-The caller's records/options and the existing product defaults are not changed.
+The caller's records/options and the existing bounded defaults are not changed.
 
 A normal return is a completed evaluation. `status` is `COMPLETE` for a nonempty
 ranking or `EMPTY` for a legitimate empty/filtered-out population. Check
@@ -189,7 +139,7 @@ The `counts` table reconciles `supplied`, `distinct`, `duplicates`, `eligible`,
 `excluded`, `selected`, `fully_scored` and `ranked`. `identities` contains source,
 distinct and eligible sequences; selected identities remain in
 `collection.candidate_value_addrs`, and ranked identities in `result.ranked`.
-`collection`, `filter` and `result` preserve the ordinary evidence. The new
+`collection`, `filter` and `result` preserve the ordinary evidence. The
 completion envelope is reporting only; empty results retain the ordinary REJECT
 recommendation and its rationale.
 
@@ -202,102 +152,29 @@ the exception/traceback; a worker killed by an external resource guard is an
 aborted evaluation, never an empty result. Do not reuse a prior successful
 result as the outcome of a failed call.
 
-The caller owns the existing Lua allocator ceiling and process time/memory/output
-guards. This API neither raises limits nor creates workers or supervisors.
-Use the established offline fixture/worker and monitoring for large populations.
-The AC5 validation ceilings (4 GiB Lua, sampled 8 GiB worker, 240 s, 256 MiB output,
-512 MiB host available commit) are testing ceilings only, not product defaults.
+The caller owns the Lua allocator ceiling and any process time, memory and output
+limits. This API neither raises limits nor creates workers or supervisors. The
+regression fixture uses the existing 256 MiB Lua allocator limit; historical
+large-worker limits are evidence about those runs, not an available service or
+capacity guarantee.
 
-Targeted regression: `.venv/Scripts/python.exe -B -m pytest
-tests/test_offline_full_population.py`. The suite uses existing Lua 5.3/5.4
-fixtures, small artificial populations, the original bounded/full reference,
-failure doubles and a tiny allocator failure. F2 C3/C4 frozen inputs/complete
-outputs supply the separate large regression reference; F3 evidence is reused.
-No independent admission qualification, CE qualification, liveness change or
-automated-use authorization follows from this offline option.
+Targeted regression: `python -m pytest -q tests/test_offline_full_population.py
+tests/test_offline_collector_interface.py`. The suites use Lua 5.3/5.4,
+small artificial populations, the original bounded/full reference, failure
+doubles and a tiny allocator failure. They grant no native qualification or
+automated-use authorization.
 
-## G1-S2 registered offline specification (S1-D1)
+## Historical evidence and decisions
 
-**Effective scope: offline synthetic evaluation only.** Authority:
-`APPROVE_G1_S1_D1_OFFLINE_SPECIFICATION_REGISTRATION`. G1-S2 registers the
-approved G1-S1 clauses 1–6 and their offline acceptance correspondence below.
-S1-D1 is `REGISTERED_OFFLINE_ONLY`; S1-D2 is
-`DEFERRED_NOT_AUTHORIZED`. This amendment does not rename, replace, relax or
-pass any native G1 requirement or live L row. It grants no action permission.
-
-The reviewed G1-S1 package remains a historical `PROPOSED_NOT_REGISTERED`
-artifact; this subsequent registration does not rewrite it or its receipt.
-Its `specification-reconciliation.md` and `completion-receipt.json` are in
-`C:/Users/llzz/.codex/visualizations/2026/11/25/01a21376-5b19-7a13-9fcd-b8b9c2513996/g1-s1-specification-reconciliation/`.
-The proposal's clauses and "Affected G1 acceptance mapping" are registered here;
-its "Resource policy and evidence limits" table and the receipt's source IDs
-identify the applicable historical evidence.
-
-### Approved clauses 1–6
-
-1. **Domain and explicit selection.** For offline synthetic evaluation, use the existing AC6 `MVP0FoundList.run(options, {records=records, load_module=load_module})` or raw AC5 `run(records, options, load_module)`. Full evaluation requires explicit `population_mode='full'`; both `scan_budget` and `max_candidates` are forbidden, including zero, false or a large sentinel. Omitted/explicit `bounded` preserves its existing defaults, ranges and selected-subset semantics. Product configuration does not acquire this option. The trusted caller-owned loader and table-only environment remain unchanged; no action capability is added.
-
-2. **Population and scoring completeness.** For the supplied finite synthetic records, reconcile identical duplicates and apply the frozen eligibility predicate `mapped and protect == 4 and memory[addr] == target_value_pattern`, followed by the ordinary exact-pattern filter. Only mapped records provide lookup words. Every distinct eligible identity must receive ordinary feature extraction, complete scoring, cohort/family adjustments and final ranking together in one scoring call, with the existing comparator and tie rules. Independently ranked batch winners are not a global result. Preserve scoring, weights, filtering, confidence, recommendation, manual-review fields and report semantics. Truth remains evaluation-only and cannot influence selection or scoring.
-
-3. **Success and coverage evidence.** Successful full evaluation requires `completed=true`, `population_mode='full'`, `population_complete=true`, consistent ordinary result fields and all of:
-
-   - `supplied = distinct + duplicates`;
-   - `distinct = eligible + excluded`;
-   - `eligible = selected = fully_scored = ranked`;
-   - source/distinct/eligible identity reconciliation, exact selected/ranked membership without omissions or duplicate ranked identities, complete per-record fields, rank positions, cohort sizes and global order.
-
-   Counts alone do not prove coverage. Coverage is relative to the supplied synthetic population; it proves neither completeness of an externally acquired input nor native scan scope, stable target state, process identity or independent safe admission. A bounded call can complete its subset, and can even cover a small entire population, but must remain labelled with its actual mode. No sampled, truncated, interrupted or unverified result may be labelled successful full evaluation.
-
-4. **Empty and failure states.** A fully evaluated empty eligible set is `EMPTY`, retains the ordinary no-candidate REJECT/rationale, and has eligible/selected/scored/ranked counts zero; supplied records may be nonzero if all are excluded. Nonempty completed ranking is `COMPLETE`, even if its ordinary recommendation is REVIEW or REJECT. Missing synthetic feature words retain ordinary missing-feature semantics; they are not automatically a schema error or proof of native unreadability. Malformed records/options, conflicting duplicates/words, incomplete envelopes or resource/loader/scoring/report failures are unsuccessful. Preserve actual `OFFLINE_INVALID_REQUEST`, `OFFLINE_INVALID_OPTIONS`, `OFFLINE_INVALID_RECORDS`, `OFFLINE_INVALID_LOADER` or `OFFLINE_INCOMPLETE_RESULT` as applicable and original exceptions, including `LuaMemoryError`. An externally aborted worker has no successful result. Retain cause/partial diagnostic evidence without returning a partial ranking as success, fabricated REJECT, EMPTY, stale result or bounded fallback. This specifies existing outcomes, not a new API error envelope.
-
-5. **Separate cardinality from resources and authority.** Eligible count above 128 alone is not an offline full-mode rejection criterion. Full evaluation means all eligible records or an explicit unsuccessful outcome; it does not guarantee that every finite input fits available resources. Existing caller-owned allocator, time, sampled-memory, output and host-admission guards stay in force. Exhaustion/interruption cannot be repaired by silently dropping records, suppressing required output or raising limits. An offline ACCEPT is a recorded recommendation only. Preserve all existing qualification, identity, completeness, write-attempt, exact-readback, cancellation, cleanup, retry, liveness and recovery protections.
-
-6. **Revised offline acceptance and evidence reuse.** Accept the existing AC5/AC6 contract evidence for full coverage, bounded compatibility, empty/duplicate/filtered inputs, deterministic order, truth isolation, unchanged recommendations and failure propagation. Preserve AC8's approved empirical Rank-1 threshold **>=95% of all planned positive pools**, requiring every planned positive to complete with reconciled coverage. Correct Rank-1 with REVIEW is a match. Wrong/absent/excluded truth is a miss; invalid/incomplete/aborted/unattempted pools stay in the planned denominator, never count as successes and are not invented observed mismatches. Report completed-only accuracy separately. Ambiguous/negative/empty controls have their own NO_ACCEPT denominator; unexpected ACCEPT is a separate protection finding. AC7 independent admission-positive qualification is not an added prerequisite for this ranking metric. No new 100-pool run, AC7 repetition or new framework is needed for this unchanged contract.
-
-### Offline correspondence to G1 acceptance rows
-
-This correspondence is effective only for the supplied synthetic population.
-The original live matrix, [R1 plan](ce_mvp_q1_r1_plan.md), L12 three-case addendum
-and [product contract](architecture/h3_a7_ce_mvp_contract.md) retain their native
-qualification obligations. NORMAL scoped ACCEPT is not strict QUALIFICATION;
-no full-population native adapter is established by this registration.
-
-| Row | Registered offline correspondence | Native obligation/status retained |
-| --- | --- | --- |
-| L03 | Clauses 1–3 and 6 apply to all eligible synthetic records, including populations above 128. Rank accuracy, ordinary recommendation, and independent admission are separate results. AC5/AC6, AC8, and AC9 provide the existing scoped evidence. | Original complete <=128 candidate set, unchanged threshold, and unique qualified selection requirements remain effective in their native qualification scope. Native input completeness, strict selection, and direct observations are unproved. NOT_RUN/PAUSED. |
-| L09 | Above 128 is not itself an offline full-mode failure. Preserve legitimate EMPTY, ordinary REVIEW/REJECT, NO_ACCEPT controls, and unsuccessful error/abort semantics. No action path. AC8/AC9 and existing failure regressions support this mapping. | Original five native negative controls and all no-write requirements remain in effect; historical overflow evidence stays unchanged. Offline controls do not prove native scan/progress, read-failure behavior, no writes, or cleanup. NOT_RUN/PAUSED. |
-| L12 | Record the discovered stale example: `scan_budget=129,max_candidates=128` is within today's validated ranges. Existing offline validation still rejects mixed full/count options and invalid bounded budgets. Current synthetic tests use 65537. | Do not replace the live example, amend the invalid-input requirement, or authorize a live input. MISSING, DISABLED, and INVALID remain NOT_RUN/PAUSED; defer live-document reconciliation to a separately approved decision. |
-
-The original matrix and L12 example are recorded in
-`docs/codex_tasks/chrome_project_H3-A7-Q1_CE_live_qualification_codex_prompt.md`
-(L03/L09) and `docs/codex_tasks/h3_a7_q1_l12_three_case_addendum.md` (L12).
-The unchanged [configuration validation](../src/ce_mvp_core.lua) and
-[synthetic L12 test](../tests/qualification/test_qsg_acceptance.py) corroborate
-the example drift; 65537 is evidence, not an approved replacement live input.
-AC5/AC6 evidence includes the existing
-[full-population regressions](../tests/test_offline_full_population.py) and
-[connected-interface regressions](../tests/test_offline_collector_interface.py).
-The G1-S1 receipt resolves the AC8/AC9 historical summaries and receipts below.
-
-### Resource boundary and accepted historical evidence
-
-The G1-S1 proposal's "Resource policy and evidence limits" table remains the
-applicable historical offline testing policy: 4 GiB Lua allocator ceiling,
-8 GiB worker private-memory threshold sampled every 0.25 s, 240 s per case,
-256 MiB uncompressed per-case output, at least 512 MiB available host commit,
-serial workers, prior termination checks and the existing disk/admission guards.
-These limits remain in force as testing policy; they are not production
-settings, hard instantaneous peak guarantees or a native SLA. AC8 exercised
-supplied sizes up to 20,000 records; this establishes no unlimited-size or
-native-capacity guarantee. Existing native time, write, identity, completeness,
-cancellation, cleanup, retry, liveness and recovery protections remain unchanged.
+The following are preserved finite-domain synthetic observations, not current
+product qualification or evidence of real-environment accuracy and performance.
 
 AC8 remains `PASS_ALGORITHM_A_AC8_FINITE_SYNTHETIC_RANKING_ACCURACY` against the
 approved **>=95% Rank-1 threshold over all planned positive pools**:
 100/100 Rank-1, 100% complete and reconciled positive pools, 742,750 eligible
 positive candidates completely scored/ranked, 48 ACCEPT and 52 REVIEW, and
 3/3 independent control NO_ACCEPT. Completed-only Rank-1 accuracy is separately
-100/100 (100%). Correct REVIEW results count as matches under clause 6.
+100/100 (100%). Correct REVIEW results count as matches under that historical specification.
 These observations are limited to the frozen C3-like/C4-like synthetic domain;
 shared generators/templates do not prove statistical independence or real-world
 accuracy. The controls retain their own denominator and protection result.
@@ -309,59 +186,12 @@ These are reused historical executions, not new independent observations.
 AC2/AC3 FAIL, F1 resource failure, AC7 INDETERMINATE, historical PAIR conclusions,
 and all AC8/AC9 evidence and receipts remain unchanged.
 
-### Retained G1 and product state
-
-L01 remains `INDETERMINATE_G1_L01_LAZY_LOAD_QUALIFICATION`. Preserve the observed
-eight zero BEFORE/AFTER API counters, STOPPED/`running=false` checks, successful
-guard restoration (`installed=false`) and 270-second observation. The four AA
-Boolean returns and the unresolved runtime/session evidence remain unconfirmed.
-There is no retry, reconstruction or retrospective PASS. L02–L12 remain
-NOT_RUN/PAUSED; the G1 aggregate remains
-**0 PASS / 0 FAIL / 1 INDETERMINATE / 11 NOT_RUN**.
-
-Preserve `IMPLEMENTED_PENDING_CE_QUALIFICATION`,
-`ATTACHMENT_HANDLE_UNVERIFIED`, `NOT_PRODUCTION_AUTHORIZED`,
-`HISTORICAL_ROOT_CAUSE=INDETERMINATE`, `QSG_NATIVE_BACKEND_NOT_QUALIFIED`,
-N0/MIN/LOCAL publishing suspension and Alpha Pre-release BLOCKED. Liveness and
-recovery design stays frozen. S1-D2 remains deferred: no native implementation,
-full-native specification, replacement of the <=128 qualification rule,
-resource-policy revision or live L12 example amendment is authorized.
-No Generation 2 work or additional offline test campaign follows from this
-registration.
-
-## G1-S3 registered D2 decisions (2026-11-26)
-
-Authority: `APPROVE_G1_S1_D2_DECISION_REGISTRATION_AND_L12_ERRATUM`.
-This dated successor registers D2.1–D2.4 within the approved documentation
-scope. It supersedes the D2 and L12-document deferrals above prospectively;
-those statements record the authority at G1-S2 and remain historical facts.
-The original S1 proposal and S2 receipt are unchanged. The approved wording
-comes from the local G1-S1-D2 decision report at
-`C:/Users/llzz/.codex/visualizations/2026/11/25/01a213b5-878e-7282-bf17-5b185277ab2a/g1-s1-d2-specification-decision.md`.
-
-The six G1-S2 clauses remain effective without re-registration. The following
-dispositions adopt their existing requirements by reference and add only the
-necessary applicability clarification:
-
-| Decision | Effective disposition and references |
-| --- | --- |
-| D2.1 — Full and bounded scope | Retain [G1-S2 clauses 1–3, 5–6](#g1-s2-registered-offline-specification-s1-d1) and the [shared AC5/AC6 contracts](#raw-ac5-api-and-shared-contracts) for supplied finite, explicitly owned synthetic records, with unchanged bounded defaults and labels. Input completeness, eligible-population coverage, ranking correctness, recommendation, independent qualification and authority to act remain separate claims. Product `scan.mode='bounded'` describes a scan range, not this offline population-mode selector; the option is not extended to the product/native path. |
-| D2.2 — Strict bounded G1 | Retain the [L03/L09 correspondence](#offline-correspondence-to-g1-acceptance-rows), [R1 frozen 128/128 regime](ce_mvp_q1_r1_plan.md#frozen-g1-configuration-and-session-budgets) and [strict QUALIFICATION gates](architecture/h3_a7_ce_mvp_contract.md#single-candidate-policy): a complete L03 set of at most 128, unchanged thresholds, exactly one independent qualifier and all five R1 L09 negative controls with zero writes. NORMAL scoped ACCEPT cannot substitute for strict QUALIFICATION or establish a live L-row result. Above 128 alone remains no failure criterion for synthetic full mode. |
-| D2.3 — Existing resource policy | Retain the all-or-unsuccessful outcome under clauses 4–5 and the [registered resource boundary](#resource-boundary-and-accepted-historical-evidence). Cardinality, time, memory, output, cancellation and cleanup constraints are distinct. All existing protections and resource policies remain in force, including [product ownership and cleanup](architecture/h3_a7_ce_mvp_contract.md#state-and-ownership) and R1 budgets. The listed offline test ceilings are not a native SLA, capacity commitment or default; no native-full service guarantee or limit increase is established. |
-| D2.4 — L12 documentation correction | The [authoritative prospective L12 erratum](qualification/h3_a7_q1_qsg_synthetic_test_plan.md#g1-s3-d24-prospective-l12-erratum-2026-11-26) registers the corrected INVALID example and preserves the three distinct before-activity rejections and zero-activity evidence. It identifies the superseded R1/addendum locations; historical observations and validation code remain unchanged. |
-
-For D2.2, the [R1 overflow fixture](ce_mvp_q1_r1_plan.md#disposable-fixture-and-exact-layout)
-establishes at least 129 actual search positions, not 129 qualified structures.
-Its original bounded qualification must refuse admission and record the actual
-count, lack of established completeness and refusal cause; no obsolete legacy
-error token is forced where later approved implementation changed it. This is
-not a universal NORMAL native raw-count ceiling. The five retained controls
-are `zero_match`, `ambiguous`, `over_limit`, `incomplete_structure` and
-`invalid_structure`.
-
-Native full-population external-input completeness, capacity/resource policy
-and strict qualification remain unresolved. This registration establishes no
-full native specification, adapter, live input or execution authority. The
-[retained G1 and product state](#retained-g1-and-product-state), historical
-evidence, qualification obligations, Generation 2 boundary and frozen
-liveness/recovery design remain unchanged.
+The [original offline specifications and decisions](https://github.com/k-undurkhaan-2/Chrome_Project/blob/8755ce4b8ad89b3d3a3f4cdb80652ddbea879a50/docs/algorithm_a_offline_scoring.md#g1-s2-registered-offline-specification-s1-d1)
+preserve the approved scope, denominators, historical resource ceilings, G1-S2
+registration and G1-S3 corrections. The [historical CE MVP contract](https://github.com/k-undurkhaan-2/Chrome_Project/blob/8755ce4b8ad89b3d3a3f4cdb80652ddbea879a50/docs/architecture/h3_a7_ce_mvp_contract.md),
+[qualification records](https://github.com/k-undurkhaan-2/Chrome_Project/tree/8755ce4b8ad89b3d3a3f4cdb80652ddbea879a50/docs/qualification)
+and [Alpha observations and receipts](https://github.com/k-undurkhaan-2/Chrome_Project/tree/8755ce4b8ad89b3d3a3f4cdb80652ddbea879a50/reports/2026-11-26)
+remain in the signed historical tree, with their original PASS/FAIL and unresolved
+outcomes. These links are historical evidence, not current operating instructions.
+The Alpha delivery effort is discontinued; further research and independent
+evaluation remain maintainer decisions.
