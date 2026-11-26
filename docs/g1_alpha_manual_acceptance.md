@@ -8,7 +8,7 @@
 
 这是后继规格决定，不追溯改写 [PREP-3 操作单](https://github.com/k-undurkhaan-2/Chrome_Project/blob/f1a3cc2132e41c0b334089e340e774fdcf488dda/docs/g1_alpha_manual_acceptance.md)或[历史交付记录](../reports/2026-11-26/g1-alpha-prep-3-delivery.md)。PREP-3 当时是文档交付 `PARTIAL_G1_ALPHA_PREP_3`；PREP-2 包仍是 PREP-2，不能改名充当本次集成版本。
 
-当前提交落实范围修正；R1 代码集成与候选包尚待本轮实际验证后填写。不得据此把任一原 G1 行改为 PASS。
+交付状态：**`READY_G1_ALPHA_PREP_3_R1_CONTROLLED_MANUAL_ACCEPTANCE`**，严格限于下述实际 ID1 自有合成夹具候选。源码提交为 `d3aadb33aab01f77bd9e45479975b5421188825c`；包内 CT/Lua 已通过真实 Lua 5.3 的受控执行检查，**本轮尚未在 CE 宿主进行人工验收**。此标记不代表 native 资格、生产许可或发布就绪，不把任一原 G1 行改为 PASS。
 
 ## 2. 验收概念与保留门禁
 
@@ -26,9 +26,83 @@
 
 ## 3. 本轮候选与允许执行范围
 
-当前允许的集成/验证仅限无目标的显式自有合成记录及现有受控 test doubles。必须从实际 ID1 loader/状态机路径验证，不能以独立 ID3 示例替代。动作/回读边界可以通过既有合成设施验证，但不得转发真实目标写入；模拟结果不是 native write/readback 证据。原生动作未经资格或授权时，人工项目写 **UNSUPPORTED / NOT_RUN**。
+实际候选目录：`D:\armedforces.io-v2\reports\2026-11-26\g1-alpha-prep-3-r1-manual\`。
 
-本轮集成完成后，本节填写真实 CT/Lua 候选路径、提交、文件身份、依赖、启动步骤、独立预期及停止条件。在此之前不得启用原生 ID1 配置来冒充 R1 full 模式，不覆盖原有 local CT、私有配置或历史包。
+打开其中 **`src\ce_mvp.local.CT`**，其 SHA-256 为：
+
+`2e6d3d5403d9ed5f156d313998ef3ac867b4735b77a67b920d8ac34cad5439a8`
+
+[13 文件身份清单及本包 smoke 结果](../reports/2026-11-26/g1-alpha-prep-3-r1-file-identities.json)记录 12 个维护文件的来源提交/Git blob/实际 SHA-256，以及生成 CT 的 SHA-256。[本轮交付记录](../reports/2026-11-26/g1-alpha-prep-3-r1-delivery.md)记录变更、命令、真实失败与修正、签名提交和限制。候选包是独立生成的本地输出；源码和清单已提交，没有发布 Release。不要打开源码目录原有 local CT 或历史 PREP-2 包代替本候选。
+
+依赖仍为 Windows x64 / CE 7.6 / Lua 5.3。包内保留 `src/` 模块、公开 `examples/` 和原有 `tests/fixtures/ce_mvp_mock.lua`；该 fixture 是受控模式的显式依赖，不是新的产品 SDK。Python 只用于现有 `prepare_ce_mvp.py` 的路径绑定，验收启动不需要 Python。生成 CT 绑定绝对路径，移动目录后需用现有准备工具重新生成并重新记录哈希，不能继续沿用本清单。
+
+本候选的 ID1 显式选择 **ALPHA_CONTROLLED**，从同包读取公开合成记录，固定构造既有表数据 CE/Win32 替身，经实际 `ce_mvp.lua` → `ce_mvp_adapter.lua` → `ce_mvp_core.lua` 执行。全量结果由 AC6/AC5 原入口产生；ID1 不调用 ID3。受控构造不读取私有 `ce_mvp_config.local.lua`，不接收外部 CE API 或自定义 writer；普通/严格资格构造仍走原门禁，未接入新的外部 full 能力。
+
+只有夹具表中的模拟读写；真实 operation/readback 为 **UNSUPPORTED / NOT_RUN**，不属于本单可执行人工测试。状态中的 PID、地址、身份 token 和 `write_count` 都是合成模型数据。`action_permitted=false` 和 native NOT_RUN 与模拟写入一次并不矛盾。`global_uniqueness_proven=false` 保留；已提供集合的 full 不证明外部采集完整。
+
+### 3.1 核对并启动实际 ID1
+
+1. 在新的 CE 会话中确认 Lua 为 5.3，保持无目标进程，核对包内文件清单后打开上述生成 CT。不要附加应用或加载私有配置。若有其他安装的 `H3A7_CE_MVP` 单例，重开 CE；不要手工删除保护或切换到 native 模式。
+2. 勾选 **ID1 `H3-A7 Start`**。这启动真实编排状态机，初始为 ATTACHING；fixture 的 timer 是表模型，需要下述已有 `step` 控制推进，不会自动执行宿主进程扫描。
+3. 在 CE Lua console 执行以下片段。这里的 `step(10)` 是 10 次模拟时钟推进；每步的 50 ms **不是实测耗时**。只把 `getTickCount` 的差值和 Lua 当前占用写入相应观察栏，内存前后值不是进程峰值。
+
+```lua
+local m = assert(H3A7_CE_MVP)
+local w = assert(m.controlled_fixture(), 'Wrong candidate: controlled fixture required')
+local t0, kb0 = getTickCount(), collectgarbage('count')
+w.step(10)
+local elapsed, kb1 = getTickCount() - t0, collectgarbage('count')
+print('measured_step_ms=' .. elapsed .. ' lua_kib_before=' .. kb0 .. ' lua_kib_after=' .. kb1)
+local s, e = m.status(), m.evaluation()
+assert(e, 'No completed evaluation; record the error and stop')
+print('evaluation=' .. e.status .. ' full=' .. tostring(e.population_complete))
+for _, k in ipairs({'supplied','distinct','duplicates','eligible','excluded','selected','fully_scored','ranked'}) do
+  print(k .. '=' .. e.counts[k])
+end
+for _, k in ipairs({'supplied','distinct','eligible'}) do
+  for i, id in ipairs(e.identities[k]) do print(k .. '[' .. i .. ']=' .. string.format('0x%X', id)) end
+end
+for i, id in ipairs(e.collection.candidate_value_addrs) do print('selected[' .. i .. ']=' .. string.format('0x%X', id)) end
+for i, row in ipairs(e.result.ranked) do print('ranked[' .. i .. ']=' .. string.format('0x%X', row.candidate.value_addr)) end
+print(e.result.report_text)
+```
+
+评分前独立预期如下，来自公开人工构造夹具，不从本轮结果反推 truth：
+
+| 观察项目 | 独立预期 |
+| --- | --- |
+| 完成与覆盖 | COMPLETE；completed=true、population_mode=full、population_complete=true；supplied/distinct/eligible/selected/fully_scored/ranked 均为 3；duplicates/excluded 均为 0 |
+| 精确成员 | supplied、distinct、eligible、selected、ranked 的成员均为 `0x100128, 0x100328, 0x100528`，无额外或缺失身份；本例排名顺序也相同 |
+| 排名与建议 | Rank-1 `0x100128`，得分 46；runner-up -36；ACCEPT/HIGH，manual_review_required=false |
+| 原操作边界（模拟） | MONITORING；scan_count=1、write_count=1；last_written_bits=last_readback_bits=`0x42FA0000`（125.0）；替身 native scan 对象数量为 0 |
+| 权限与范围 | execution_mode=ALPHA_CONTROLLED、decision_scope=OWNED_SYNTHETIC_FULL、write_admission_basis=SYNTHETIC_ONLY_SCOPE_ACCEPT；action_permitted=false、native_operation_status/native_readback_status=NOT_RUN |
+| 停止策略 | lifecycle_policy=ALPHA_STOP_ONLY、automatic_recovery=false；rescan_attempts=0，无 retry_at |
+
+推荐字段和 full 结果可通过 `H3A7_CE_MVP.evaluation()` 检查；它返回副本。ID2 打印状态，`H3A7_CE_MVP.print_evidence()` 打印带 synthetic 来源的现有诊断。它们不能成为真实 native 操作或资格证据。ID3 保持既有只读行为，本任务不要求重复历史 ID3 观察。
+
+### 3.2 观察停止、清理和不恢复
+
+正常到达 MONITORING 后，使用同一公开 fixture 的既有故障字段：
+
+```lua
+local m = H3A7_CE_MVP
+local w = assert(m.controlled_fixture())
+w.objects[1].mapped = false
+w.step(4)
+local s = m.status()
+print('stop=' .. tostring(s.stop_reason) .. ' cleanup_ok=' .. tostring(s.cleanup_ok))
+local reads, writes, opens, scans = w.reads, #w.writes, w.open_calls, #w.scans
+w.object(0x101128)
+w.step(200)
+print('no_recovery=' .. tostring(w.reads == reads and #w.writes == writes and w.open_calls == opens and #w.scans == scans))
+w.clean()
+```
+
+应观察 ERROR、running=false、`ALPHA_STOP:MAPPING_CHANGED`、cleanup_ok=true、candidate_address=nil、rescan_attempts=0、retry_at=nil，以及 no_recovery=true。新增合成替代对象后也不恢复；`w.clean()` 无错误表示原 fixture 所跟踪的 timer/scan/observer/stream/FoundList 已释放。这只是可检测映射失败，不是语义身份算法。
+
+维护者若需分别观察其他边界，每次先取消 ID1 勾选，再明确人工勾选建立新夹具。启动后推进前设置 `w.fail.write_nil=true` 可观察模拟 WRITE_FAILED；设置 `w.fail.write_no_change=true` 可观察模拟 READBACK_MISMATCH。正常运行后设置 `w.alive=false` 可观察 PID_EXITED，设置 `w.creation=w.creation+1` 可观察 PID_IDENTITY_MISMATCH。沿用上面的 `w.step`、状态和清理检查即可；不要求重跑整个 G1 矩阵。清理不确定时停止，不尝试绕过 `CLEANUP_UNCERTAIN_RELOAD_CE`。
+
+另一次明确人工启动到 MONITORING 后，取消 ID1 勾选应得到 STOPPED / OPERATOR_STOP 和 cleanup_ok=true。之后 `w.step(200)` 不应产生新活动。出现错误时保留本轮错误状态；缺失、取消、资源耗尽或评分异常时不能以 `evaluation()==nil` 推断 EMPTY/REJECT，也不能引用上一轮结果。full 完成后因 REVIEW/REJECT 被原操作准入拒绝时，完整排名可以保留，动作仍未执行，两项分别记录。
 
 ## 4. 人工验收分别记录
 
