@@ -1,8 +1,9 @@
 -- Original product contract. Copy ONCE to the sibling ce_mvp_config.local.lua
 -- only if absent; never overwrite an existing private configuration.
 -- Safe placeholders are structurally valid but cannot Start. Configuration is
--- neither runtime capability nor execution authorization. Standard Alpha still
--- has no qualified external input/operation consumer; see docs/g1_alpha_f01_r1_config_zh.md.
+-- neither runtime capability nor execution authorization. Standard Alpha uses
+-- the existing full adapter admission, but native qualification is unavailable.
+-- See docs/ce_mvp_quickstart.md for the current English product contract.
 -- Optional standard-only input_source='OWNED_SYNTHETIC' explicitly selects the
 -- existing fixed table test environment (identity 101), never a native target.
 -- Engineering/qualification selection and execution validation remain separate.

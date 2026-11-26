@@ -1,4 +1,4 @@
--- Standard Alpha only. Copy ONCE to the sibling ce_mvp_config.local.lua if absent.
+-- Historical synthetic compatibility/test selector; not the product config.
 -- Never overwrite an existing private config. This trusted local data is not a
 -- native target/writer authorization. This is the historical synthetic selector
 -- only: it uses fixture defaults and is NOT the product configuration contract.

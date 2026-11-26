@@ -1,5 +1,7 @@
 # G1-ALPHA-F01-CONFIG delivery and verification receipt
 
+> Historical evidence only; not current operating instructions. Original recorded values and authority are unchanged. [Immutable original](https://github.com/k-undurkhaan-2/Chrome_Project/blob/9574ef9b83b29e603d1e067486f846a1c4bad59f/reports/2026-11-26/g1-alpha-f01-delivery.md). Current product guidance: [English Quickstart](../../docs/ce_mvp_quickstart.md).
+
 Status: **READY_G1_ALPHA_F01_CONFIG_CONTROLLED_ACCEPTANCE**.
 
 Ordinary generated CT ID1 now admits a persistent, explicitly selected local
@@ -176,7 +178,7 @@ unrelated broad regression or repeat effectiveness campaign was performed.
   before and after execution. Existing accepted controlled and standard historical
   packages, their manifests and original results remain unchanged.
 
-The [Chinese guide](../../docs/g1_alpha_f01_config_zh.md) provides one-time
+The [Chinese guide](https://github.com/k-undurkhaan-2/Chrome_Project/blob/9574ef9b83b29e603d1e067486f846a1c4bad59f/docs/g1_alpha_f01_config_zh.md) provides one-time
 non-overwriting installation, schema/field meanings, precedence, error handling,
 privacy and unsupported scope. The candidate is a local review/acceptance input;
 it is not a distributed release and does not request a repeat manual campaign.

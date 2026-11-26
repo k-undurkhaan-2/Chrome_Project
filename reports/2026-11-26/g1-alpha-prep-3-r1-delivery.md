@@ -1,5 +1,7 @@
 # G1-ALPHA-PREP-3-R1 controlled candidate delivery
 
+> Historical evidence only; not current operating instructions. Original recorded values and authority are unchanged. [Immutable original](https://github.com/k-undurkhaan-2/Chrome_Project/blob/ef8f70d4732834667cce48f257771708afc8f5c2/reports/2026-11-26/g1-alpha-prep-3-r1-delivery.md). Current product guidance: [English Quickstart](../../docs/ce_mvp_quickstart.md).
+
 Status: **READY_G1_ALPHA_PREP_3_R1_CONTROLLED_MANUAL_ACCEPTANCE**.
 
 This status covers the integrated ID1 path using the existing explicitly owned table fixture. It does not mean native qualification, CE-host manual acceptance, production authorization or release readiness. The maintainer retains the final manual acceptance decision.
@@ -79,7 +81,7 @@ Host: Windows 11 x64; Python 3.14.3, Lupa 2.8. Existing tests used genuine Lua 5
 - Actual CT: `src\ce_mvp.local.CT` inside that package.
 - CT SHA-256: `2e6d3d5403d9ed5f156d313998ef3ac867b4735b77a67b920d8ac34cad5439a8`.
 - [Identity manifest and package validation data](g1-alpha-prep-3-r1-file-identities.json).
-- [Chinese operator instructions and independent expected observations](../../docs/g1_alpha_manual_acceptance.md).
+- [Chinese operator instructions and independent expected observations](https://github.com/k-undurkhaan-2/Chrome_Project/blob/ef8f70d4732834667cce48f257771708afc8f5c2/docs/g1_alpha_manual_acceptance.md).
 
 The package smoke observed COMPLETE, all supplied/distinct/eligible/selected/fully_scored/ranked counts equal to 3, duplicates/excluded equal to 0, exact identities `0x100128, 0x100328, 0x100528`, Rank-1 46, runner-up -36, ACCEPT/HIGH, one simulated operation with matching `0x42FA0000` readback, zero ambient target calls and zero native scan objects. A mapped=false event stopped with `ALPHA_STOP:MAPPING_CHANGED`, cleanup succeeded, and 200 further fixture ticks with a replacement object caused no additional activity. A separate explicit restart and CT disable produced STOPPED / OPERATOR_STOP with cleanup.
 

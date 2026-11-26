@@ -61,7 +61,9 @@ def main() -> None:
     print("ID1 uses the owned table fixture; no native target calls." if sys.argv[1:]
           else "ID1 validates the original ce_mvp_config.example.lua contract at Start. "
                "Copy to the sibling ce_mvp_config.local.lua only if absent; preserve private files. "
-               "Safe defaults refuse Start; valid config does not supply external input or authorization. "
+               "Safe defaults refuse Start. Valid target config reaches existing full adapter admission; "
+               "QSG_NATIVE_BACKEND_NOT_QUALIFIED blocks native access and operation. "
+               "See docs/ce_mvp_quickstart.md (current English guide). "
                "ce_mvp_alpha_config.example.lua selects only the existing owned synthetic fixture defaults. "
                "Legacy ENGINEERING_BOUNDED and QUALIFICATION require explicit selection.")
 

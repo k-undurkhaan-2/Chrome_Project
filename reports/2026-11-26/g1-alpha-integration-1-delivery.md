@@ -1,5 +1,7 @@
 # G1-ALPHA-INTEGRATION-1 standard ID1 delivery and verification receipt
 
+> Historical evidence only; not current operating instructions. Original recorded values and authority are unchanged. [Immutable original](https://github.com/k-undurkhaan-2/Chrome_Project/blob/603f3b420e7fefe027981aa64f6c2f0d2a7c7e7e/reports/2026-11-26/g1-alpha-integration-1-delivery.md). Current product guidance: [English Quickstart](../../docs/ce_mvp_quickstart.md).
+
 Status: **READY_G1_ALPHA_INTEGRATION_1_CONTROLLED_MANUAL_ACCEPTANCE**.
 
 Authority: `APPROVE_G1_ALPHA_INTEGRATION_1_STANDARD_ID1_FULL_POPULATION`.
@@ -235,7 +237,7 @@ remain scoped and unchanged.
 - Candidate verification used `& '.venv/Scripts/python.exe' -` with the existing
   `tests/test_ce_mvp_readonly.py` Lua 5.3 harness. It executed the **actual packaged**
   CT, all six syntax-check blocks, all four verbatim Lua blocks extracted from the
-  [Chinese manual sheet](../../docs/g1_alpha_integration_1_manual_acceptance.md),
+  [Chinese manual sheet](https://github.com/k-undurkhaan-2/Chrome_Project/blob/603f3b420e7fefe027981aa64f6c2f0d2a7c7e7e/docs/g1_alpha_integration_1_manual_acceptance.md),
   ID2 toggles and the independent ID3 entry. No test launcher/framework was added.
 - Result: **PASS_STANDARD_PACKAGE_SMOKE**. COMPLETE; all six applicable counts 3,
   duplicates/excluded 0; exact identities `0x100128`, `0x100328`, `0x100528`;

@@ -1,5 +1,7 @@
 # G1-ALPHA-PREP-1 delivery
 
+> Historical evidence only; not current operating instructions. Original recorded values and authority are unchanged. [Immutable original](https://github.com/k-undurkhaan-2/Chrome_Project/blob/f67c2b1ab619b4a03fa6e8ce055ea4a3fe3b5b5b/reports/2026-11-26/g1-alpha-prep-1-delivery.md). Current product guidance: [English Quickstart](../../docs/ce_mvp_quickstart.md).
+
 Status: `PARTIAL_G1_ALPHA_PREP_1`.
 
 The usable candidate evaluates an explicitly supplied owned table snapshot through
@@ -126,7 +128,7 @@ N0/MIN/LOCAL publishing suspension. Alpha Pre-release remains BLOCKED. No tag,
 release, new branch or PR was created. No new version tag is recommended.
 
 Next action: the maintainer can run the delivered
-[Chinese operator sheet](../../docs/g1_alpha_manual_acceptance.md) for the
+[Chinese operator sheet](https://github.com/k-undurkhaan-2/Chrome_Project/blob/f67c2b1ab619b4a03fa6e8ce055ea4a3fe3b5b5b/docs/g1_alpha_manual_acceptance.md) for the
 read-only candidate now, retain actual observations including failures, and
 decide its scoped acceptance. An action/lifecycle acceptance requires a suitable
 existing owned application interface; this delivery does not claim it exists.

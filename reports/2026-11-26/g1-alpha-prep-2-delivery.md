@@ -1,5 +1,7 @@
 # G1-ALPHA-PREP-2 delivery record
 
+> Historical evidence only; not current operating instructions. Original recorded values and authority are unchanged. [Immutable original](https://github.com/k-undurkhaan-2/Chrome_Project/blob/3a8fa0876fcb0e972af6e657693948207484ec86/reports/2026-11-26/g1-alpha-prep-2-delivery.md). Current product guidance: [English Quickstart](../../docs/ce_mvp_quickstart.md).
+
 Status: **READY_G1_ALPHA_PREP_2_CE_CT_READONLY_MANUAL_ACCEPTANCE**.
 This is the implemented, scoped read-only CT/Lua candidate and its manual
 acceptance handoff. CE-host observation remains NOT_RUN. It is not overall Alpha
@@ -141,7 +143,7 @@ can also change local byte hashes. The signed commit identifies maintained sourc
 
 ## Manual handoff and remaining limitations
 
-Follow the [Chinese operation sheet](../../docs/g1_alpha_manual_acceptance.md).
+Follow the [Chinese operation sheet](https://github.com/k-undurkhaan-2/Chrome_Project/blob/3a8fa0876fcb0e972af6e657693948207484ec86/docs/g1_alpha_manual_acceptance.md).
 Use a fresh dedicated CE 7.6 / Lua 5.3 session with no target. Open the exact
 prepared CT and invoke only record 3. Record file identities, actual runtime,
 current-invocation completion fields, counts and membership, proposal, ordinary

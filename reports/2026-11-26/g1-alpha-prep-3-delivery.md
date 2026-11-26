@@ -1,5 +1,7 @@
 # G1-ALPHA-PREP-3 partial delivery
 
+> Historical evidence only; not current operating instructions. Original recorded values and authority are unchanged. [Immutable original](https://github.com/k-undurkhaan-2/Chrome_Project/blob/f1a3cc2132e41c0b334089e340e774fdcf488dda/reports/2026-11-26/g1-alpha-prep-3-delivery.md). Current product guidance: [English Quickstart](../../docs/ce_mvp_quickstart.md).
+
 Status: **PARTIAL_G1_ALPHA_PREP_3**.
 
 Authority: `APPROVE_G1_ALPHA_PREP_3_CONTROLLED_INTEGRATION`, followed by the
@@ -8,7 +10,7 @@ maintainer's explicit selection of PARTIAL delivery after interface inspection.
 The approved integration cannot be completed through the established interfaces
 in the supplied repository. After the missing interfaces were identified, the
 maintainer explicitly selected delivery as PARTIAL. This record and the updated
-[Chinese operator sheet](../../docs/g1_alpha_manual_acceptance.md) deliver the
+[Chinese operator sheet](https://github.com/k-undurkhaan-2/Chrome_Project/blob/f1a3cc2132e41c0b334089e340e774fdcf488dda/docs/g1_alpha_manual_acceptance.md) deliver the
 actual disposition. They do not declare a new preparation milestone, integrated
 ID1 candidate, qualification, or release.
 

@@ -1,5 +1,7 @@
 # G1-ALPHA-F01-R1 configuration contract correction and verification receipt
 
+> Historical evidence only; not current operating instructions. Original recorded values and authority are unchanged. [Immutable original](https://github.com/k-undurkhaan-2/Chrome_Project/blob/baaed5c0fad4e07e88ef877398c48f62373f8952/reports/2026-11-26/g1-alpha-f01-r1-delivery.md). Current product guidance: [English Quickstart](../../docs/ce_mvp_quickstart.md).
+
 Scoped status: **READY_G1_ALPHA_F01_R1_CONFIG_CONTRACT_ACCEPTANCE**.
 Actual standard product readiness: **BLOCKED**; F01 product completion is **OPEN**.
 Maintainer acceptance is separate. CE-host acceptance, real-target effectiveness,
@@ -177,7 +179,7 @@ The standard host SID matched `S-1-5-21-1353174265-123074972-3048594297-1001`.
 | `tests/test_ce_mvp_readonly.py` | `58533994c70bd2171bb7a0292695e15f925c23c8` |
 
 The final independently committable handoff unit contains this report,
-[`docs/g1_alpha_f01_r1_config_zh.md`](../../docs/g1_alpha_f01_r1_config_zh.md) and
+[`docs/g1_alpha_f01_r1_config_zh.md`](https://github.com/k-undurkhaan-2/Chrome_Project/blob/baaed5c0fad4e07e88ef877398c48f62373f8952/docs/g1_alpha_f01_r1_config_zh.md) and
 the README pointer. Its parent is the implementation commit above. It uses the
 same exact-diff review, focused document checks, immediate signing, local
 verification, normal push and independent remote SHA/parent/path/signature

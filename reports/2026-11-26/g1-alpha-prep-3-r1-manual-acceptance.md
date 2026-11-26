@@ -1,5 +1,7 @@
 # G1-ALPHA-PREP-3-R1 M6 controlled manual acceptance registration
 
+> Historical evidence only; not current operating instructions. Original recorded values and authority are unchanged. [Immutable original](https://github.com/k-undurkhaan-2/Chrome_Project/blob/4aed7bc48202271e5d08400d53511cf4828cbf01/reports/2026-11-26/g1-alpha-prep-3-r1-manual-acceptance.md). Current product guidance: [English Quickstart](../../docs/ce_mvp_quickstart.md).
+
 Maintainer decision (2026-11-26, Asia/Singapore):
 `APPROVE_G1_ALPHA_PREP_3_R1_CONTROLLED_MANUAL_ACCEPTANCE`.
 
@@ -18,7 +20,7 @@ qualifies a native backend nor accepts the default standard runtime.
 - Generated CT SHA-256: `2e6d3d5403d9ed5f156d313998ef3ac867b4735b77a67b920d8ac34cad5439a8`.
 - [Historical delivery](g1-alpha-prep-3-r1-delivery.md),
   [13-file identity manifest](g1-alpha-prep-3-r1-file-identities.json), and
-  [historical operator sheet](../../docs/g1_alpha_manual_acceptance.md)
+  [historical operator sheet](https://github.com/k-undurkhaan-2/Chrome_Project/blob/4aed7bc48202271e5d08400d53511cf4828cbf01/docs/g1_alpha_manual_acceptance.md)
   retain their original pre-acceptance observations.
 - Read-only registration checks reconfirmed all 12 maintained Git blobs against
   the manifest and the generated local CT hash. The starting HEAD is exactly one

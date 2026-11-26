@@ -47,16 +47,15 @@ configuration, qualification gates, liveness/recovery and bounded engineering
 interface retain their behavior. No cooperative application exporter, action/
 readback or application lifecycle interface is implemented here.
 
-See the [Chinese manual operation sheet](g1_alpha_manual_acceptance.md) for exact
-retained file identities and the current `PARTIAL_G1_ALPHA_PREP_3` disposition.
-At PREP-2 delivery, CE-host/AA observations were NOT_RUN. The subsequent
-maintainer-confirmed no-target, ID3-only three-record positive observation is
-preserved in that sheet; it establishes no unseen AA, failure-control,
-large-population or lifecycle result. ID1 full integration remains blocked by
-the missing documented cooperative application interfaces. No runtime behavior
-or registered specification changes follow from this dated PREP-3 update.
-The existing focused regression is `tests/test_ce_mvp_readonly.py`, using the
-synthetic Lua fixture; it was not rerun for this documentation-only handoff.
+The [immutable PREP-3 sheet](https://github.com/k-undurkhaan-2/Chrome_Project/blob/f1a3cc2132e41c0b334089e340e774fdcf488dda/docs/g1_alpha_manual_acceptance.md)
+preserves that phase's PARTIAL disposition and the later reported no-target,
+ID3-only observation. It establishes no unseen AA, negative-control or lifecycle
+result. The subsequent PREP-3-R1 decision removed a mandatory application-specific
+cooperative interface; its absence is not a current prerequisite. The current
+[English product guide](ce_mvp_quickstart.md) describes the standard adapter/full
+evaluation connection and the remaining native qualification/authority blocker.
+The existing finite synthetic regressions remain in tests/test_ce_mvp_readonly.py.
+Registered historical decisions below retain their original scope and provenance.
 
 ## Connected read-only collector interface (AC6)
 

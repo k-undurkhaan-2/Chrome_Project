@@ -1,56 +1,36 @@
 # armedforces.io-v2
 
-**My old account has get into trouble!**
+**BLOCKED_G1_ALPHA_PRODUCT_CLOSURE.** The standard CT reads the original
+configuration and reaches the existing adapter's full-evaluation admission
+boundary. A qualified native identity/acquisition/operation facility is not
+established. A valid PID and write intent therefore still produce a safe refusal
+before target access. This is not a completed native product.
 
-**I've no choice so i restart at here.(old_account:@k-undurkhaan)**
+The existing owned-scan snapshot interface now connects to AC6/AC5 full
+supplied-population scoring behind the existing qualification boundary. ID2
+distinguishes operation return, verified readback, monitoring, coverage and
+cleanup. Alpha retains stop-only behavior; engineering and strict qualification
+remain separate.
 
-## About the branch
-**Due to old method and design has been proved no longer available, we start the new design for armedforces.io project.**
+English is the sole current official product documentation edition:
 
-***Project has NOT complete yet...***
+- [Installation, original configuration and standard CT use](docs/ce_mvp_quickstart.md)
+- [Product and retained engineering/qualification contract](docs/architecture/h3_a7_ce_mvp_contract.md)
+- [Current unpublished release notes](reports/2026-11-26/g1-alpha-pre-release-prep-1-release-notes-draft.md)
 
-*There are some pre-release and current workflow here.*
+The design environment remains Windows x64, Cheat Engine 7.6 and embedded Lua
+5.3. Python performs one-time offline CT preparation only. Preserve private
+configuration and path-bound CTs. ID1 is explicit Start/Stop, ID2 observes cached
+state, and ID3 is an independent read-only synthetic example.
 
-G1-ALPHA-F01-R1 restores the [original configuration contract](src/ce_mvp_config.example.lua)
-at ordinary ID1 Start, separating validation, Alpha compatibility, effective
-parameter application, runtime capability and authorization. See the
-[Chinese configuration guide](docs/g1_alpha_f01_r1_config_zh.md) and
-[F01-R1 verification receipt](reports/2026-11-26/g1-alpha-f01-r1-delivery.md).
-Safe defaults remain PID 0 and writes disabled. Applicable settings are verified
-only in the explicitly selected existing owned table environment; the standard
-real-input product, F02–F04, native qualification and publication remain BLOCKED/OPEN.
-The [prior F01 receipt](reports/2026-11-26/g1-alpha-f01-delivery.md) remains historical
-evidence for its synthetic selection seam. Its three-field example remains
-compatible and explicitly reports fixture defaults; it is not the product contract.
+Historical reports, manifests, AC/PAIR, M6 acceptance and qualification runbooks
+retain their original candidate and authority. They are not alternate current
+guides or acceptance of this candidate. No application-specific exporter or
+mandatory SDK is required; its absence alone is not a new prerequisite.
 
-The preceding G1-ALPHA-INTEGRATION-1 makes the standard ID1 entry select the Alpha full
-profile, with explicit supplied input and stop-only lifecycle. Default Start
-without input fails closed. The [new Chinese manual acceptance
-sheet](docs/g1_alpha_integration_1_manual_acceptance.md) identifies the standard
-candidate and its explicitly selected owned synthetic test input; the
-[verification receipt](reports/2026-11-26/g1-alpha-integration-1-delivery.md)
-records signatures, regression outcomes and retained gates. Status:
-`READY_G1_ALPHA_INTEGRATION_1_CONTROLLED_MANUAL_ACCEPTANCE`; new CE-host manual
-acceptance and native qualification are not established. No release is published.
-
-G1-ALPHA-PREP-3-R1 retains **CE 7.6 + Lua 5.3 + CT**, with ID1 as Start
-and ID3 as the read-only synthetic scoring entry. The Python launcher remains
-an optional engineering utility. The maintainer's 2026-11-26 scope correction
-removes a mandatory application-side cooperative API; its absence alone is
-not an Alpha acceptance blocker. See the [Chinese manual acceptance
-sheet](docs/g1_alpha_manual_acceptance.md) for the controlled integration scope,
-actual candidate status and retained authorization/qualification gates.
-Alpha Pre-release still requires a separate maintainer release decision and
-the applicable technical qualifications.
-
->*This script is developed by Cheat Engine and written with the assistance of ChatGPT Codex and GPT-5.4 Thinking.*
-
-## Disclaimer
-
-**This is a non-profit project intended solely for learning and research purposes.**
-
-**It must not be used for any illegal, unauthorized, or unethical activities.**
-
-**Any consequences arising from the use of this script shall be borne solely by the user.**
-
-***If you decide to use our commits at here, that's represent you're already understand and accept all above instructions.***
+This non-profit project is for learning and research in explicitly authorized,
+operator-owned disposable environments. Unauthorized or unethical use is
+prohibited. Configuration, scoring and tests do not confer permission to access
+a third-party application or game. Native qualification, independent product
+effectiveness acceptance and publication authority remain separate.
+No Tag, Release, PR, new remote branch or version-field change is authorized.
