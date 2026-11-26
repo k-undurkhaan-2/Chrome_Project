@@ -37,3 +37,7 @@ log/
 
 # Temporary Codex task files
 docs/codex_tasks/
+
+# F01 local candidates, safe local config copies and verification/test evidence.
+# Published handoff Markdown/JSON files in the dated reports directory stay visible.
+/reports/2026-11-26/g1-alpha-f01-*/
