@@ -10,7 +10,12 @@ local function u32(v)
   return v < 0 and v+0x100000000 or v
 end
 local FIELDS = {f08=-0x20, f18=-0x10, f20=-8, f58=0x30, f68=0x40, f70=0x48, f78=0x50}
-function M.new(cfg, ce, load_module, observation_source, execution)
+local function new_adapter(cfg, ce, load_module, observation_source, execution, population)
+  -- Explicit controlled-fixture construction only; never read this from config.
+  -- The public loader binds this input exclusively to the existing table CE double.
+  if population and (observation_source~='synthetic' or execution
+      or type(population)~='table' or type(population.options)~='table'
+      or population.options.population_mode~='full') then fail('CONTROLLED_FULL_REQUIRED') end
   if execution then
     if execution.mode~='QUALIFICATION' or execution.version~='qsg.v1'
         or type(execution.assert_ready)~='function' or type(execution.build_writer)~='function'
@@ -55,12 +60,13 @@ function M.new(cfg, ce, load_module, observation_source, execution)
   local poison, closed, log_count, cleanup_uncertain = nil, false, 0, false
   local writer_port, bound_candidate
   local cycle_id=0
+  local completed_evaluation
   local function empty_scope()
     return {cycle_id=cycle_id,scope_resolved=false,scan_mode=cfg.scan.mode,alignment_bytes=4,
       scan_policy=(cfg.scan.mode=='process' and 'memory-type policy pending; ' or '') .. '+W-X-C; aligned exact Float32 bits',
       candidate_policy='MEM_COMMIT/MEM_PRIVATE/PAGE_READWRITE; whole -0x20..+0x53 context',
       result_ready=false,scope_complete=false,scan_complete=false,collection_complete=false,global_uniqueness_proven=false,
-      decision_scope=execution and 'QSG_FULL_POPULATION' or 'LEGACY_SINGLE_SCOPE',write_admission_basis='NONE',
+      decision_scope=population and 'OWNED_SYNTHETIC_FULL' or (execution and 'QSG_FULL_POPULATION' or 'LEGACY_SINGLE_SCOPE'),write_admission_basis='NONE',
       raw_admission_complete=false,ranking_complete=false,coverage='pending',collection_phase='idle',
       raw_inspected_count=0,raw_admitted_count=0,collected_count=0,evaluated_count=0,
       unique_count=0,filtered_count=0,prescored_count=0,selected_count=0,ranked_count=0,qualified_count=0,
@@ -70,6 +76,17 @@ function M.new(cfg, ce, load_module, observation_source, execution)
   local start_address, stop_address
   function a.scan_scope()
     local out={}; for k,v in pairs(scope) do out[k]=v end; return out
+  end
+  function a.evaluation()
+    local memo={}
+    local function copy(value)
+      if type(value)~='table' then return value end
+      if memo[value] then return memo[value] end
+      local out={}; memo[value]=out
+      for k,v in pairs(value) do out[k]=copy(v) end
+      return out
+    end
+    return copy(completed_evaluation)
   end
   function a.set_guard(fn) guard = fn end
   function a.now() return f.getTickCount() end
@@ -206,6 +223,7 @@ function M.new(cfg, ce, load_module, observation_source, execution)
       and addr+0x53<=stop_address
   end
   local env = {assert=assert, error=error, type=type, pcall=pcall, pairs=pairs, ipairs=ipairs,
+    getmetatable=getmetatable, next=next, select=select,
     tonumber=tonumber, tostring=tostring, math=math, string=string, table=table,
     debug=debug, os={clock=os.clock}, print=function() end}
   env._G = env
@@ -332,11 +350,11 @@ function M.new(cfg, ce, load_module, observation_source, execution)
     -- Legacy omits this optional count when no filtered candidates exist.
     local prescored=bundle.prescored_count
     if prescored==nil and bundle.filtered_count==0 then prescored=0 end
-    if not count(bundle.scanned_count, math.min(bundle.raw_count,cfg.scan.scan_budget))
+    if not count(bundle.scanned_count, population and bundle.raw_count or math.min(bundle.raw_count,cfg.scan.scan_budget))
         or not count(bundle.unique_count,bundle.scanned_count)
         or not count(bundle.filtered_count,bundle.unique_count)
         or not count(prescored,bundle.filtered_count)
-        or not count(bundle.selected_count,math.min(bundle.filtered_count,cfg.scan.max_candidates))
+        or not count(bundle.selected_count,population and bundle.filtered_count or math.min(bundle.filtered_count,cfg.scan.max_candidates))
         or #r.ranked~=bundle.selected_count
         or type(bundle.candidate_value_addrs)~='table'
         or #bundle.candidate_value_addrs~=bundle.selected_count then fail('INVALID_SCOPE_COUNTS') end
@@ -421,8 +439,8 @@ function M.new(cfg, ce, load_module, observation_source, execution)
       if u32(row[key])==nil then fail('CANDIDATE_UNREADABLE') end
       candidate.fields[key]=row[key]
     end
-    scope.global_uniqueness_proven=scope.scope_complete and qualified==1 and not active_scan.native_policy_fallback
-    scope.write_admission_basis=execution and 'QSG_FULL_POPULATION_UNIQUE_ACCEPT' or 'LEGACY_SCOPE_ACCEPT'
+    scope.global_uniqueness_proven=not population and scope.scope_complete and qualified==1 and not active_scan.native_policy_fallback
+    scope.write_admission_basis=population and 'SYNTHETIC_ONLY_SCOPE_ACCEPT' or (execution and 'QSG_FULL_POPULATION_UNIQUE_ACCEPT' or 'LEGACY_SCOPE_ACCEPT')
     observe('candidate_admitted', {cycle_id=cycle_id,address=candidate.address,coverage=scope.coverage,
       decision_scope=scope.decision_scope,write_admission_basis=scope.write_admission_basis,
       global_uniqueness_proven=scope.global_uniqueness_proven})
@@ -432,6 +450,7 @@ function M.new(cfg, ce, load_module, observation_source, execution)
     checked()
     if active_scan then fail('SCAN_OVERLAP') end
     cycle_id=cycle_id+1
+    completed_evaluation=nil
     scope=empty_scope() -- No previous ranking/coverage can prove this fresh cycle.
     start_address,stop_address=nil,nil
     scope.collection_phase='resolving_scope'
@@ -440,6 +459,13 @@ function M.new(cfg, ce, load_module, observation_source, execution)
     local now=a.now()
     if not whole(now) or now<0 or now>math.maxinteger then fail('CLOCK_UNCERTAIN') end
     task.started_tick,task.last_tick,task.slice_started=now,now,now; task.operations=0
+    if population then
+      task.done=true
+      scope.collection_phase='supplied_full_pending'
+      scope.scan_policy='explicit owned synthetic records; no native acquisition'
+      scope.raw_admission_budget=nil; scope.ranking_budget=nil
+      return task
+    end
     scope.collection_phase='scanning'
     local ms=f.createMemScan(); task.object=ms
     if cfg.scan.mode=='process' then
@@ -479,6 +505,35 @@ function M.new(cfg, ce, load_module, observation_source, execution)
     if not task.worker then
       observe('scan_done_observed', {cycle_id=task.cycle_id}, 'scan_completions')
       task.worker=coroutine.create(function()
+        if population then
+          -- A supplied mapped fixture cannot turn missing source words into an
+          -- ordinary low-scoring/empty result. AC5 still owns all scoring rules.
+          for _,record in ipairs(population.records) do
+            if type(record)=='table' and record.mapped==true and record.protect==4 then
+              if type(record.memory)~='table' or type(record.addr)~='number'
+                  or record.memory[record.addr]==nil then fail('CONTROLLED_INPUT_INCOMPLETE') end
+              if record.memory[record.addr]==cfg.scan.target_bits then
+                for _,offset in pairs(FIELDS) do
+                  if record.memory[record.addr+offset]==nil then fail('CONTROLLED_INPUT_INCOMPLETE') end
+                end
+              end
+            end
+          end
+          local completed=collector.run(population.options, {records=population.records,load_module=load_module})
+          checked() -- cancellation/identity failure cannot publish this invocation's result
+          if completed.population_mode~='full' or completed.completed~=true
+              or completed.population_complete~=true then fail('OFFLINE_INCOMPLETE_RESULT') end
+          completed_evaluation=completed
+          local bundle={}
+          for k,v in pairs(completed.collection) do bundle[k]=v end
+          bundle.result=completed.result
+          scope.raw_match_count=bundle.raw_count
+          scope.scan_complete=true -- supplied synthetic membership only, never native coverage
+          scope.result_ready=true
+          local selected=choose(bundle)
+          scope.collection_phase='supplied_full_complete'
+          return selected
+        end
         local bundle=collector.run({max_candidates=cfg.scan.max_candidates,
           scan_budget=cfg.scan.scan_budget, target_value_pattern=cfg.scan.target_bits,
           target_value_float=cfg.scan.target_value_float, filter_target_match=true,
@@ -583,5 +638,20 @@ function M.new(cfg, ce, load_module, observation_source, execution)
     writer_port={write_float32=function(addr,value) return f.writeFloat(addr, value) end}
   end
   return a
+end
+function M.new(cfg, ce, load_module, observation_source, execution)
+  return new_adapter(cfg,ce,load_module,observation_source,execution)
+end
+function M.new_controlled(load_module)
+  -- Fixed fixture construction is the only full integration path. The native
+  -- constructor cannot receive a supplied population or a replacement writer.
+  local w=load_module('../tests/fixtures/ce_mvp_mock.lua').new(load_module)
+  local population=load_module('examples/g1_alpha_population.example.lua', {})
+  assert(type(population)=='table' and type(population.records)=='table', 'CONTROLLED_INPUT_MISSING')
+  w.objects=population.records
+  for _,record in ipairs(w.objects) do record.readable=true; record.alloc=0x100000 end
+  w.cfg.diagnostics={enabled=true,session_token='g1-alpha-controlled',event_limit=512}
+  local cfg=load_module('ce_mvp_core.lua').validate(w.cfg)
+  return w,new_adapter(cfg,w.ce,load_module,'synthetic',nil,population)
 end
 return M

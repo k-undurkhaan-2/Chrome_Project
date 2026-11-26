@@ -230,7 +230,10 @@ function M.new(sources)
   end
   ce.print=function(line) hook('log'); w.lines[#w.lines+1]=line end
   w.ce=ce
-  function w.load(name,env) return assert(load(assert(sources[name]),'@'..name,'t',env or _G))() end
+  function w.load(name,env)
+    if type(sources)=='function' then return sources(name,env) end
+    return assert(load(assert(sources[name]),'@'..name,'t',env or _G))()
+  end
   w.core=w.load('ce_mvp_core.lua'); w.adapter_module=w.load('ce_mvp_adapter.lua')
   w.cfg=w.load('ce_mvp_config.example.lua')
   w.cfg.target_pid=w.pid; w.cfg.write_enabled=true

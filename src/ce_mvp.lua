@@ -5,6 +5,7 @@ assert(source:sub(1,1)=='@', 'Load ce_mvp.lua from its saved file')
 local dir=assert(source:sub(2):match('^(.*[\\/])'))
 local api, instance, startup_error = {}, nil, nil
 local execution_mode, factory, run, starting = 'NORMAL', nil, nil, false
+local controlled_fixture
 local function module(name, env)
   return assert(loadfile(dir .. name, 't', env or _G))()
 end
@@ -14,7 +15,14 @@ function api.configure_execution(request)
   if starting or (instance and (instance.status().running or instance.status().cleanup_pending)) then
     return false,'QSG_MODE_LOCKED'
   end
-  if execution_mode=='QUALIFICATION' then return false,'QSG_MODE_LOCKED' end
+  if execution_mode=='ALPHA_CONTROLLED' and type(request)=='table'
+      and request.mode=='ALPHA_CONTROLLED' and request.factory==nil then return true end
+  if execution_mode~='NORMAL' then return false,'QSG_MODE_LOCKED' end
+  if type(request)=='table' and request.mode=='ALPHA_CONTROLLED' then
+    execution_mode='ALPHA_CONTROLLED'
+    if request.factory~=nil then return false,'CONTROLLED_FACTORY_FORBIDDEN' end
+    return true
+  end
   if type(request)~='table' or request.mode~='QUALIFICATION' then return false,'QSG_MODE_INVALID' end
   execution_mode='QUALIFICATION'
   if type(request.factory)~='table' or request.factory.version~='qsg.v1'
@@ -38,24 +46,33 @@ function api.start()
   local ok, result, detail=pcall(function()
     assert(_VERSION=='Lua 5.3', 'CE_ENTRYPOINT_REQUIRES_LUA_5_3')
     -- No ambient CE/file/process APIs in the operator's data-only config chunk.
-    local config=assert(loadfile(dir .. 'ce_mvp_config.local.lua', 't', {}))()
+    local config, adapter
+    if execution_mode=='ALPHA_CONTROLLED' then
+      -- Fixed owned fixture: no caller-provided CE APIs, factory or private config.
+      instance=nil; controlled_fixture=nil
+      controlled_fixture,adapter=module('ce_mvp_adapter.lua').new_controlled(module)
+      config=controlled_fixture.cfg
+    else
+      config=assert(loadfile(dir .. 'ce_mvp_config.local.lua', 't', {}))()
+    end
     local core=module('ce_mvp_core.lua')
     local validated=core.validate(config) -- before adapter construction/attachment
-    local adapter
     if execution_mode=='QUALIFICATION' then
       assert(factory,'QSG_PLUGIN_MISSING')
       run=factory.prepare_start(validated)
       adapter=module('ce_mvp_adapter.lua').new(validated,_G,module,run.observation_source,run)
-    else
+    elseif execution_mode=='NORMAL' then
       adapter=module('ce_mvp_adapter.lua').new(validated,_G,module)
     end
     pending_adapter=adapter
-    instance=core.new(config,adapter,api.start)
+    instance=core.new(config,adapter,api.start,
+      execution_mode=='ALPHA_CONTROLLED' and 'ALPHA_STOP_ONLY' or nil)
+    if controlled_fixture then controlled_fixture.loop=instance end
     if run then run.bind_core(instance) end
     return instance.start()
   end)
   starting=false
-  if execution_mode=='QUALIFICATION' and (not ok or result~=true) then
+  if execution_mode~='NORMAL' and (not ok or result~=true) then
     if run then pcall(run.revoke,'QSG_START_FAILED') end
     if instance then pcall(instance.stop) end
     if pending_adapter then pcall(pending_adapter.close) end
@@ -75,6 +92,14 @@ end
 -- Read-only snapshots: no clock/identity/memory calls, and no output side effects.
 function api.evidence()
   return instance and instance.evidence() or {enabled=false,reason='NO_RUN'}
+end
+-- Explicit fixture access reuses its existing step/fault controls. It never
+-- exposes or forwards host CE target APIs, and is absent in native modes.
+function api.controlled_fixture()
+  return execution_mode=='ALPHA_CONTROLLED' and controlled_fixture or nil
+end
+function api.evaluation()
+  return instance and instance.evaluation() or nil
 end
 function api.print_evidence()
   local snapshot=api.evidence()
@@ -100,6 +125,12 @@ function api.status()
   local s=instance and instance.status() or {state='STOPPED',running=false,
     qualification='IMPLEMENTED_PENDING_CE_QUALIFICATION'}
   s.startup_error=startup_error
+  s.execution_mode=execution_mode
+  if execution_mode=='ALPHA_CONTROLLED' then
+    s.action_permitted=false; s.native_operation_status='NOT_RUN'
+    s.native_readback_status='NOT_RUN'; s.semantic_validity='UNVERIFIED_SYNTHETIC_ONLY'
+    s.native_qualification='QSG_NATIVE_BACKEND_NOT_QUALIFIED'
+  end
   for _,k in ipairs({'state','running','pid','identity_token','candidate_address','last_address',
       'last_written','last_written_bits','last_readback','last_readback_bits','scan_count',
       'write_count','monitor_checks','invalid_count','rescan_attempts','retry_at',
@@ -113,7 +144,9 @@ function api.status()
       'raw_admission_complete','ranking_complete','global_uniqueness_proven',
       'decision_scope','write_admission_basis',
       'result_ready','scan_complete','collection_complete','collection_phase',
-      'attachment_handle_status','authorization_status'}) do
+      'attachment_handle_status','authorization_status','execution_mode','lifecycle_policy',
+      'automatic_recovery','action_permitted','native_operation_status','native_readback_status',
+      'semantic_validity','native_qualification'}) do
     local value=s[k]
     if type(value)=='number' and (k:find('address',1,true) or k:find('_bits',1,true)) then
       value=string.format('0x%X',value)

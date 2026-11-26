@@ -299,3 +299,292 @@ def test_example_cannot_use_ambient_apis_and_missing_files_do_not_fallback(host,
     with pytest.raises(Exception, match="g1_alpha_population.example.lua"):
         lua.execute(enable)
     assert w.evaluations == 0 and len(w.lines) == 2
+
+
+@pytest.fixture
+def controlled_ct(tmp_path):
+    """Prepared ID1 + real loader; every ambient target primitive is forbidden."""
+    import shutil
+    from test_h3_a7_ce_mvp import ROOT
+
+    source_dir = portable_source(tmp_path, "controlled")
+    fixture_path = source_dir.parent / "tests/fixtures/ce_mvp_mock.lua"
+    fixture_path.parent.mkdir(parents=True)
+    shutil.copyfile(ROOT / "tests/fixtures/ce_mvp_mock.lua", fixture_path)
+    path = prepare(source_dir, alpha_controlled=True)
+    lua = import_module("lupa.lua53").LuaRuntime(unpack_returned_tuples=True,
+                                                max_memory=256 * 1024 * 1024)
+    lua.execute("""
+      h={forbidden=0,loaded={},lines={},evaluations=0}
+      for name in ('openProcess getOpenedProcessID getOpenedProcessHandle getAddressSafe '
+          ..'executeCodeLocalEx createMemoryStream readIntegerLocal readQwordLocal '
+          ..'createMemScan createFoundList createTimer readInteger readFloat writeFloat '
+          ..'getProcessIDFromProcessName AOBScan executeCode executeCodeEx'):gmatch('%S+') do
+        _G[name]=function() h.forbidden=h.forbidden+1; error('AMBIENT_TARGET_API:'..name) end
+      end
+      print=function(line) h.lines[#h.lines+1]=line end
+      local original=loadfile
+      loadfile=function(path,mode,env)
+        local name=path:match('[^/\\\\]+$')
+        assert(name~='ce_mvp_config.local.lua','PRIVATE_CONFIG_MUST_NOT_BE_READ')
+        h.loaded[#h.loaded+1]=name
+        local chunk,err=original(path,mode,env)
+        if not chunk then return nil,err end
+        return function()
+          local m=chunk()
+          if name=='mvp0_offline_scoring.lua' then
+            local run=m.run
+            m.run=function(...) h.evaluations=h.evaluations+1; return run(...) end
+          end
+          if h.inject then h.inject(name,m) end
+          return m
+        end
+      end
+    """)
+    yield lua, table_lua(path), source_dir
+    api = lua.globals().H3A7_CE_MVP
+    if api:
+        api.stop()
+        w = api.controlled_fixture()
+        if w: w.clean()
+    assert lua.globals().h.forbidden == 0
+
+
+def start_controlled(lua, scripts):
+    lua.execute(scripts[0])
+    api = lua.globals().H3A7_CE_MVP
+    w = api.controlled_fixture()
+    lua.globals().cw = w
+    return api, w
+
+
+def test_controlled_id1_full_result_original_gates_and_no_native_calls(controlled_ct):
+    lua, scripts, _ = controlled_ct
+    lua.globals().syntaxcheck = True
+    for code in scripts: lua.execute(code)
+    assert lua.globals().H3A7_CE_MVP is None and len(lua.globals().h.loaded) == 0
+    lua.globals().syntaxcheck = False
+    api, w = start_controlled(lua, scripts)
+    assert api.evaluation() is None
+    w.until_state("MONITORING")
+    e = api.evaluation()
+    assert e.status == "COMPLETE" and e.population_complete
+    assert e.result.best.candidate.value_addr == 0x100128
+    assert e.result.best.final_score == 46 and e.result.second.final_score == -36
+    assert e.result.recommendation.recommendation == "ACCEPT" and e.result.confidence == "HIGH"
+    assert [r.candidate.value_addr for r in array(e.result.ranked)] == [0x100128, 0x100328, 0x100528]
+    assert e.counts.eligible == e.counts.selected == e.counts.fully_scored == e.counts.ranked == 3
+    assert len(w.writes) == 1 and len(w.scans) == 0
+    assert w.loop.status().last_written_bits == w.loop.status().last_readback_bits == 0x42FA0000
+    s = api.status()
+    assert s.execution_mode == "ALPHA_CONTROLLED" and s.lifecycle_policy == "ALPHA_STOP_ONLY"
+    assert s.action_permitted is False and s.automatic_recovery is False
+    assert s.native_operation_status == s.native_readback_status == "NOT_RUN"
+    assert s.native_qualification == "QSG_NATIVE_BACKEND_NOT_QUALIFIED"
+    assert s.authorization_status == "NOT_PRODUCTION_AUTHORIZED"
+    assert s.attachment_handle_status == "ATTACHMENT_HANDLE_UNVERIFIED"
+    assert not s.global_uniqueness_proven and s.decision_scope == "OWNED_SYNTHETIC_FULL"
+    assert s.write_admission_basis == "SYNTHETIC_ONLY_SCOPE_ACCEPT"
+    before = plain(api.evaluation()); e.result.best.final_score = -999
+    assert plain(api.evaluation()) == before
+    assert lua.globals().h.evaluations == 1
+    assert "ce_mvp_readonly.lua" not in array(lua.globals().h.loaded)
+    lua.execute(scripts[1]); w.clean()
+    frozen = plain(w.loop.evidence()); w.step(200)
+    assert plain(w.loop.evidence()) == frozen and not w.loop.status().running
+
+
+def test_controlled_id1_full_exceeds_legacy_budget_without_changing_it(controlled_ct):
+    lua, scripts, _ = controlled_ct
+    api, w = start_controlled(lua, scripts)
+    lua.execute("for i=4,129 do cw.object(0x100128+(i-1)*0x200,'weak') end")
+    assert w.cfg.scan.scan_budget == w.cfg.scan.max_candidates == 128
+    w.until_state("MONITORING")
+    e = api.evaluation(); expected = {0x100128 + i * 0x200 for i in range(129)}
+    assert e.counts.supplied == e.counts.ranked == 129
+    for values in (e.identities.supplied, e.identities.distinct,
+                   e.identities.eligible, e.collection.candidate_value_addrs):
+        assert set(array(values)) == expected and len(values) == 129
+    assert {r.candidate.value_addr for r in array(e.result.ranked)} == expected
+    assert e.result.best.candidate.value_addr == 0x100128
+    assert w.loop.status().raw_admission_budget is None and w.loop.status().ranking_budget is None
+    assert lua.globals().h.evaluations == 1
+
+
+@pytest.mark.parametrize("kind", ["review", "reject", "empty", "duplicates"])
+def test_controlled_id1_complete_ranking_is_separate_from_operation_admission(controlled_ct, kind):
+    lua, scripts, _ = controlled_ct
+    lua.globals().kind = kind
+    lua.execute("""
+      h.inject=function(name,m)
+        if name~='g1_alpha_population.example.lua' then return end
+        if kind=='empty' then m.records={}
+        elseif kind=='duplicates' then m.records[4]=m.records[1]; m.records[2].mapped=false
+        elseif kind=='review' then
+          for addr,bits in pairs(m.records[1].memory) do m.records[2].memory[addr+0x200]=bits end
+        else
+          for addr in pairs(m.records[1].memory) do
+            if addr~=m.records[1].addr then m.records[1].memory[addr]=0 end
+          end
+        end
+      end
+    """)
+    api, w = start_controlled(lua, scripts)
+    w.until_state("MONITORING" if kind == "duplicates" else "ERROR")
+    e = api.evaluation(); c = e.counts
+    assert e.completed and e.population_complete
+    assert c.supplied == c.distinct + c.duplicates and c.distinct == c.eligible + c.excluded
+    assert c.eligible == c.selected == c.fully_scored == c.ranked
+    if kind == "duplicates":
+        assert (c.supplied, c.distinct, c.duplicates, c.eligible, c.excluded) == (4, 3, 1, 2, 1)
+        assert set(array(e.identities.eligible)) == {0x100128, 0x100528}
+    else:
+        assert e.status == ("EMPTY" if kind == "empty" else "COMPLETE")
+        assert e.result.recommendation.recommendation == ("REJECT" if kind == "empty" else kind.upper())
+        if kind == "review": assert e.result.best.candidate.value_addr == 0x100128
+        assert len(w.writes) == 0
+        assert w.loop.status().stop_reason == ("ALPHA_STOP:NO_CANDIDATE" if kind == "empty" else "SCREENING_CALLBACK:CANDIDATE_NOT_QUALIFIED")
+        w.clean()
+    assert w.loop.status().rescan_attempts == 0
+
+
+@pytest.mark.parametrize("fault", [
+    "error('SYNTHETIC_RESOURCE_EXHAUSTED',0)", "error('SYNTHETIC_SCORING_EXCEPTION',0)",
+    "r.ranked[2]=r.ranked[1]", "r.ranked[1].local_features=nil",
+    "r.ranked[1].final_score=0/0", "H3A7_CE_MVP.stop()",
+])
+def test_controlled_id1_failure_cannot_publish_partial_or_stale_ranking(controlled_ct, fault):
+    lua, scripts, _ = controlled_ct
+    api, w = start_controlled(lua, scripts)
+    w.until_state("MONITORING"); lua.execute(scripts[1]); w.clean()
+    lua.execute("""
+      h.inject=function(name,m)
+        if name=='mvp0_candidate_report.lua' then
+          local run=m.run
+          m.run=function(...)
+            local r=run(...)
+            do """ + fault + """ end
+            return r
+          end
+        end
+      end
+    """)
+    api, w = start_controlled(lua, scripts)
+    assert api.evaluation() is None
+    w.step(40)
+    assert not w.loop.status().running and w.loop.status().state in ("STOPPED", "ERROR")
+    assert api.evaluation() is None and len(w.writes) == 0 and w.loop.status().result_ready is False
+    assert lua.globals().h.evaluations == 2
+    w.step(200)
+    assert lua.globals().h.evaluations == 2 and len(w.scans) == 0
+    w.clean()
+
+
+@pytest.mark.parametrize("fault", ["counts", "completion", "budget", "missing_word", "missing_input"])
+def test_controlled_id1_incomplete_or_invalid_input_never_operates(controlled_ct, fault):
+    lua, scripts, _ = controlled_ct
+    lua.globals().fault = fault
+    lua.execute("""
+      h.inject=function(name,m)
+        if name=='g1_alpha_population.example.lua' then
+          if fault=='budget' then m.options.scan_budget=1000000 end
+          if fault=='missing_word' then m.records[1].memory[0x100158]=nil end
+          if fault=='missing_input' then m.records=nil end
+        elseif name=='mvp0_offline_scoring.lua' and (fault=='counts' or fault=='completion') then
+          local run=m.run
+          m.run=function(...)
+            local r=run(...)
+            if fault=='counts' then r.counts.ranked=2 else r.population_complete=false end
+            return r
+          end
+        end
+      end
+    """)
+    if fault == "missing_input":
+        with pytest.raises(Exception, match="CONTROLLED_INPUT_MISSING"): lua.execute(scripts[0])
+        assert lua.globals().H3A7_CE_MVP.evaluation() is None
+        return
+    api, w = start_controlled(lua, scripts); w.step(40)
+    assert w.loop.status().state == "ERROR" and not w.loop.status().running
+    assert api.evaluation() is None and len(w.writes) == 0 and w.loop.status().result_ready is False
+    w.clean()
+
+
+@pytest.mark.parametrize("fault", ["unmapped", "unreadable", "structure", "identity", "exit",
+                                  "write", "readback", "prewrite", "cleanup"])
+def test_controlled_id1_faults_preserve_gates_cleanup_and_stop_policy(controlled_ct, fault):
+    lua, scripts, _ = controlled_ct
+    api, w = start_controlled(lua, scripts)
+    if fault == "write": w.fail.write_nil = True
+    elif fault == "readback": w.fail.write_no_change = True
+    if fault == "prewrite":
+        w.until_state("WRITING"); w.objects[1].memory[0x100128] = 0x42280000
+    elif fault not in ("write", "readback"):
+        w.until_state("MONITORING")
+        if fault == "unmapped": w.objects[1].mapped = False
+        elif fault == "unreadable": w.objects[1].readable = False
+        elif fault == "structure": w.objects[1].memory[0x100158] = 8
+        elif fault == "identity": w.creation += 1
+        elif fault == "exit": w.alive = False
+        else: w.fail.close = True; api.stop()
+    w.step(40); s = w.loop.status()
+    assert s.state == "ERROR" and not s.running and s.rescan_attempts == 0
+    assert s.retry_at is None and s.candidate_address is None
+    if fault == "cleanup":
+        assert not s.cleanup_ok and api.start() == (False, "CLEANUP_UNCERTAIN_RELOAD_CE")
+    else: assert s.cleanup_ok
+    if fault == "prewrite": assert len(w.writes) == 0 and s.stop_reason == "PREWRITE_CANDIDATE_CHANGED"
+    before = (w.reads, len(w.writes), w.open_calls, len(w.scans))
+    w.object(0x101128); w.step(200)
+    assert (w.reads, len(w.writes), w.open_calls, len(w.scans)) == before
+    w.clean()
+
+
+def test_controlled_id1_actual_allocator_failure_does_not_report_completion(controlled_ct):
+    lua, scripts, _ = controlled_ct
+    original_limit = lua.get_max_memory()
+    lua.globals().tight_limit = lambda: lua.set_max_memory(lua.get_memory_used() + 8192)
+    lua.execute("""
+      h.inject=function(name,m)
+        if name=='mvp0_candidate_report.lua' then
+          m.score_candidate=function() tight_limit(); string.rep('x',65536) end
+        end
+      end
+    """)
+    api, w = start_controlled(lua, scripts)
+    try:
+        w.step(4)
+    finally:
+        lua.set_max_memory(original_limit)
+    assert w.loop.status().state == "ERROR" and not w.loop.status().running
+    assert "memory" in w.loop.status().stop_reason.lower()
+    assert api.evaluation() is None and len(w.writes) == 0
+    assert not w.loop.status().result_ready and w.loop.status().cleanup_ok
+    w.step(200); w.clean()
+
+
+def test_controlled_id1_failed_restart_clears_previous_ranking(controlled_ct):
+    lua, scripts, source_dir = controlled_ct
+    api, w = start_controlled(lua, scripts)
+    w.until_state("MONITORING"); lua.execute(scripts[1]); w.clean()
+    (source_dir / "examples/g1_alpha_population.example.lua").unlink()
+    with pytest.raises(Exception, match="g1_alpha_population.example.lua"):
+        lua.execute(scripts[0])
+    assert api.evaluation() is None and api.controlled_fixture() is None
+    assert api.status().startup_error and not api.status().running
+
+
+def test_controlled_mode_cannot_switch_to_native_or_qualification(controlled_ct):
+    lua, scripts, _ = controlled_ct
+    api, w = start_controlled(lua, scripts)
+    api.stop(); w.clean()
+    for mode in ("NORMAL", "QUALIFICATION"):
+        assert api.configure_execution(lua.table_from({"mode": mode})) == (False, "QSG_MODE_LOCKED")
+
+
+def test_controlled_preparation_requires_existing_fixture_without_overwriting(tmp_path):
+    source_dir = portable_source(tmp_path)
+    path = prepare(source_dir); previous = path.read_bytes()
+    with pytest.raises(ValueError, match="MISSING_CONTROLLED_FIXTURE"):
+        prepare(source_dir, alpha_controlled=True)
+    assert path.read_bytes() == previous

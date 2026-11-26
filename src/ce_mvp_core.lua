@@ -406,6 +406,9 @@ function M.new(config, adapter, public_start_probe, lifecycle_policy)
     out.cleanup_ok = not cleanup_failed and not s.cleanup_pending
     return out
   end
+  function api.evaluation()
+    return a.evaluation and a.evaluation() or nil
+  end
   return api
 end
 return M
