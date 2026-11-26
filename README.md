@@ -11,13 +11,15 @@
 
 *There are some pre-release and current workflow here.*
 
-G1-ALPHA-PREP-1 provides a runnable **read-only cooperative-data candidate** via
-`src/run_alpha_candidate.py`. See the [Chinese launch and manual acceptance
-sheet](docs/g1_alpha_manual_acceptance.md) for the public example, dependencies,
-full-population results, stop behavior and known limitations. Delivery is
-`PARTIAL_G1_ALPHA_PREP_1`: application action/readback and live lifecycle
-integration are unavailable; Alpha Pre-release remains blocked pending a
-separate maintainer decision and applicable qualification constraints.
+G1-ALPHA-PREP-3-R1 retains **CE 7.6 + Lua 5.3 + CT**, with ID1 as Start
+and ID3 as the read-only synthetic scoring entry. The Python launcher remains
+an optional engineering utility. The maintainer's 2026-11-26 scope correction
+removes a mandatory application-side cooperative API; its absence alone is
+not an Alpha acceptance blocker. See the [Chinese manual acceptance
+sheet](docs/g1_alpha_manual_acceptance.md) for the controlled integration scope,
+actual candidate status and retained authorization/qualification gates.
+Alpha Pre-release still requires a separate maintainer release decision and
+the applicable technical qualifications.
 
 >*This script is developed by Cheat Engine and written with the assistance of ChatGPT Codex and GPT-5.4 Thinking.*
 
