@@ -2292,7 +2292,10 @@ local function run_offline(opts, request)
   end
   complete(dense(result.ranked) == counts.ranked)
   for _, row in ipairs(result.ranked) do
-    complete(type(row) == 'table' and type(row.candidate) == 'table')
+    complete(type(row) == 'table' and type(row.candidate) == 'table'
+      and type(row.hard_pass) == 'boolean'
+      and type(row.final_score) == 'number' and row.final_score == row.final_score
+      and math.abs(row.final_score) < math.huge)
     ranked[#ranked + 1] = row.candidate.value_addr
   end
   same_members(ranked, selected)

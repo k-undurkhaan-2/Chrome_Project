@@ -508,7 +508,7 @@ def test_controlled_id1_failure_cannot_publish_partial_or_stale_ranking(controll
 
 
 @pytest.mark.parametrize("fault", ["counts", "completion", "budget", "missing_word", "missing_input",
-                                  "identity", "selected_identity"])
+                                  "identity", "selected_identity", "nonfinite_score", "invalid_row"])
 def test_controlled_id1_incomplete_or_invalid_input_never_operates(controlled_ct, fault):
     lua, scripts, _ = controlled_ct
     lua.globals().fault = fault
@@ -525,7 +525,9 @@ def test_controlled_id1_incomplete_or_invalid_input_never_operates(controlled_ct
             if fault=='counts' then r.counts.ranked=2
             elseif fault=='completion' then r.population_complete=false
             elseif fault=='identity' then r.identities.eligible[2]=r.identities.eligible[1]
-            elseif fault=='selected_identity' then r.collection.candidate_value_addrs[2]=r.collection.candidate_value_addrs[1] end
+            elseif fault=='selected_identity' then r.collection.candidate_value_addrs[2]=r.collection.candidate_value_addrs[1]
+            elseif fault=='nonfinite_score' then r.result.ranked[1].final_score=0/0
+            elseif fault=='invalid_row' then r.result.ranked[1].hard_pass=nil end
             return r
           end
         end
