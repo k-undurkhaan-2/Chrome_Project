@@ -6,7 +6,52 @@ finite synthetic table records in Lua 5.3/5.4. It reuses the existing
 environment. The scorer, weights, cohort context, final comparator, confidence,
 recommendation and ordinary report are unchanged. Product configuration does not
 accept `population_mode`; the explicit table-only collector overload below is
-the engineering connection to this API.
+the engineering connection to this API. The dedicated CE read-only record also
+uses that overload, separately from the original native Start path.
+
+## CE-hosted read-only entry (G1-ALPHA-PREP-2)
+
+The maintained `src/ce_mvp.CT` adds record **3**, labelled **G1 Full population -
+READ ONLY synthetic example (check once; uncheck is inert)**. Prepare it with the
+existing `src/prepare_ce_mvp.py`; this binds the native and read-only entrypoints
+independently to their sibling Lua files. Loading the table or module, syntax
+checking, and disabling the new record do not evaluate anything. Deliberately
+enabling record 3 calls `src/ce_mvp_readonly.lua.run_example()` once, using only
+`src/examples/g1_alpha_population.example.lua`, the Lua representation of the
+maintained public three-record JSON example. There is no target selection.
+
+The saved Lua module also exposes `evaluate(records, options)` for a finite
+synthetic table explicitly supplied by its owner. This CE entry requires Lua
+5.3 and explicit `population_mode='full'`; AC5 rejects both count-budget fields.
+It supplies a fixed, sibling-file whitelist loader to AC6 and isolates the outer
+collector from ambient CE/process/action APIs. The entire AC6 return remains at
+`outcome.evaluation`, without changes to records, scoring, ordering, cohort
+adjustments, review flags or report. `proposed_rank1` is present only for a
+completed nonempty full result. EMPTY retains ordinary REJECT and no proposal.
+Action and application lifecycle are explicitly UNSUPPORTED, semantic validity
+is unverified, `action_permitted=false` and `automatic_recovery=false`.
+
+`run_example()` prints BEGIN, then the coverage counts, source/distinct/eligible/
+selected/ranked identity sequences, proposal, authority limits, unchanged
+ordinary report and a final COMPLETE marker. Errors propagate unchanged; no
+success result or marker is generated on scoring, validation, cancellation or
+allocator failure. There is no result cache, timer, retry or bounded fallback.
+Previous console output is not the outcome of the new invocation. `evaluate`
+itself returns the outcome without printing or retaining it.
+
+Execution is synchronous. Disabling record 3 is not an in-flight cancellation
+mechanism. This integration adds no worker, allocator ceiling, deadline or CE
+capacity guarantee. Existing offline worker limits cannot be transferred to CE;
+resource exhaustion or a host interruption is unsuccessful. The original native
+configuration, qualification gates, liveness/recovery and bounded engineering
+interface retain their behavior. No cooperative application exporter, action/
+readback or application lifecycle interface is implemented here.
+
+See the [Chinese manual operation sheet](g1_alpha_manual_acceptance.md) for exact
+prepared file identities, a fresh no-target CE session, expected fields and stop
+conditions. Actual CE-host/AA observations remain NOT_RUN. The focused regression
+is `tests/test_ce_mvp_readonly.py`, using the existing synthetic Lua test fixture;
+this is no new qualification or accuracy campaign.
 
 ## Connected read-only collector interface (AC6)
 
