@@ -947,10 +947,50 @@ def test_f01_r1_contract_validation_keeps_original_execution_guards(version):
     assert plain(w.core.validate(c)) == plain(w.core.validate_contract(c))
 
 
+def test_standard_original_config_reaches_full_adapter_but_never_unqualified_ce(standard_ct):
+    lua, scripts, source_dir = standard_ct
+    original_config(source_dir, "c.target_pid=7654321;c.write_enabled=true;c.write_value=137.25;c.monitor_interval_ms=250")
+    lua.execute("""
+      h.inject=function(name,m)
+        if name=='ce_mvp_adapter.lua' then
+          local new=m.new
+          m.new=function(cfg,ce,loader,source,execution,mode)
+            assert(cfg.target_pid==7654321 and cfg.write_value==137.25)
+            assert(cfg.monitor_interval_ms==250 and cfg.scan.mode=='process')
+            assert(cfg.scan.target_bits==0x42C80000 and mode=='full')
+            assert(source==nil and execution==nil)
+            h.standard_adapter_calls=(h.standard_adapter_calls or 0)+1
+            return new(cfg,ce,loader,source,execution,mode)
+          end
+        end
+      end
+    """)
+    with pytest.raises(Exception, match="QSG_NATIVE_BACKEND_NOT_QUALIFIED"):
+        lua.execute(scripts[0])
+    api = lua.globals().H3A7_CE_MVP
+    assert lua.globals().h.standard_adapter_calls == 1
+    s = api.status()
+    assert s.input_source == "CONFIGURED_TARGET" and s.acquisition_mode == "configured_target_scan"
+    assert s.config_application == "NOT_APPLIED" and not s.acquisition_complete
+    assert s.acquisition_evidence == "NOT_ESTABLISHED" and s.operation_status == "NOT_RUN"
+    assert s.readback_status == "NOT_RUN" and s.native_operation_status == "NOT_RUN"
+    for code in scripts[2:4]: lua.execute(code)
+    assert lua.globals().h.standard_adapter_calls == 1 and lua.globals().h.config_reads == 1
+    assert api.controlled_fixture() is None and lua.globals().h.forbidden == 0
+
+
+@pytest.mark.parametrize("source", [None, "CE", "synthetic"])
+def test_full_adapter_requires_existing_qualified_execution_before_ce_api_access(source):
+    lua, w = make_runtime("lua53")
+    with pytest.raises(Exception, match="QSG_NATIVE_BACKEND_NOT_QUALIFIED"):
+        w.adapter_module.new(w.core.validate(w.cfg), w.ce, w.load, source, None, "full")
+    assert w.open_calls == w.reads == len(w.native_calls) == len(w.writes) == 0
+
+
 @pytest.mark.parametrize("edit,reason,readiness", [
     ("", "ALPHA_CONFIG_TARGET_REQUIRED", "BLOCKED_SAFE_DEFAULT"),
     ("c.target_pid=101", "WRITE_DISABLED", "BLOCKED_CONFIGURED_INTENT"),
-    ("c.target_pid=7654321;c.write_enabled=true", "ALPHA_STANDARD_INPUT_UNAVAILABLE", "BLOCKED_CAPABILITY"),
+    ("c.target_pid=7654321;c.write_enabled=true", "QSG_NATIVE_BACKEND_NOT_QUALIFIED", "BLOCKED_QUALIFICATION"),
     ("c.target_pid=7654321;c.write_enabled=true;c.input_source='OWNED_SYNTHETIC'",
      "ALPHA_SYNTHETIC_IDENTITY_MISMATCH", "BLOCKED_CAPABILITY"),
     ("c.target_pid=101;c.write_enabled=true;c.input_source='PRIVATE_VALUE'",
@@ -976,7 +1016,7 @@ def test_f01_r1_valid_contract_is_not_capability_or_authorization(standard_ct, e
     assert s.qualification == "IMPLEMENTED_PENDING_CE_QUALIFICATION"
     assert s.attachment_handle_status == "ATTACHMENT_HANDLE_UNVERIFIED"
     assert api.controlled_fixture() is None and api.evaluation() is None
-    assert "ce_mvp_adapter.lua" not in array(lua.globals().h.loaded)
+    assert ("ce_mvp_adapter.lua" in array(lua.globals().h.loaded)) == (readiness == "BLOCKED_QUALIFICATION")
     assert lua.globals().h.evaluations == 0
     for code in scripts[2:4]: lua.execute(code)
     assert lua.globals().h.config_reads == 1 and private.read_bytes() == before
@@ -1122,7 +1162,7 @@ def test_f01_r1_clean_restart_revalidates_original_and_clears_applied_state(stan
     with pytest.raises(Exception, match="ALPHA_CONFIG_TARGET_REQUIRED"): lua.execute(scripts[0])
     s = api.status()
     assert s.config_validation == "VALID" and s.config_application == "NOT_APPLIED"
-    assert s.runtime_capability == "STANDARD_INPUT_UNAVAILABLE"
+    assert s.runtime_capability == "STANDARD_ADAPTER_REQUIRES_QUALIFICATION"
     assert api.evaluation() is None and not s.evaluation_completed and s.ranking_best_score is None
     assert api.controlled_fixture() is None and lua.globals().h.config_reads == 2
 

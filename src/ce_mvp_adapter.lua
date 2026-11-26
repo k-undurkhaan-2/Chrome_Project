@@ -10,7 +10,14 @@ local function u32(v)
   return v < 0 and v+0x100000000 or v
 end
 local FIELDS = {f08=-0x20, f18=-0x10, f20=-8, f58=0x30, f68=0x40, f70=0x48, f78=0x50}
-local function new_adapter(cfg, ce, load_module, observation_source, execution, population)
+local function new_adapter(cfg, ce, load_module, observation_source, execution, population, full)
+  full=full or population~=nil
+  -- Standard full evaluation must never acquire NORMAL's unqualified raw port.
+  -- The only existing execution dependency is QSG's synthetic-qualified port;
+  -- a native product run remains blocked before any CE/target API is acquired.
+  if full and not population and (not execution or observation_source~='synthetic') then
+    fail('QSG_NATIVE_BACKEND_NOT_QUALIFIED')
+  end
   -- Explicit controlled-fixture construction only; never read this from config.
   -- The public loader binds this input exclusively to the existing table CE double.
   if population and (observation_source~='synthetic' or execution
@@ -67,6 +74,7 @@ local function new_adapter(cfg, ce, load_module, observation_source, execution, 
       candidate_policy='MEM_COMMIT/MEM_PRIVATE/PAGE_READWRITE; whole -0x20..+0x53 context',
       result_ready=false,scope_complete=false,scan_complete=false,collection_complete=false,global_uniqueness_proven=false,
       decision_scope=population and 'OWNED_SYNTHETIC_FULL' or (execution and 'QSG_FULL_POPULATION' or 'LEGACY_SINGLE_SCOPE'),write_admission_basis='NONE',
+      acquisition_complete=false,acquisition_evidence='NOT_ESTABLISHED',
       raw_admission_complete=false,ranking_complete=false,coverage='pending',collection_phase='idle',
       raw_inspected_count=0,raw_admitted_count=0,collected_count=0,evaluated_count=0,
       unique_count=0,filtered_count=0,prescored_count=0,selected_count=0,ranked_count=0,qualified_count=0,
@@ -76,7 +84,7 @@ local function new_adapter(cfg, ce, load_module, observation_source, execution, 
   local start_address, stop_address
   function a.scan_scope()
     local out={}; for k,v in pairs(scope) do out[k]=v end
-    if population then
+    if full then
       -- Snapshot cached evaluation metadata only: no scoring, reads or clocks.
       local e=completed_evaluation
       out.evaluation_status=e and e.status or (cycle_id==0 and 'NOT_RUN' or 'PENDING')
@@ -321,7 +329,7 @@ local function new_adapter(cfg, ce, load_module, observation_source, execution, 
       if not whole(index) or index<0 or index>=total then abort('INVALID_FOUNDLIST_INDEX') end
       local addr=env.getAddress(fl.Address[index])
       if indices[index] and indices[index]~=addr then abort('FOUNDLIST_ADDRESS_CHANGED') end
-      if addresses[addr] and addresses[addr]~=index+1 then abort('DUPLICATE_FOUND_ADDRESS') end
+      if not full and addresses[addr] and addresses[addr]~=index+1 then abort('DUPLICATE_FOUND_ADDRESS') end
       if not indices[index] then scope.raw_inspected_count=scope.raw_inspected_count+1 end
       indices[index],addresses[addr]=addr,index+1
       return addr
@@ -364,18 +372,21 @@ local function new_adapter(cfg, ce, load_module, observation_source, execution, 
   local function choose(bundle)
     local r=type(bundle)=='table' and bundle.result
     if type(r)~='table' or type(r.ranked)~='table' then fail('INVALID_RANK_RESULT') end
-    if bundle.raw_count~=scope.raw_match_count then abort('FOUNDLIST_COUNT_CHANGED') end
+    if full and not population then
+      if not completed_evaluation or completed_evaluation.counts.supplied~=scope.raw_match_count
+          or scope.raw_inspected_count~=scope.raw_match_count then abort('FOUNDLIST_COUNT_CHANGED') end
+    elseif bundle.raw_count~=scope.raw_match_count then abort('FOUNDLIST_COUNT_CHANGED') end
     local function count(value, limit)
       return whole(value) and value>=0 and value<=limit
     end
     -- Legacy omits this optional count when no filtered candidates exist.
     local prescored=bundle.prescored_count
     if prescored==nil and bundle.filtered_count==0 then prescored=0 end
-    if not count(bundle.scanned_count, population and bundle.raw_count or math.min(bundle.raw_count,cfg.scan.scan_budget))
+    if not count(bundle.scanned_count, full and bundle.raw_count or math.min(bundle.raw_count,cfg.scan.scan_budget))
         or not count(bundle.unique_count,bundle.scanned_count)
         or not count(bundle.filtered_count,bundle.unique_count)
         or not count(prescored,bundle.filtered_count)
-        or not count(bundle.selected_count,population and bundle.filtered_count or math.min(bundle.filtered_count,cfg.scan.max_candidates))
+        or not count(bundle.selected_count,full and bundle.filtered_count or math.min(bundle.filtered_count,cfg.scan.max_candidates))
         or #r.ranked~=bundle.selected_count
         or type(bundle.candidate_value_addrs)~='table'
         or #bundle.candidate_value_addrs~=bundle.selected_count then fail('INVALID_SCOPE_COUNTS') end
@@ -403,7 +414,7 @@ local function new_adapter(cfg, ce, load_module, observation_source, execution, 
     scope.ranking_complete=bundle.selected_count==bundle.filtered_count and #r.ranked==bundle.selected_count
     scope.collection_complete=scope.raw_admission_complete and scope.ranking_complete
     scope.coverage=scope.collection_complete and 'full_population' or 'sampled_or_reduced'
-    scope.collection_phase=population and 'supplied_full_complete' or 'legacy_complete'
+    scope.collection_phase=full and 'supplied_full_complete' or 'legacy_complete'
     scope.scope_complete=scope.scan_complete and scope.collection_complete and not active_scan.read_failure
     observe('candidate_population', {cycle_id=cycle_id,raw_count=bundle.raw_count,scanned_count=bundle.scanned_count,
       raw_inspected_count=scope.raw_inspected_count,unique_count=bundle.unique_count,
@@ -460,6 +471,8 @@ local function new_adapter(cfg, ce, load_module, observation_source, execution, 
       if u32(row[key])==nil then fail('CANDIDATE_UNREADABLE') end
       candidate.fields[key]=row[key]
     end
+    -- Retain QSG's existing scoped uniqueness evidence contract. Its synthetic
+    -- provenance never establishes native/global acquisition completeness.
     scope.global_uniqueness_proven=not population and scope.scope_complete and qualified==1 and not active_scan.native_policy_fallback
     scope.write_admission_basis=population and 'SYNTHETIC_ONLY_SCOPE_ACCEPT' or (execution and 'QSG_FULL_POPULATION_UNIQUE_ACCEPT' or 'LEGACY_SCOPE_ACCEPT')
     observe('candidate_admitted', {cycle_id=cycle_id,address=candidate.address,coverage=scope.coverage,
@@ -488,6 +501,7 @@ local function new_adapter(cfg, ce, load_module, observation_source, execution, 
       return task
     end
     scope.collection_phase='scanning'
+    if full then scope.raw_admission_budget=nil; scope.ranking_budget=nil end
     local ms=f.createMemScan(); task.object=ms
     if cfg.scan.mode=='process' then
       if type(ms.setSpecialScanOptionsOverride)=='function' then
@@ -526,10 +540,41 @@ local function new_adapter(cfg, ce, load_module, observation_source, execution, 
     if not task.worker then
       observe('scan_done_observed', {cycle_id=task.cycle_id}, 'scan_completions')
       task.worker=coroutine.create(function()
-        if population then
+        if full then
+          local supplied=population
+          local view
+          if not supplied then
+            -- Snapshot the existing owned FoundList through the same guarded
+            -- readers. No discovery mechanism, replacement scan or writer.
+            view=env.createFoundList(task.object); view.initialize()
+            -- Full scoring does not waive the existing QSG intake ceilings.
+            if view.Count>cfg.scan.scan_budget or view.Count>cfg.scan.max_candidates then
+              fail('INCOMPLETE_CANDIDATE_POPULATION')
+            end
+            supplied={records={},options={population_mode='full',
+              target_value_pattern=cfg.scan.target_bits,target_value_float=cfg.scan.target_value_float,
+              filter_target_match=cfg.scan.filter_target_match,
+              use_prescore_selection=cfg.scan.use_prescore_selection}}
+            for index=0,view.Count-1 do
+              local addr=view.Address[index]
+              local before=mapping(addr)
+              if not before then fail('CANDIDATE_MAPPING_INVALID') end
+              local words={[addr]=env.readInteger(addr)}
+              if words[addr]==nil then fail('SCREENING_READ_FAILED') end
+              if words[addr]==cfg.scan.target_bits then
+                for _,offset in pairs(FIELDS) do
+                  words[addr+offset]=env.readInteger(addr+offset)
+                  if words[addr+offset]==nil then fail('SCREENING_READ_FAILED') end
+                end
+              end
+              if mapping(addr)~=before then fail('CANDIDATE_MAPPING_CHANGED') end
+              supplied.records[#supplied.records+1]={addr=addr,mapped=true,protect=4,memory=words}
+            end
+            view.destroy() -- revalidate exact observed source indices/counts
+          end
           -- A supplied mapped fixture cannot turn missing source words into an
           -- ordinary low-scoring/empty result. AC5 still owns all scoring rules.
-          for _,record in ipairs(population.records) do
+          for _,record in ipairs(supplied.records) do
             if type(record)=='table' and record.mapped==true and record.protect==4 then
               if type(record.memory)~='table' or type(record.addr)~='number'
                   or record.memory[record.addr]==nil then fail('CONTROLLED_INPUT_INCOMPLETE') end
@@ -540,16 +585,20 @@ local function new_adapter(cfg, ce, load_module, observation_source, execution, 
               end
             end
           end
-          local completed=collector.run(population.options, {records=population.records,load_module=load_module})
+          local completed=collector.run(supplied.options, {records=supplied.records,load_module=load_module})
           checked() -- cancellation/identity failure cannot publish this invocation's result
+          if view then view.destroy() end -- scoring cannot hide source mutation
           if completed.population_mode~='full' or completed.completed~=true
               or completed.population_complete~=true then fail('OFFLINE_INCOMPLETE_RESULT') end
           completed_evaluation=completed
           local bundle={}
           for k,v in pairs(completed.collection) do bundle[k]=v end
           bundle.result=completed.result
-          scope.raw_match_count=bundle.raw_count
-          scope.scan_complete=true -- supplied synthetic membership only, never native coverage
+          if population then
+            scope.raw_match_count=bundle.raw_count
+            scope.scan_complete=true -- supplied membership only, never native coverage
+          end
+          scope.acquisition_evidence=population and 'SUPPLIED_RECORDS_ONLY' or 'SYNTHETIC_SCAN_OBSERVATIONS_ONLY'
           scope.result_ready=true
           local selected=choose(bundle)
           return selected
@@ -659,8 +708,9 @@ local function new_adapter(cfg, ce, load_module, observation_source, execution, 
   end
   return a
 end
-function M.new(cfg, ce, load_module, observation_source, execution)
-  return new_adapter(cfg,ce,load_module,observation_source,execution)
+function M.new(cfg, ce, load_module, observation_source, execution, evaluation_mode)
+  if evaluation_mode~=nil and evaluation_mode~='full' then fail('INVALID_EVALUATION_MODE') end
+  return new_adapter(cfg,ce,load_module,observation_source,execution,nil,evaluation_mode=='full')
 end
 function M.new_controlled(load_module, config)
   -- Fixed owned test seam shared by standard Alpha and historical controlled

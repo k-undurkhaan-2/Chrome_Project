@@ -51,7 +51,7 @@ local function original_config(c)
   if selected~=nil and type(selected)~='string' then reject_config('ALPHA_CONFIG_FIELD_TYPE') end
   config_state.config_validation='VALID'; config_admission='ACCEPTED'
   config_state.profile_compatibility='COMPATIBLE_WITH_ENGINEERING_ONLY_FIELDS'
-  config_state.runtime_capability=selected==nil and 'STANDARD_INPUT_UNAVAILABLE'
+  config_state.runtime_capability=selected==nil and 'STANDARD_ADAPTER_REQUIRES_QUALIFICATION'
     or (selected=='OWNED_SYNTHETIC' and 'OWNED_SYNTHETIC_ONLY' or 'UNSUPPORTED_INPUT')
   for _,key in ipairs({'target_pid','screening_profile','value_type','write_value','write_enabled',
       'monitor_interval_ms','scan_timeout_ms','log_limit','log_path','diagnostics',
@@ -74,7 +74,10 @@ local function original_config(c)
   end
   if validated.target_pid==0 then block_config('ALPHA_CONFIG_TARGET_REQUIRED','BLOCKED_SAFE_DEFAULT') end
   if not validated.write_enabled then block_config('WRITE_DISABLED','BLOCKED_CONFIGURED_INTENT') end
-  if selected==nil then block_config('ALPHA_STANDARD_INPUT_UNAVAILABLE','BLOCKED_CAPABILITY') end
+  if selected==nil then
+    input_source='CONFIGURED_TARGET'
+    return c -- actual parameters go to the existing adapter, never fixture defaults
+  end
   if selected~='OWNED_SYNTHETIC' then block_config('ALPHA_CONFIG_INPUT_UNSUPPORTED','BLOCKED_CAPABILITY') end
   -- The only existing configured consumer is the fixed owned table environment.
   -- Do not rebind that environment to a purported external identity.
@@ -203,10 +206,13 @@ function api.start()
       if execution_mode=='ALPHA_STANDARD' and config_source~='EXPLICIT_API' then
         config=standard_config()
       end
-      assert(execution_mode=='ALPHA_CONTROLLED' or input_source=='OWNED_SYNTHETIC',
+      assert(execution_mode=='ALPHA_CONTROLLED' or input_source=='OWNED_SYNTHETIC'
+          or input_source=='CONFIGURED_TARGET',
         'ALPHA_INPUT_REQUIRED: explicitly select owned supplied input before Start; reload CE to change selection')
-      controlled_fixture,adapter=module('ce_mvp_adapter.lua').new_controlled(module,config)
-      config=controlled_fixture.cfg
+      if input_source~='CONFIGURED_TARGET' then
+        controlled_fixture,adapter=module('ce_mvp_adapter.lua').new_controlled(module,config)
+        config=controlled_fixture.cfg
+      end
     else
       config=assert(loadfile(dir .. 'ce_mvp_config.local.lua', 't', {}))()
     end
@@ -218,22 +224,30 @@ function api.start()
       adapter=module('ce_mvp_adapter.lua').new(validated,_G,module,run.observation_source,run)
     elseif execution_mode=='ENGINEERING_BOUNDED' then
       adapter=module('ce_mvp_adapter.lua').new(validated,_G,module)
+    elseif input_source=='CONFIGURED_TARGET' then
+      -- Use the existing identity/acquisition/full-evaluation integration. Its
+      -- qualification boundary rejects before acquiring CE APIs: the repository
+      -- currently has no qualified native execution dependency to supply here.
+      local admitted,value=pcall(module('ce_mvp_adapter.lua').new,validated,_G,module,nil,nil,'full')
+      if not admitted then block_config(safe_runtime_error(value),'BLOCKED_QUALIFICATION') end
+      adapter=value
     end
     pending_adapter=adapter
     instance=core.new(config,adapter,api.start,
       alpha() and 'ALPHA_STOP_ONLY' or nil)
     if alpha() then
+      local applied=input_source=='CONFIGURED_TARGET' and 'APPLIED_STANDARD_ADAPTER' or 'APPLIED_OWNED_SYNTHETIC'
       config_state.config_application=config_state.config_contract=='ORIGINAL'
-        and 'APPLIED_OWNED_SYNTHETIC' or 'FIXTURE_DEFAULTS_ONLY'
-      config_state.execution_readiness='OWNED_TEST_ONLY'
+        and applied or 'FIXTURE_DEFAULTS_ONLY'
+      config_state.execution_readiness=input_source=='CONFIGURED_TARGET' and 'ADMITTED' or 'OWNED_TEST_ONLY'
       for key,value in pairs(config_effects) do
-        if value=='NOT_APPLIED' then config_effects[key]='APPLIED_OWNED_SYNTHETIC' end
+        if value=='NOT_APPLIED' then config_effects[key]=applied end
       end
       if config_state.config_contract=='ORIGINAL' then
-        config_effects.target_pid='MATCHED_FIXED_SYNTHETIC_IDENTITY'
+        config_effects.target_pid=input_source=='CONFIGURED_TARGET' and applied or 'MATCHED_FIXED_SYNTHETIC_IDENTITY'
         config_effects.screening_profile='SINGLE_SCORER_FULL_POPULATION'
-        config_effects.write_enabled='OWNED_TEST_INTENT_ONLY'
-        config_effects['scan.mode']='APPLIED_SYNTHETIC_SCOPE_GUARD'
+        config_effects.write_enabled='CONFIGURED_INTENT_ONLY'
+        config_effects['scan.mode']=input_source=='CONFIGURED_TARGET' and applied or 'APPLIED_SYNTHETIC_SCOPE_GUARD'
         config_effects['scan.collection_batch_size']='APPLIED_ADAPTER_CHECKPOINTS_ONLY'
         config_effects['scan.collection_slice_ms']='APPLIED_ADAPTER_CHECKPOINTS_ONLY'
         if not config.log_path then config_effects.log_path='NOT_CONFIGURED' end
@@ -313,7 +327,7 @@ function api.status()
   -- scan_mode is the legacy address-scope setting, not a scoring-mode claim.
   s.scan_mode_domain='configured_address_scope'
   s.scoring_mode=alpha() and 'full' or 'bounded'
-  s.acquisition_mode=alpha() and 'supplied_records' or 'native_scan'
+  s.acquisition_mode=alpha() and (input_source=='CONFIGURED_TARGET' and 'configured_target_scan' or 'supplied_records') or 'native_scan'
   if alpha() then
     if not instance and startup_error then s.state='ERROR' end
     s.input_source=execution_mode=='ALPHA_CONTROLLED' and 'OWNED_SYNTHETIC' or input_source
@@ -322,9 +336,15 @@ function api.status()
     s.attachment_handle_status='ATTACHMENT_HANDLE_UNVERIFIED'
     s.authorization_status='NOT_PRODUCTION_AUTHORIZED'
     s.action_permitted=false; s.native_operation_status='NOT_RUN'
-    s.native_readback_status='NOT_RUN'; s.semantic_validity='UNVERIFIED_SYNTHETIC_ONLY'
+    s.native_readback_status='NOT_RUN'
+    s.semantic_validity=input_source=='CONFIGURED_TARGET' and 'NOT_ESTABLISHED' or 'UNVERIFIED_SYNTHETIC_ONLY'
     s.native_qualification='QSG_NATIVE_BACKEND_NOT_QUALIFIED'
     s.external_acquisition_status='NOT_RUN'
+    s.acquisition_complete=false
+    s.acquisition_evidence=s.acquisition_evidence or 'NOT_ESTABLISHED'
+    s.operation_status=s.operation_status or 'NOT_RUN'
+    s.readback_status=s.readback_status or 'NOT_RUN'
+    s.monitor_status=s.monitor_status or 'NOT_RUN'
     s.coverage_scope='supplied_distinct_eligible_only'
     s.evaluation_completed=s.evaluation_completed==true
     s.population_complete=s.population_complete==true
@@ -368,6 +388,7 @@ function api.status()
       'config_file_status','config_contract','config_validation','profile_compatibility',
       'config_application','runtime_capability','execution_readiness','config_block',
       'scan_mode_domain','acquisition_mode','external_acquisition_status','scoring_mode','coverage_scope',
+      'acquisition_complete','acquisition_evidence',
       'evaluation_status','evaluation_completed','population_mode','population_complete','identity_reconciled',
       'evaluation_supplied','evaluation_distinct','evaluation_duplicates','evaluation_eligible',
       'evaluation_excluded','evaluation_selected','evaluation_fully_scored','evaluation_ranked',
