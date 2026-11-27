@@ -1,0 +1,81 @@
+{
+  "candidate": "baseline + unit distance contrast",
+  "model": {
+    "contrast_1": [
+      "contrast",
+      1
+    ]
+  },
+  "source_commit": "b44d985992cade1a42ff2c3313372b500e067942",
+  "canonical_source_sha256": {
+    "src/mvp0_geometry_rank.py": "a049b7c5068774b7cc628baa211a519914bb481b532ec343c548762e2230bdc9",
+    "src/mvp0_frequency_rank.py": "b2ffa389a1c81110ecfef2c099c0ec769d1326f441158f0213bf9ca799d6bb29",
+    "src/mvp0_frequency_study.py": "48e5da118e189581126da1a6adaa67147f3c39ba25b03d9decace81cf0c36def",
+    "src/mvp0_ordinal_rank.py": "6d3f6111ce95c75879d7cce796ebaf934bb7745468465e63f491d4282323db60",
+    "src/mvp0_candidate_report.lua": "2fa9d93ba34ff140aead6e87c1d59a5e149720d894bb0f7bd14267ab10182694",
+    "src/mvp0_foundlist_collector.lua": "efc91853c8ed3aa6e8ec059259e5789225747298912fb15dac620a0a1a70e9e4",
+    "src/mvp0_offline_scoring.lua": "4e3677c62b5cbe3a2ee9b827f6f76cece688e8fdda870315b773eb8f81c55f50",
+    "src/mvp0_export_loader.py": "8b41c5ce1a01de665e96c5a207cc5883fd99f6c9536e21fe666d66bb16c60188",
+    "tests/fixtures/offline_population.lua": "aefa29bdabb90125e87ac78849677f2ea587875325c3d86919614f7ba6b27015"
+  },
+  "research_variants": 18,
+  "research_summary": {
+    "baseline": {
+      "planned": 5,
+      "evaluated": 5,
+      "top1": 2,
+      "top3": 5,
+      "unique": 1,
+      "mean_midrank": 2.1,
+      "mean_separation": 0.9998365884576553,
+      "ranks": [
+        2,
+        3,
+        2,
+        1,
+        1
+      ],
+      "midranks": [
+        2.5,
+        2.5,
+        3.0,
+        1.0,
+        1.5
+      ]
+    },
+    "contrast_1": {
+      "planned": 5,
+      "evaluated": 5,
+      "top1": 2,
+      "top3": 5,
+      "unique": 2,
+      "mean_midrank": 1.8,
+      "mean_separation": 0.9998737072721584,
+      "ranks": [
+        2,
+        2,
+        3,
+        1,
+        1
+      ],
+      "midranks": [
+        2.0,
+        2.0,
+        3.0,
+        1.0,
+        1.0
+      ]
+    }
+  },
+  "validation": [
+    "D06",
+    "D07",
+    "D08"
+  ],
+  "held_out": [
+    "D09",
+    "D10"
+  ],
+  "reserved_prediction_evaluations_so_far": 0,
+  "future_rule": "Evaluate each reserved group once; no redesign or tuning after either group. Report all failures and original replay dispositions."
+}
