@@ -1,0 +1,74 @@
+{
+  "candidate": "conditional_choice_linear_ridge_0.1",
+  "disposition": "frozen_for_independent_offline_evaluation_only",
+  "baseline_commit": "1c183c6d2ad3a920c6ef40407c8928903b2b757f",
+  "source_and_model_commit": "36eabba2a2cdbd4b26fc5bf09532f9eb51eb9744",
+  "created_utc": "2026-11-27T16:57:49.663599+00:00",
+  "hash_encoding": "SHA-256 of UTF-8 text with LF newlines and no BOM",
+  "files": {
+    "reports/2026-11-28/offline-ranking/candidate-model.json": "b8ff942bca7aaac2160d54b69c5999b259ba7b974aebbf057f792ceadb25ed50",
+    "reports/2026-11-28/offline-ranking/candidate-stability.json": "8e8fcf59f9aba5c77618730c2865a452dfc9d3062a27f28f73272e4776fa1f83",
+    "reports/2026-11-28/offline-ranking/choice-decision.md": "96c7fb837e7ffb1206583bfb80ece46c852751e4d961991973492eb48ff0bf8e",
+    "reports/2026-11-28/offline-ranking/choice-results.json": "846c8397951274195bfa3372f3e8593d94c16c1d332a4e78995cb5dba203610f",
+    "reports/2026-11-28/offline-ranking/moment-decision.md": "97a7460e66a584ae5f51911f83c5efa6ad4501101b476782825a5c7f1af9a6d1",
+    "reports/2026-11-28/offline-ranking/moment-results.json": "2e8f181742ea43dde92cafb50a60bbfc759630f6c8d6cb1df7908dfc10660907",
+    "reports/2026-11-28/offline-ranking/moment-stability.json": "18d2514a4ca22f879d72a0bbe28339506439d4fa1f6824169afac8319a945679",
+    "reports/2026-11-28/offline-ranking/protocol.md": "467e65a8e39f477cfee8691274897a04df50a77324c74bc60e4431bc1c358182",
+    "reports/2026-11-28/offline-ranking/residual-decision.md": "d118571a8b174f6ebe44b07483e268030884370a5f9a85b3005c227e57766c96",
+    "reports/2026-11-28/offline-ranking/residual-results.json": "07090934985450f5661890f14aff39bec7bc13a4ee7f7fbbbd0895332e629d90",
+    "src/mvp0_choice_rank.py": "3eb5478fed64ca46906c54c87adafc997f9829b17abb5b37f12bda2634d7f8a8",
+    "src/mvp0_moment_rank.py": "8e6de636d0cb3ef8bdbb9dceb58a26916ec502f7e30efc6966c75b2f6f04b43e",
+    "src/mvp0_residual_rank.py": "a16f2b26698585d0241ba85cad2dbe6c37271980955295eabee3d61ece49cc01",
+    "src/mvp0_residual_study.py": "87795ea0af02024a38f0aa65511fd2cf361eccb730335bcc46b4fed0df88bafb",
+    "tests/test_choice_rank.py": "c3df2286b76c5a1d825155416d9d6ed45d3505fb05cf99cc27c98a5444bdb7ab",
+    "tests/test_moment_rank.py": "46b4b1faf3e655e9ce60ccb53d28cb9cab456bebcb7a21aa2269ac19a29068c7",
+    "tests/test_residual_rank.py": "8f89b87cf452a4dc28325ba6cd4ced0b4906950244d79ce1b1fe9258fc8153ff",
+    "tests/test_residual_study.py": "8026ce841e282634443d37e82646dc98bccfb7ee44cc7e5d70174a6b88d66470",
+    "src/mvp0_candidate_report.lua": "2fa9d93ba34ff140aead6e87c1d59a5e149720d894bb0f7bd14267ab10182694",
+    "src/mvp0_foundlist_collector.lua": "efc91853c8ed3aa6e8ec059259e5789225747298912fb15dac620a0a1a70e9e4",
+    "src/mvp0_offline_scoring.lua": "4e3677c62b5cbe3a2ee9b827f6f76cece688e8fdda870315b773eb8f81c55f50",
+    "src/mvp0_export_loader.py": "8b41c5ce1a01de665e96c5a207cc5883fd99f6c9536e21fe666d66bb16c60188",
+    "tests/fixtures/offline_population.lua": "aefa29bdabb90125e87ac78849677f2ea587875325c3d86919614f7ba6b27015"
+  },
+  "environment": {
+    "python": "3.14.3",
+    "lupa": "2.8",
+    "lua": "5.4",
+    "lua_allocator_limit_mib": 256
+  },
+  "historical_development": {
+    "planned": 10,
+    "reference_members": 10,
+    "computed": 8,
+    "uncomputed": [
+      "D07",
+      "D10"
+    ],
+    "supplied_occurrences": 110604,
+    "eligible_scored": 63061,
+    "fixed_leave_one_out_unique_top1": 5,
+    "all_family_nested_unique_top1": 4,
+    "resubstitution_unique_top1": 5
+  },
+  "reproduction": {
+    "fresh_raw_replay_equal": true,
+    "refit_coefficients_exactly_equal": true,
+    "predictions_equal": true,
+    "input_files_unchanged": 45,
+    "baseline_sources_unchanged": 4,
+    "row_permutation_invariant": true,
+    "training_permutation_same_leaders": true
+  },
+  "tests": {
+    "complete_relevant_suite_passed": 596,
+    "updated_algorithm_suite_passed": 17
+  },
+  "limitations": [
+    "All ten sessions are reused historical development data, not fresh independent validation.",
+    "D07 and D10 are reference-valid but remain uncomputed due to conflicting observations.",
+    "D02, D03 and D08 remain incorrect in leave-one-out and final resubstitution.",
+    "Nested selection is 4/8, below the selected fixed specification at 5/8.",
+    "D09 is correct in 5/7 correlated leave-two-out predictions.",
+    "No mainline merge, production integration, release, tag or promotion is authorized."
+  ]
+}
