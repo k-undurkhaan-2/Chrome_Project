@@ -19,12 +19,17 @@ from mvp0_export_loader import load_inventory, load_replay, _check_replay_record
 from mvp0_residual_rank import (
     COMPONENTS, features, leaders, predict, _statistics, _fit_statistics,
 )
+from mvp0_moment_rank import _moment_statistics, _fit_moments, predict_moments
 
 ROOT = Path(__file__).resolve().parents[1]
 FIELDS = ('f08', 'f18', 'f20', 'f58', 'f68', 'f70', 'f78')
 SPECS = [('baseline', None, None), ('contrast', None, None)] + [
     (f'{representation}_{ridge:g}', representation, ridge)
     for representation in ('components', 'geometry', 'combined') for ridge in (10.0, 1.0, 0.1)
+]
+MOMENT_SPECS = [('baseline', None, None), ('contrast', None, None)] + [
+    (f'{variance}_{amplitude:g}', variance, amplitude)
+    for variance in ('shared', 'shrunk') for amplitude in (0.25, 1.0, 4.0)
 ]
 
 
@@ -134,18 +139,24 @@ def metrics(scores, reference):
                 margin=score - max((x for i, x in enumerate(scores) if i != reference), default=score))
 
 
-def cross_validate(populations):
+def cross_validate(populations, family='residual'):
     """Exhaustive nested session exclusion; no outer labels select their model.
 
     Sufficient statistics belong to one training session each. Every model is
     built from an explicit training-name tuple excluding its test session.
     Nested selection also excludes the outer session from every inner model.
     """
+    if family not in ('residual', 'moments'):
+        raise ValueError('unknown model family')
+    specs = SPECS if family == 'residual' else MOMENT_SPECS
+    make_statistics = _statistics if family == 'residual' else _moment_statistics
+    fit_model = _fit_statistics if family == 'residual' else _fit_moments
+    predict_model = predict if family == 'residual' else predict_moments
     names = tuple(sorted(populations))
     if len(names) < 3:
         raise ValueError('at least three computed training sessions required')
     start = perf_counter()
-    stats = {name: _statistics(p['scores'], p['rows'], p['reference']) for name, p in populations.items()}
+    stats = {name: make_statistics(p['scores'], p['rows'], p['reference']) for name, p in populations.items()}
     stats_ms = (perf_counter() - start) * 1000
     cache = {}
     fold_models = {}
@@ -161,10 +172,10 @@ def cross_validate(populations):
             scores = p['scores' if spec[0] == 'baseline' else 'contrast']
             fit_ms = 0.0
         else:
-            model = _fit_statistics([stats[n] for n in train], spec[1], spec[2])
+            model = fit_model([stats[n] for n in train], spec[1], spec[2])
             fit_ms = (perf_counter() - start) * 1000
             start = perf_counter()
-            scores = predict(p['scores'], p['rows'], model)
+            scores = predict_model(p['scores'], p['rows'], model)
             if len(train) == len(names) - 1:
                 fold_models[(test, spec[0])] = model
         prediction_ms = (perf_counter() - start) * 1000
@@ -176,24 +187,24 @@ def cross_validate(populations):
     outer, nested = {}, {}
     for test in names:
         train = tuple(n for n in names if n != test)
-        outer[test] = {spec[0]: evaluate(train, test, spec) for spec in SPECS}
+        outer[test] = {spec[0]: evaluate(train, test, spec) for spec in specs}
         inner = {}
-        for spec in SPECS:
+        for spec in specs:
             outcomes = [evaluate(tuple(n for n in train if n != inner_test), inner_test, spec)
                         for inner_test in train]
             inner[spec[0]] = sum(o['unique_top1'] for o in outcomes)
         # Fixed preference order: baseline, prior contrast, simpler representation,
         # then stronger regularization. No rank or margin chooses a tied model.
-        chosen = max(SPECS, key=lambda spec: inner[spec[0]])
+        chosen = max(specs, key=lambda spec: inner[spec[0]])
         nested[test] = dict(chosen=chosen[0], inner_unique_top1=inner,
                             result=outer[test][chosen[0]])
     summary = {}
-    for spec in SPECS:
+    for spec in specs:
         rows = [outer[n][spec[0]] for n in names]
         summary[spec[0]] = summarize_metrics(rows)
     summary['nested_selection'] = summarize_metrics([nested[n]['result'] for n in names])
     return dict(computed=len(names), statistics_ms=stats_ms,
-                total_ms=(perf_counter() - start) * 1000, specs=SPECS,
+                total_ms=(perf_counter() - start) * 1000, specs=specs, family=family,
                 outer=outer, nested=nested, summary=summary), fold_models
 
 
