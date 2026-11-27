@@ -342,6 +342,20 @@ local function mapping(r)
     allocation_base=r.AllocationBase, kind=r.Type}
 end
 
+local function size_only_expansion(before, after)
+  -- Missing or malformed attributes cannot establish unchanged region identity.
+  for _, m in ipairs({before, after}) do
+    if not (integer(m.base, 0, MAX_ADDR) and integer(m.size, 1, MAX_ADDR - m.base)
+      and integer(m.allocation_base, 0, MAX_ADDR) and integer(m.state, 0, 0xFFFFFFFF)
+      and integer(m.protect, 0, 0xFFFFFFFF) and integer(m.kind, 0, 0xFFFFFFFF)) then
+      return false
+    end
+  end
+  return after.size > before.size and before.base == after.base
+    and before.allocation_base == after.allocation_base and before.state == after.state
+    and before.protect == after.protect and before.kind == after.kind
+end
+
 local function inaccessible(r)
   return r and (r.State ~= 0x1000 or (r.Protect & 0x101) ~= 0 or r.Protect == 0)
 end
@@ -387,7 +401,7 @@ local function capture_ce()
     population_basis='INITIAL_SNAPSHOT', acquisition_completeness='UNKNOWN',
     source_snapshot_status='CE_SEQUENTIAL_READ', expected_source_count=count,
     evaluation_options=opts, observation_started_utc=os.date('!%Y-%m-%dT%H:%M:%SZ'),
-    ce_capture={process_id=pid, settings=settings, atomic=false, mapping_changes={}}}
+    ce_capture={process_id=pid, settings=settings, atomic=false, mapping_changes={}, warnings={}}}
   local function same_source()
     check(getOpenedProcessID() == pid and getCurrentMemscan() == ms,
       'CE attachment or selected scan changed during capture')
@@ -423,8 +437,13 @@ local function capture_ce()
     local before_map, after_map = mapping(region_at(regions, r.addr)), mapping(region_at(after, r.addr))
     if not same_map(before_map, after_map) then
       s.ce_capture.mapping_changes[index] = {before=before_map, after=after_map}
-      s.source_error = 'CE candidate mapping changed during capture; see ce_capture.mapping_changes'
-      s.source_snapshot_status = 'INCONSISTENT'
+      if size_only_expansion(before_map, after_map) then
+        local warnings = s.ce_capture.warnings
+        warnings.size_only_region_expansion = (warnings.size_only_region_expansion or 0) + 1
+      else
+        s.source_error = 'CE candidate mapping changed during capture; see ce_capture.mapping_changes'
+        s.source_snapshot_status = 'INCONSISTENT'
+      end
     end
     check(address(index - 1) == r.addr, 'CE First Scan membership changed during capture')
   end
@@ -442,10 +461,12 @@ local function ensure_output_directory()
   local ok, fs = pcall(require, 'lfs')
   if type(fs) ~= 'table' then fs = _G.lfs end
   check(ok and type(fs) == 'table', 'CE bundled LuaFileSystem unavailable')
-  local path = root .. '/log'
-  if fs.attributes(path, 'mode') ~= 'directory' then
-    local made, why = fs.mkdir(path)
-    check(made, 'cannot create local log directory: ' .. tostring(why))
+  for _, suffix in ipairs({'/log', '/log/base-pool-snapshot'}) do
+    local path = root .. suffix
+    if fs.attributes(path, 'mode') ~= 'directory' then
+      local made, why = fs.mkdir(path)
+      check(made, 'cannot create local output directory ' .. path .. ': ' .. tostring(why))
+    end
   end
 end
 
@@ -470,7 +491,7 @@ function M.export(snapshot, independent_labels)
   local labels = label_record(frozen_labels, dense(frozen.records))
   local m = inspect(frozen)
   local source_changed = not unchanged(snapshot, frozen)
-  local output = root .. '/log/'
+  local output = root .. '/log/base-pool-snapshot/'
   local names, id
   repeat
     serial = serial + 1
@@ -548,6 +569,11 @@ function M.export(snapshot, independent_labels)
   if direct then
     print(string.format('MVP0 export: %s | occurrences=%d | capture_ms=%d | export_ms=%d\n%s',
       result.outcome, result.exported_count, snapshot.capture_wall_ms, result.export_wall_ms, result.manifest_path))
+    local expansions = snapshot.ce_capture.warnings.size_only_region_expansion
+    if expansions then
+      print(string.format('WARNING: size-only region expansion at %d occurrence(s); see ce_capture.mapping_changes. '
+        .. 'Capture is non-atomic; live data and truth stability are not established.', expansions))
+    end
     if result.outcome ~= 'REPLAY_READY' then
       print('Dataset is not replay-ready; inspect manifest issues and counts. ' .. (snapshot.source_error or ''))
     end

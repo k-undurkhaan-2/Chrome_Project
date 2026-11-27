@@ -26,7 +26,7 @@ def export_env(runtime, tmp_path):
     assert relative.startswith("log/")
     subprocess.run(["git", "check-ignore", "-q", relative], cwd=ROOT, check=True)
     lua, w = runtime
-    (tmp_path / "log").mkdir()
+    (tmp_path / "log/base-pool-snapshot").mkdir(parents=True)
     lua.globals().checksum = lambda path: hashlib.md5(Path(path).read_bytes()).hexdigest()
     lua.globals().wall_clock = lambda: int(time.perf_counter() * 1000)
     lua.execute("""
@@ -44,7 +44,7 @@ def export_env(runtime, tmp_path):
     load = lua.eval("function(s,p) return assert(load(s,'@'..p,'t'))() end")
     path = (tmp_path / "src/mvp0_manual_export.lua").as_posix()
     api = load(SOURCE.read_text(encoding="utf-8"), path)
-    assert not list((tmp_path / "log").iterdir())  # lazy module load
+    assert not list((tmp_path / "log/base-pool-snapshot").iterdir())  # lazy module load
     return lua, w, api, tmp_path, lambda: load(SOURCE.read_text(encoding="utf-8"), path)
 
 
@@ -73,7 +73,7 @@ def direct_env(export_env):
     lua.globals().directory_mode = lambda p: "directory" if Path(p).is_dir() else None
 
     def mkdir(p):
-        assert Path(p) == path / "log"
+        assert Path(p) in {path / "log", path / "log/base-pool-snapshot"}
         Path(p).mkdir()
         return True
 
@@ -128,6 +128,91 @@ def direct_env(export_env):
     return lua, w, api, path, reload
 
 
+def change_regions_after_reads(lua, change):
+    lua.execute("""
+      local calls=0
+      enumMemoryRegions=function()
+        calls=calls+1
+        if calls==1 then return ce.regions end
+        local t={}
+        for i,r in ipairs(ce.regions) do
+          local c={}; for k,v in pairs(r) do c[k]=v end; t[i]=c
+        end
+    """ + change + "\nreturn t end")
+
+
+def test_output_artifacts_are_checkout_local_and_colocated(direct_env, monkeypatch):
+    lua, w, api, path, _ = direct_env
+    records(w, 3)
+    lua.execute("ce.populate()")
+    old_files = [path / "log" / ("manual-export-prior." + suffix)
+                 for suffix in ("manifest.json", "records.jsonl", "labels.json")]
+    for old in old_files:
+        old.write_bytes(b"synthetic prior artifact; preserve exactly\r\n")
+    elsewhere = path / "unrelated-cwd"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+    lua.execute("""
+      local open=io.open
+      ce.output_paths={}
+      io.open=function(path,mode)
+        if mode=='wb' then ce.output_paths[#ce.output_paths+1]=path end
+        return open(path,mode)
+      end
+    """)
+    result = api.export()
+    output = path / "log/base-pool-snapshot"
+    written = [Path(p) for p in lua.globals().ce.output_paths.values()]
+    prefix = "manual-export-" + result.dataset_id
+    assert Path(result.manifest_path).parent == output
+    assert written == [output / (prefix + suffix) for suffix in (
+        ".reserved", ".records.jsonl", ".labels.json", ".manifest.pending")]
+    assert {p.name for p in output.iterdir()} == {prefix + suffix for suffix in (
+        ".reserved", ".records.jsonl", ".labels.json", ".manifest.json")}
+    assert all(old.read_bytes() == b"synthetic prior artifact; preserve exactly\r\n" for old in old_files)
+    assert not list(elsewhere.iterdir())
+    load_replay(result.manifest_path, lua)
+
+
+@pytest.mark.parametrize("separator", ["/", "\\"])
+def test_deployed_path_resolution_without_accessing_real_datasets(direct_env, separator):
+    lua, _, _, _, _ = direct_env
+    # Probe only path resolution: stop at the first mkdir, before any real I/O.
+    lua.execute("""
+      package.preload.lfs=function() return {
+        attributes=function(p) return p=='D:/armedforces.io-v2/log' and 'directory' or nil end,
+        mkdir=function(p) ce.requested_directory=p; return nil,'DIRECTORY_PROBE' end} end
+      io.open=function() error('UNEXPECTED_IO') end
+    """)
+    load = lua.eval("function(s,p) return assert(load(s,'@'..p,'t'))() end")
+    api = load(SOURCE.read_text(encoding="utf-8"),
+               "D:/armedforces.io-v2/src/mvp0_manual_export.lua".replace("/", separator))
+    with pytest.raises(Exception, match="DIRECTORY_PROBE"):
+        api.export()
+    assert lua.globals().ce.requested_directory == "D:/armedforces.io-v2/log/base-pool-snapshot"
+    assert lua.globals().ce.waits == 0
+
+
+@pytest.mark.parametrize("failed_directory", ["log", "log/base-pool-snapshot"])
+def test_output_directory_failure_never_falls_back(direct_env, failed_directory):
+    lua, _, api, path, _ = direct_env
+    (path / "log/base-pool-snapshot").rmdir()
+    (path / "log").rmdir()
+    lua.globals().failed_directory = (path / failed_directory).as_posix()
+    lua.execute("""
+      package.preload.lfs=function() return {
+        attributes=function(p) return directory_mode(p) end,
+        mkdir=function(p)
+          if p==failed_directory then return nil,'DIRECTORY_FAILURE' end
+          return mkdir_local(p)
+        end} end
+    """)
+    with pytest.raises(Exception, match="EXPORT_FAILED:.*DIRECTORY_FAILURE"):
+        api.export()
+    assert not list(path.rglob("manual-export-*"))
+    assert lua.globals().ce.waits == 0
+
+
 def test_direct_entry_exports_all_8003_occurrences_without_preparation(direct_env):
     lua, w, api, path, reload = direct_env
     records(w, 8002, good=(2,))
@@ -138,6 +223,7 @@ def test_direct_entry_exports_all_8003_occurrences_without_preparation(direct_en
       ce.words[w.objects[4].addr-8]=nil -- a real failed lookup remains missing
       ce.words[w.objects[5].addr-0x20]=-1 -- CE signed DWORD becomes the same uint32 bits
     """)
+    (path / "log/base-pool-snapshot").rmdir()
     (path / "log").rmdir()  # no operator output-directory preparation
     result = api.export()
     loaded, options, manifest = load_replay(result.manifest_path, lua)
@@ -162,10 +248,13 @@ def test_direct_entry_exports_all_8003_occurrences_without_preparation(direct_en
 
 
 @pytest.mark.parametrize("entry", ["AC5", "AC6"])
-def test_direct_capture_replays_unchanged_algorithms(direct_env, entry):
+@pytest.mark.parametrize("expansion", [False, True])
+def test_direct_capture_replays_unchanged_algorithms(direct_env, entry, expansion):
     lua, w, api, _, _ = direct_env
     records(w, 129, good=(2,))
     lua.execute("ce.populate()")
+    if expansion:
+        change_regions_after_reads(lua, "for _,r in ipairs(t) do r.RegionSize=r.RegionSize+16 end")
     result = api.export()
     loaded, options, _ = load_replay(result.manifest_path, lua)
     if entry == "AC5":
@@ -176,6 +265,96 @@ def test_direct_capture_replays_unchanged_algorithms(direct_env, entry):
     actual = evaluate(loaded)
     assert actual.completed and actual.population_complete and actual.counts.ranked == 129
     assert plain(actual) == plain(evaluate(w.objects))
+
+
+def test_size_only_expansion_preserves_evidence_and_all_occurrences(direct_env):
+    lua, w, api, _, _ = direct_env
+    records(w, 3)
+    lua.execute("""
+      ce.populate(); ce.fl.Address[3]=ce.fl.Address[0]; ce.fl.Count=4; ce.save_result()
+      ce.regions={ce.regions[1]}; ce.regions[1].RegionSize=0x1000
+    """)
+    change_regions_after_reads(lua, "t[1].RegionSize=0x1800")
+    result = api.export()
+    loaded, _, manifest = load_replay(result.manifest_path, lua)
+    assert result.outcome == "REPLAY_READY" and len(loaded) == 4
+    assert plain(loaded[4]) == plain(loaded[1])
+    for i in range(1, 4):
+        assert plain(loaded[i]) == {k: plain(w.objects[i][k]) for k in ("addr", "mapped", "protect", "memory")}
+    capture = manifest["ce_capture"]
+    assert capture["warnings"] == {"size_only_region_expansion": 4}
+    before = {"base": w.objects[1].addr - 0x28, "size": 0x1000, "state": 0x1000,
+              "protect": 4, "allocation_base": 0x100000, "kind": 0x20000}
+    assert capture["mapping_changes"] == {
+        str(i): {"before": before, "after": {**before, "size": 0x1800}} for i in range(1, 5)}
+    assert capture["atomic"] is False and manifest["acquisition_completeness"] == "UNKNOWN"
+    assert manifest["source_snapshot_status"] == "CE_SEQUENTIAL_READ"
+    assert manifest["issues"] == {} and manifest["source_error"] == "NONE_REPORTED"
+    assert any("WARNING" in message and "non-atomic" in message
+               for message in lua.globals().ce.messages.values())
+
+
+@pytest.mark.parametrize("before,after", [
+    ("", "t[1].RegionSize=0x80"),
+    ("", "t[1].BaseAddress=t[1].BaseAddress+1"),
+    ("", "t[1].AllocationBase=0x100001"),
+    ("", "t[1].Protect=2"),
+    ("", "t[1].State=0x10000"),
+    ("", "t[1].Type=0x40000"),
+    ("", "table.remove(t,1)"),
+    ("ce.regions[1].AllocationBase=nil", ""),
+    ("ce.regions[1].Type=nil", ""),
+    ("ce.regions[1].AllocationBase='unknown'", ""),
+    ("ce.regions[1].AllocationBase=-1", ""),
+    ("ce.regions[1].Type=false", ""),
+    ("ce.regions[1].Type=0x100000000", ""),
+])
+def test_other_mapping_changes_cannot_be_downgraded_to_warnings(direct_env, before, after):
+    lua, w, api, _, _ = direct_env
+    records(w, 3)
+    lua.execute("ce.populate(); " + before)
+    change_regions_after_reads(lua, "t[1].RegionSize=0x180; " + after)
+    result = api.export()
+    manifest, exported = load_inventory(result.manifest_path)
+    assert result.outcome == "INCOMPLETE" and len(exported) == 3
+    assert manifest["source_snapshot_status"] == "INCONSISTENT"
+    assert manifest["issues"]["source_error_reported"]
+    assert manifest["ce_capture"]["mapping_changes"]["1"]
+    assert manifest["ce_capture"].get("warnings", {}) == {}
+    with pytest.raises(ValueError, match="not replay-ready"):
+        load_replay(result.manifest_path, lua)
+
+
+@pytest.mark.parametrize("changed_index", [1, 2])
+def test_expansion_warning_does_not_hide_other_inconsistent_regions(direct_env, changed_index):
+    lua, w, api, _, _ = direct_env
+    records(w, 3)
+    lua.execute("ce.populate()")
+    change_regions_after_reads(lua,
+        "t[1].RegionSize=0x180; t[2].RegionSize=0x180; t[%d].Protect=2" % changed_index)
+    result = api.export()
+    manifest, _ = load_inventory(result.manifest_path)
+    assert result.outcome == "INCOMPLETE" and manifest["source_snapshot_status"] == "INCONSISTENT"
+    assert manifest["ce_capture"]["warnings"] == {"size_only_region_expansion": 1}
+    assert set(manifest["ce_capture"]["mapping_changes"]) == {"1", "2"}
+    with pytest.raises(ValueError, match="not replay-ready"):
+        load_replay(result.manifest_path, lua)
+
+
+def test_loader_still_rejects_incomplete_with_size_only_expansion_evidence(direct_env):
+    lua, w, api, _, _ = direct_env
+    records(w, 3)
+    lua.execute("ce.populate()")
+    change_regions_after_reads(lua, "t[1].RegionSize=0x180")
+    result = api.export()
+    path = Path(result.manifest_path)
+    manifest, _ = load_inventory(path)
+    assert manifest["ce_capture"]["warnings"] == {"size_only_region_expansion": 1}
+    # Synthetic old disposition only: no historical data are opened or rewritten.
+    manifest["outcome"] = "INCOMPLETE"
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(ValueError, match="not replay-ready"):
+        load_replay(path, lua)
 
 
 @pytest.mark.parametrize("value,hexadecimal,bits", [
@@ -213,7 +392,7 @@ def test_direct_unavailable_or_changed_source_never_delivers_partial_success(dir
     lua.execute("ce.populate(); " + mutation)
     with pytest.raises(Exception, match=reason):
         api.export()
-    assert not list((path / "log").iterdir())
+    assert not list((path / "log/base-pool-snapshot").iterdir())
 
 
 @pytest.mark.parametrize("mutation,issue", [
@@ -418,7 +597,7 @@ def test_invalid_requests_fail_before_files(export_env, mutation):
     lua.execute(mutation)
     with pytest.raises(Exception, match="EXPORT_FAILED"):
         api.export(s)
-    assert not list((path / "log").iterdir())
+    assert not list((path / "log/base-pool-snapshot").iterdir())
 
 
 def test_repeat_and_module_reload_never_overwrite(export_env):
@@ -426,7 +605,7 @@ def test_repeat_and_module_reload_never_overwrite(export_env):
     s = snapshot(lua, w)
     lua.execute("os.date=function(format) return 'fixed-time' end")
     results = [api.export(s)]
-    before = {p: p.read_bytes() for p in (path / "log").iterdir()}
+    before = {p: p.read_bytes() for p in (path / "log/base-pool-snapshot").iterdir()}
     results.extend([api.export(s), reload().export(s)])
     assert len({r.dataset_id for r in results}) == 3
     assert all(p.read_bytes() == data for p, data in before.items())
@@ -462,8 +641,8 @@ def test_io_failure_has_no_success_manifest_or_stale_result(export_env, phase):
     with pytest.raises(Exception, match="EXPORT_FAILED"):
         api.export(s)
     assert Path(first.manifest_path).read_bytes() == original
-    assert len(list((path / "log").glob("*.manifest.json"))) == 1
-    assert len(list((path / "log").glob("*.reserved"))) == 2
+    assert len(list((path / "log/base-pool-snapshot").glob("*.manifest.json"))) == 1
+    assert len(list((path / "log/base-pool-snapshot").glob("*.reserved"))) == 2
 
 
 @pytest.mark.parametrize("damage", ["bytes", "count", "path", "options", "duplicate_key", "pending"])

@@ -21,11 +21,15 @@ are unsupported.
 
    If the checkout is elsewhere, change only the absolute file path. No prepared
    records, configuration, Native MVP run, scoring batch, or additional scan is
-   required. The utility creates its checkout's ignored `log/` directory itself
-   using CE's bundled LuaFileSystem; nothing needs installing.
+   required. The utility creates its checkout's ignored `log/base-pool-snapshot/`
+   directory itself using CE's bundled LuaFileSystem; nothing needs installing
+   or manual directory preparation. Directory/output failures are reported;
+   there is no fallback location.
 3. Read the printed **outcome, occurrence count, capture/export times, and
    manifest path**. `REPLAY_READY` means the frozen dataset satisfies the existing
-   loader. `INCOMPLETE` means inspect the manifest's `issues`, counts, and
+   loader, including an otherwise complete export with the size-only expansion
+   warning described below. It does not establish atomic capture or truth.
+   `INCOMPLETE` means inspect the manifest's `issues`, counts, and
    `source_error`; it is not admitted for replay. `EXPORT_FAILED` reports the
    unavailable capability or failed operation and is not a delivered dataset.
 
@@ -57,6 +61,16 @@ changes are retained in `ce_capture.mapping_changes`. Attachment, membership,
 settings, or count changes abort the export. The utility never attaches, scans,
 injects, changes target memory, or invokes the collector/scorer/writer/Native MVP.
 
+A narrowly defined **size-only region expansion** is a warning: both mapping
+observations must contain valid base, size, allocation base, state, protection,
+and type, with only the size increasing. The original before/after entries stay
+in `ce_capture.mapping_changes`; `ce_capture.warnings.size_only_region_expansion`
+counts affected occurrences, including duplicates, and the console prints the
+warning. This alone does not prevent `REPLAY_READY`. Unknown/malformed evidence,
+shrinkage, identity or other mapping changes, conflicting observations, and all
+other existing completeness/integrity failures retain their rejection behavior.
+The warning does not establish that live values or independent truth stayed stable.
+
 **The membership comes from First Scan; the observations are read at export
 time.** CE does not supply historical structural observations from that scan.
 `source_snapshot_status=CE_SEQUENTIAL_READ` and `ce_capture.atomic=false` describe
@@ -74,10 +88,16 @@ Unknown revisions and independent truth remain `UNKNOWN`.
 
 ## Local files and later replay
 
-Outputs stay under `D:/armedforces.io-v2/log/` with a unique
+For the deployed utility, the exact output directory is
+`D:\armedforces.io-v2\log\base-pool-snapshot\`. The location is resolved from the
+loaded module's absolute installation path, independent of the working directory;
+development/test copies use their own checkout's `log/base-pool-snapshot/`.
+Outputs use a unique
 `manual-export-<UTC>-<counter>` prefix. Each invocation writes `.records.jsonl`
 and `.labels.json`, then publishes `.manifest.json` last. Existing files and
 failed `.reserved` names are never reused. A `.pending` file is not success.
+All these artifacts share that same directory. Existing snapshots in any prior
+location are left untouched; nothing is moved, migrated, relabeled, or rewritten.
 Keep all artifacts local and outside upload/synchronization jobs; never commit
 datasets, private configuration, or logs. MD5 checks detect accidental corruption,
 not authenticity.
@@ -96,6 +116,21 @@ independent `basis`; map original 1-based occurrence indices in `outcomes` to
 `POSITIVE`, `NEGATIVE`, `AMBIGUOUS`, or `UNKNOWN`. Missing labels are not negative.
 The replay loader never opens the label sidecar.
 
+After delivery, manually obtain a **fresh sample** with the same command and
+retain independently verified truth from that same test session. Associate it
+with that frozen dataset through the existing sidecar convention above; preserve
+the dataset identity, record bytes, and hash. Never derive truth from candidate
+rank/score, reuse another session's truth, or fabricate missing labels. Truth
+stays separate from scoring inputs.
+
+The preceding sample has no retained independently verified truth and is
+**diagnostic only**, not accepted accuracy evidence. Historical `INCOMPLETE`
+manifests remain rejected by `load_replay`; there is no historical compatibility
+exception or replay acceptance requirement. Unlabeled exports may support scoped
+offline performance research, but this research series requires newly obtained,
+independently labeled data for acceptance and weight analysis. No fresh sample
+or accuracy measurement is collected as part of this correction.
+
 `capture_wall_ms` covers enumeration and observation; `export_wall_ms` covers
 freezing, validation, serialization, hashing, and final internal source checks,
 excluding manifest publication. Time offline computation separately around the
@@ -103,6 +138,7 @@ existing AC5/AC6 call, excluding export and loading.
 
 Implementation checks use the existing Lua 5.3/5.4 tests and controlled CE API
 doubles, including direct no-argument export and AC5/AC6 replay. They do not prove
-a live CE capture: no running owned-test CE session was available during this
-correction. API behavior was checked against the installed CE reference and the
+a live CE capture: this correction does not perform live capture or accuracy
+measurement. The original acquisition API behavior was checked against the
+installed CE reference and the
 [official CE source](https://github.com/cheat-engine/cheat-engine/tree/master/Cheat%20Engine).
