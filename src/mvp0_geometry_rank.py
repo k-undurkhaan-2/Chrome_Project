@@ -6,6 +6,8 @@ SPDX-License-Identifier: GPL-3.0-only
 """
 from math import fsum
 
+from mvp0_frequency_rank import combine
+
 
 def geometry(rows, method='silhouette'):
     """Return [0,1] supplements without changing observations or the baseline.
@@ -24,13 +26,15 @@ def geometry(rows, method='silhouette'):
         if any(x is None for x in values) or len(set(values)) == 1:
             output.append(0.0)
             continue
-        distances = [[abs(x - y) for y in values] for x in values]
         if method == 'contrast':
-            cross = fsum(distances[i][j] for i in range(3) for j in range(3, 6)) / 9
-            within = fsum(distances[i][j] for group in (range(3), range(3, 6))
-                          for i in group for j in group if i < j) / 6
-            score = cross / (cross + within)
+            front, tail = values[:3], values[3:]
+            cross = sum(abs(a - b) for a in front for b in tail)
+            spans = max(front) - min(front) + max(tail) - min(tail)
+            # For three points, the three unordered distances sum to 2*span.
+            # Integer-word sums are exact; no distance matrix is needed.
+            score = cross / (cross + 3 * spans)
         else:
+            distances = [[abs(x - y) for y in values] for x in values]
             parts = []
             for i in range(6):
                 own, other = (range(3), range(3, 6)) if i < 3 else (range(3, 6), range(3))
@@ -40,3 +44,16 @@ def geometry(rows, method='silhouette'):
             score = (1 + fsum(parts) / 6) / 2
         output.append(score)
     return output
+
+
+def contrast_rank(baseline_scores, rows):
+    """Frozen candidate: baseline + unit contrast, with full-population ranking.
+
+    Inputs must be aligned in the original baseline comparator order. Scores
+    use no identities. Equal new scores retain that order for reporting only;
+    equal scores are not unique identification. Returns scores and input indices.
+    No live integration or action/recommendation envelope is created.
+    """
+    scores = combine(baseline_scores, geometry(rows, 'contrast'), 1)
+    order = sorted(range(len(scores)), key=lambda i: (-scores[i], i))
+    return scores, order

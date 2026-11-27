@@ -18,7 +18,7 @@ from lupa.lua54 import LuaRuntime
 
 from mvp0_export_loader import load_inventory, load_replay, _check_replay_records
 from mvp0_frequency_rank import novelty, combine
-from mvp0_geometry_rank import geometry
+from mvp0_geometry_rank import geometry, contrast_rank
 from mvp0_ordinal_rank import refine_clones
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -132,6 +132,8 @@ def evaluate(manifests, mapping_path, models=None, repeats=1):
                             newbase = [score + change for score, change in zip(base, delta)]
                             predicted[key] = newbase if order == 'ordinal' else combine(
                                 newbase, geometry(words, order.removeprefix('ordinal_')), amplitude)
+                        elif order == 'contrast' and amplitude == 1:
+                            predicted[key], _ = contrast_rank(base, words)
                         else:
                             extra = geometry(words, order) if isinstance(order, str) else novelty(words, order)
                             predicted[key] = combine(base, extra, amplitude)

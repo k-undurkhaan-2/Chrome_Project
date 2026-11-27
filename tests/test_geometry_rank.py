@@ -21,3 +21,29 @@ def test_missing_and_constant_observations_are_not_imputed(method):
     assert geometry([], method) == []
     with pytest.raises(ValueError):
         geometry([(1, 2)], method)
+
+
+def test_fast_contrast_matches_independent_pair_distance_definition():
+    from itertools import combinations
+    from random import Random
+    from statistics import mean
+    rng = Random(517)
+    rows = [tuple(rng.randrange(2**32) for _ in range(7)) for _ in range(1000)]
+    expected = []
+    for row in rows:
+        front, tail = row[:3], row[4:]
+        cross = mean(abs(a - b) for a in front for b in tail)
+        within = mean([abs(a - b) for a, b in combinations(front, 2)] +
+                      [abs(a - b) for a, b in combinations(tail, 2)])
+        expected.append(cross / (cross + within))
+    assert geometry(rows, 'contrast') == pytest.approx(expected, abs=1e-15)
+
+
+def test_frozen_candidate_ranking_reports_unresolved_ties():
+    from mvp0_geometry_rank import contrast_rank
+    coherent = (10, 11, 12, 0, 100, 101, 102)
+    mixed = (0, 50, 100, 0, 1, 51, 101)
+    scores, order = contrast_rank([40, 40, 40], [mixed, coherent, coherent])
+    assert order == [1, 2, 0]
+    assert scores[1] == scores[2] > scores[0]
+    assert contrast_rank([], []) == ([], [])
