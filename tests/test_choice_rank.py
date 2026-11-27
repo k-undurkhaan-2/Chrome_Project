@@ -3,7 +3,7 @@ import pytest
 
 from mvp0_choice_rank import _objective, fit_choice, predict_choice
 from mvp0_residual_rank import COMPONENTS, FEATURE_NAMES, leaders
-from mvp0_residual_study import cross_validate
+from mvp0_residual_study import assess_choice_candidate, cross_validate
 
 
 def vector(x):
@@ -44,3 +44,15 @@ def test_choice_nested_selection_and_training_are_outer_label_independent():
     for key in models:
         if key[0] == 'a':
             assert models[key] == changed[key]
+
+
+def test_fixed_candidate_assessment_counts_sessions_and_overlapping_folds():
+    pops = {name: dict(scores=[0, 0, 0], rows=[vector(0), vector(0.5), vector(1)],
+                       contrast=[0, 0, 0], reference=2) for name in ('a', 'b', 'c')}
+    model, result = assess_choice_candidate(pops)
+    assert model['representation'] == 'linear' and model['ridge'] == 0.1
+    assert result['computed_sessions'] == 3
+    assert result['omitted_pairs'] == 3 and result['correlated_predictions'] == 6
+    assert result['leave_two_out']['unique_top1'] == 6
+    assert result['all_pair_fits_converged']
+    assert result['fit_reproduced'] and result['row_permutation_invariant']

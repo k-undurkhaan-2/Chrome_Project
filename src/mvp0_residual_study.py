@@ -9,8 +9,10 @@ from __future__ import annotations
 import gc
 import hashlib
 import re
+from itertools import combinations
 from math import fsum
 from pathlib import Path
+from statistics import median
 from time import perf_counter
 
 from lupa.lua54 import LuaRuntime
@@ -225,3 +227,64 @@ def summarize_metrics(rows):
                 ambiguous=sum(not r['unique_leader'] for r in rows),
                 mean_midrank=fsum(r['midrank'] for r in rows) / len(rows),
                 midranks=[r['midrank'] for r in rows])
+
+
+def assess_choice_candidate(populations):
+    """Assess the selected linear/ridge-0.1 specification, without retuning.
+
+    Return its final all-development fit separately from excluded-pair evidence.
+    Repeated predictions and overlapping folds never increase the sample count.
+    The returned model contains coefficients, not training examples or labels.
+    """
+    names = tuple(sorted(populations))
+    if len(names) < 3:
+        raise ValueError('at least three computable sessions required')
+    statistics = {n: _choice_statistics(p['scores'], p['rows'], p['reference'])
+                  for n, p in populations.items()}
+    outcomes = []
+    for omitted in combinations(names, 2):
+        train = tuple(n for n in names if n not in omitted)
+        model = _fit_choice([statistics[n] for n in train], 'linear', 0.1)
+        for test in omitted:
+            p = populations[test]
+            scores = predict_choice(p['scores'], p['rows'], model)
+            outcomes.append(dict(omitted=list(omitted), test=test, converged=model['converged'],
+                                 **metrics(scores, p['reference'])))
+    start = perf_counter()
+    model = _fit_choice([statistics[n] for n in names], 'linear', 0.1)
+    fit_ms = (perf_counter() - start) * 1000
+    repeated = _fit_choice([statistics[n] for n in names], 'linear', 0.1)
+    assert repeated == model, 'nondeterministic final fit'
+    reversed_model = _fit_choice([statistics[n] for n in reversed(names)], 'linear', 0.1)
+    coefficient_difference = max(abs(a - b) for key in ('linear', 'quadratic')
+                                 for a, b in zip(model[key], reversed_model[key]))
+    fitted, timings = {}, {}
+    for name in names:
+        p = populations[name]
+        times, previous = [], None
+        for repeat in range(4):
+            start = perf_counter()
+            scores = predict_choice(p['scores'], p['rows'], model)
+            elapsed = (perf_counter() - start) * 1000
+            if repeat:
+                times.append(elapsed)
+                assert scores == previous, 'nondeterministic prediction'
+            previous = scores
+        reversed_scores = predict_choice(list(reversed(p['scores'])), list(reversed(p['rows'])), model)
+        assert scores == list(reversed(reversed_scores)), 'row-order-dependent prediction'
+        permuted_fit_scores = predict_choice(p['scores'], p['rows'], reversed_model)
+        assert leaders(scores) == leaders(permuted_fit_scores), 'training-order-dependent leader'
+        fitted[name] = metrics(scores, p['reference'])
+        timings[name] = dict(measured_ms=times, median_ms=median(times), eligible=len(scores))
+    return model, dict(candidate='choice_linear_0.1', historical_development_only=True,
+                       computed_sessions=len(names), training_sessions_per_pair_fold=len(names) - 2,
+                       omitted_pairs=len(outcomes) // 2, correlated_predictions=len(outcomes),
+                       leave_two_out=summarize_metrics(outcomes),
+                       by_session={n: summarize_metrics([r for r in outcomes if r['test'] == n]) for n in names},
+                       outcomes=outcomes, final_fit_resubstitution=fitted,
+                       resubstitution_summary=summarize_metrics(list(fitted.values())),
+                       final_training_ms=fit_ms, prediction_timings=timings,
+                       fit_reproduced=True, prediction_reproduced=True, row_permutation_invariant=True,
+                       training_permutation_same_leaders=True,
+                       training_permutation_max_coefficient_difference=coefficient_difference,
+                       all_pair_fits_converged=all(r['converged'] for r in outcomes))
