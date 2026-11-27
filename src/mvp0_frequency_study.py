@@ -18,6 +18,7 @@ from lupa.lua54 import LuaRuntime
 
 from mvp0_export_loader import load_inventory, load_replay, _check_replay_records
 from mvp0_frequency_rank import novelty, combine
+from mvp0_geometry_rank import geometry
 
 ROOT = Path(__file__).resolve().parents[1]
 FIELDS = ('f08', 'f18', 'f20', 'f58', 'f68', 'f70', 'f78')
@@ -120,7 +121,8 @@ def evaluate(manifests, mapping_path, models=None, repeats=1):
                     predicted = {'baseline': base}
                     for key, (order, amplitude) in models.items():
                         start = perf_counter()
-                        predicted[key] = combine(base, novelty(words, order), amplitude)
+                        extra = geometry(words, order) if isinstance(order, str) else novelty(words, order)
+                        predicted[key] = combine(base, extra, amplitude)
                         model_times[key].append((perf_counter() - start) * 1000)
                     if last is not None:
                         assert last == predicted
