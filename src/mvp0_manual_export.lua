@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: GPL-3.0-only
--- Manual, table-only export. Loading this module performs no I/O or evaluation.
+-- Manual read-only CE export: dofile(absolute_path).export(). Loading is inert.
 local M = {}
 local module_path = debug.getinfo(1, 'S').source:sub(2):gsub('\\', '/')
 local root = module_path:match('^(.*)/src/[^/]+$')
@@ -127,7 +127,7 @@ local function inspect(s)
     capture_utc=true, source_id=true, configuration_id=true, source_revision=true, algorithm_revision=true,
     expected_source_count=true, population_basis=true, acquisition_completeness=true,
     evaluation_options=true, observation_started_utc=true, observation_finished_utc=true,
-    capture_wall_ms=true, source_snapshot_status=true, source_error=true})
+    capture_wall_ms=true, source_snapshot_status=true, source_error=true, ce_capture=true})
   check(s.authorized_owned == true, 'owned-test authorization required')
   check(s.permission_disposition == 'EXPRESSLY_APPROVED', 'express data-export permission required')
   check(s.source_category == 'AUTHORIZED_REAL_PRODUCTION'
@@ -144,7 +144,7 @@ local function inspect(s)
   check(acquisition == 'SUPPLIER_ASSERTED_COMPLETE' or acquisition == 'INCOMPLETE'
     or acquisition == 'UNKNOWN', 'invalid acquisition completeness')
   local source_status = s.source_snapshot_status == nil and 'UNKNOWN' or s.source_snapshot_status
-  check(source_status == 'OPERATOR_FROZEN_COPY' or source_status == 'UNKNOWN'
+  check(source_status == 'OPERATOR_FROZEN_COPY' or source_status == 'CE_SEQUENTIAL_READ' or source_status == 'UNKNOWN'
     or source_status == 'UNAVAILABLE' or source_status == 'INCONSISTENT', 'invalid source status')
   check(s.source_error == nil or (type(s.source_error) == 'string' and #s.source_error > 0),
     'invalid source error')
@@ -222,7 +222,9 @@ local function inspect(s)
   if not inventory then issues.identity_or_count_mismatch = true end
   if basis ~= 'INITIAL_SNAPSHOT' then issues.original_first_pass_not_established = true end
   if acquisition == 'INCOMPLETE' then issues.acquisition_incomplete = true end
-  if source_status ~= 'OPERATOR_FROZEN_COPY' then issues.source_not_frozen = true end
+  if source_status ~= 'OPERATOR_FROZEN_COPY' and source_status ~= 'CE_SEQUENTIAL_READ' then
+    issues.source_not_frozen = true
+  end
   if s.source_error ~= nil then issues.source_error_reported = true end
   if s.source_category == 'UNKNOWN' then issues.source_category_unknown = true end
   local disposition
@@ -241,7 +243,7 @@ local function inspect(s)
     acquisition_completeness=acquisition, supplied_population_exported=true,
     inventory_complete=inventory, replay_observations_complete=replay,
     expected_source_count=s.expected_source_count or 'UNKNOWN', counts=counts,
-    evaluation_options=opts, label_status='UNKNOWN'}
+    evaluation_options=opts, label_status='UNKNOWN', ce_capture=s.ce_capture}
   for _, key in ipairs({'capture_utc', 'source_id', 'configuration_id', 'source_revision', 'algorithm_revision',
       'observation_started_utc', 'observation_finished_utc'}) do
     check(s[key] == nil or (type(s[key]) == 'string' and #s[key] > 0), 'invalid ' .. key)
@@ -271,15 +273,196 @@ local function exists(path)
   return false
 end
 
+local function enum_is(value, name)
+  return value == name or (type(_G[name]) == 'number' and value == _G[name])
+end
+
+local function scan_settings(ms)
+  check(enum_is(ms.LastScanType, 'stFirstScan'), 'current CE result must be a completed First Scan')
+  check(ms.LastScanWasRegionScan == false and enum_is(ms.ScanOption, 'soExactValue'),
+    'AC5/AC6 requires an Exact Value First Scan, not an unknown-value or range scan')
+  check(ms.OnlyOneResult ~= true and ms.IsUnique ~= true and ms.LuaFormula ~= true
+    and ms.inverseScan ~= true, 'limited, formula or inverted scans are not supported')
+  local single = enum_is(ms.VariableType, 'vtSingle')
+  check(single or enum_is(ms.VariableType, 'vtDword'), 'AC5/AC6 requires Float or 4 Bytes results')
+  check(type(ms.LastScanValue) == 'string' and type(ms.Hexadecimal) == 'boolean',
+    'CE scan value/representation unavailable')
+  check(not single or not ms.Hexadecimal, 'Float scan input must be decimal; hexadecimal Float semantics are unsupported')
+  local value = ms.LastScanValue:match('^%s*(.-)%s*$')
+  local bits, target_float
+  if ms.Hexadecimal then
+    value = value:gsub('^0[xX]', ''):gsub('^%$', '')
+    check(value:match('^%x+$') and #value <= 8, 'scan value is not a literal uint32 hexadecimal value')
+    bits = tonumber(value, 16)
+  elseif single then
+    local number = tonumber((value:gsub(',', '.')))
+    check(number and number == number and math.abs(number) < math.huge, 'finite literal Float scan value unavailable')
+    bits = string.unpack('<I4', string.pack('<f', number))
+  else
+    check(value:match('^[+-]?%d+$'), 'scan value is not a literal 4 Bytes integer')
+    local number = tonumber(value)
+    check(integer(number, -0x80000000, 0xFFFFFFFF), '4 Bytes scan value out of range')
+    bits = number % 2^32
+  end
+  if single then
+    target_float = string.unpack('<f', string.pack('<I4', bits))
+    check(target_float == target_float and math.abs(target_float) < math.huge, 'nonfinite Float scan value')
+  end
+  return {scan_type='stFirstScan', variable_type=single and 'vtSingle' or 'vtDword',
+    scan_option='soExactValue', scan_value=ms.LastScanValue, hexadecimal=ms.Hexadecimal},
+    {population_mode='full', target_value_pattern=bits, target_value_float=target_float}
+end
+
+local function region_table()
+  local regions = enumMemoryRegions()
+  check(type(regions) == 'table', 'CE enumMemoryRegions did not supply mapping observations')
+  for _, r in ipairs(regions) do
+    check(integer(r.BaseAddress, 0, MAX_ADDR) and integer(r.RegionSize, 1, MAX_ADDR)
+      and integer(r.State, 0, 0xFFFFFFFF) and integer(r.Protect, 0, 0xFFFFFFFF),
+      'CE supplied invalid region metadata')
+  end
+  table.sort(regions, function(a, b) return a.BaseAddress < b.BaseAddress end)
+  return regions
+end
+
+local function region_at(regions, addr)
+  local low, high = 1, #regions
+  while low <= high do
+    local mid = (low + high) // 2
+    local r = regions[mid]
+    if addr < r.BaseAddress then high = mid - 1
+    elseif addr >= r.BaseAddress + r.RegionSize then low = mid + 1
+    else return r end
+  end
+end
+
+local function mapping(r)
+  if not r then return {} end -- Unknown is never invented as unmapped/protect=0.
+  return {base=r.BaseAddress, size=r.RegionSize, state=r.State, protect=r.Protect,
+    allocation_base=r.AllocationBase, kind=r.Type}
+end
+
+local function inaccessible(r)
+  return r and (r.State ~= 0x1000 or (r.Protect & 0x101) ~= 0 or r.Protect == 0)
+end
+
+local function result_file_count(ms)
+  -- CE's NORMAL result file: a 7-byte short-string header followed by native
+  -- CE pointer-sized addresses. FoundList.Count uses this size, not its UI cap.
+  check(type(ms.ScanresultFolder) == 'string' and #ms.ScanresultFolder > 0,
+    'CE completed-result folder unavailable')
+  check(type(cheatEngineIs64Bit) == 'function', 'CE host pointer size unavailable')
+  local wide = cheatEngineIs64Bit()
+  check(type(wide) == 'boolean', 'CE host pointer size unavailable')
+  local f, why = io.open(ms.ScanresultFolder:gsub('[/\\]$', '') .. '/ADDRESSES.TMP', 'rb')
+  check(f, 'CE completed First Scan address file unavailable: ' .. tostring(why))
+  local header, bytes = f:read(7), f:seek('end')
+  local closed = f:close()
+  local width = wide and 8 or 4
+  check(closed and header == '\6NORMAL' and integer(bytes, 7, MAX_ADDR)
+    and (bytes - 7) % width == 0, 'CE completed address file is not a valid NORMAL result')
+  return (bytes - 7) // width
+end
+
+local function capture_ce()
+  for _, name in ipairs({'getCurrentMemscan', 'getOpenedProcessID', 'readInteger', 'enumMemoryRegions'}) do
+    check(type(_G[name]) == 'function', 'CE read-only capability unavailable: ' .. name)
+  end
+  local pid, ms = getOpenedProcessID(), getCurrentMemscan()
+  check(integer(pid, 1, 0xFFFFFFFF), 'no already attached owned-test process')
+  check(ms ~= nil, 'current CE MemScan unavailable')
+  scan_settings(ms)
+  check(type(ms.waitTillDone) == 'function', 'CE MemScan.waitTillDone unavailable')
+  ms.waitTillDone() -- Only joins the existing scan; never starts or refines one.
+  local settings, opts = scan_settings(ms)
+  local fl = ms.FoundList
+  check(fl ~= nil, 'completed CE MemScan.FoundList unavailable')
+  local count = fl.Count
+  -- getProgress().ResultsFound can reset to zero after CE frees scan workers.
+  check(integer(count, 0, MAX_ADDR) and result_file_count(ms) == count,
+    'CE FoundList count does not match the completed scan result')
+  local started = getTickCount()
+  local s = {records={}, authorized_owned=true, permission_disposition='EXPRESSLY_APPROVED',
+    source_category='AUTHORIZED_REPRESENTATIVE_REAL', source_id='CE_PID_' .. tostring(pid),
+    population_basis='INITIAL_SNAPSHOT', acquisition_completeness='UNKNOWN',
+    source_snapshot_status='CE_SEQUENTIAL_READ', expected_source_count=count,
+    evaluation_options=opts, observation_started_utc=os.date('!%Y-%m-%dT%H:%M:%SZ'),
+    ce_capture={process_id=pid, settings=settings, atomic=false, mapping_changes={}}}
+  local function same_source()
+    check(getOpenedProcessID() == pid and getCurrentMemscan() == ms,
+      'CE attachment or selected scan changed during capture')
+  end
+  local function address(index)
+    local raw = fl.Address[index]
+    local addr = type(raw) == 'string' and tonumber(raw, 16) or raw
+    check(integer(addr, 0x21, MAX_ADDR - 0x53), 'CE result address unavailable at index ' .. index)
+    return addr
+  end
+  -- Freeze every source occurrence before any observations; no collector/budget.
+  for index = 0, count - 1 do s.records[index + 1] = {addr=address(index), memory={}, unavailable={}} end
+  same_source()
+  local regions = region_table()
+  for _, r in ipairs(s.records) do
+    same_source()
+    local region = region_at(regions, r.addr)
+    if region then r.mapped, r.protect = region.State == 0x1000, region.Protect end
+    for _, off in ipairs(OFFSETS) do
+      local addr = r.addr + off
+      local ok, word = false, nil
+      if not inaccessible(region_at(regions, addr)) and not inaccessible(region_at(regions, addr + 3)) then
+        ok, word = pcall(readInteger, addr)
+      end
+      if ok and integer(word, -0x80000000, 0xFFFFFFFF) then
+        r.memory[addr] = word % 2^32
+      else r.unavailable[addr] = true end
+    end
+  end
+  same_source()
+  local after = region_table()
+  for index, r in ipairs(s.records) do
+    local before_map, after_map = mapping(region_at(regions, r.addr)), mapping(region_at(after, r.addr))
+    if not same_map(before_map, after_map) then
+      s.ce_capture.mapping_changes[index] = {before=before_map, after=after_map}
+      s.source_error = 'CE candidate mapping changed during capture; see ce_capture.mapping_changes'
+      s.source_snapshot_status = 'INCONSISTENT'
+    end
+    check(address(index - 1) == r.addr, 'CE First Scan membership changed during capture')
+  end
+  same_source()
+  check(fl.Count == count and result_file_count(ms) == count
+    and unchanged(scan_settings(ms), settings), 'CE First Scan settings/count changed during capture')
+  s.observation_finished_utc = os.date('!%Y-%m-%dT%H:%M:%SZ')
+  s.capture_utc = s.observation_finished_utc
+  s.capture_wall_ms = (getTickCount() - started) % 2^32
+  return s
+end
+
+local function ensure_output_directory()
+  -- LuaFileSystem ships with CE (also used by its bundled autosave utility).
+  local ok, fs = pcall(require, 'lfs')
+  if type(fs) ~= 'table' then fs = _G.lfs end
+  check(ok and type(fs) == 'table', 'CE bundled LuaFileSystem unavailable')
+  local path = root .. '/log'
+  if fs.attributes(path, 'mode') ~= 'directory' then
+    local made, why = fs.mkdir(path)
+    check(made, 'cannot create local log directory: ' .. tostring(why))
+  end
+end
+
 function M.export(snapshot, independent_labels)
   check(root ~= nil and (root:match('^%a:/') or root:sub(1, 1) == '/'),
     'load exporter using its absolute repository path')
   check(type(md5file) == 'function' and type(getTickCount) == 'function',
     'CE local-file checksum and wall timer required')
+  local direct = snapshot == nil
+  if direct then
+    ensure_output_directory()
+    snapshot = capture_ce()
+  end
   local start = getTickCount()
   local started_utc = os.date('!%Y-%m-%dT%H:%M:%SZ')
-  -- Copy plain supplied data only. No reader callback, CE FoundList, or target
-  -- object is accepted. Source consistency remains an operator responsibility.
+  -- Retain the existing plain-data serializer internally. The ordinary operator
+  -- entry constructs these records above, without a provider or preparation API.
   check(plain(snapshot), 'plain snapshot required')
   local frozen = copy_data(snapshot, {})
   local frozen_labels
@@ -361,6 +544,13 @@ function M.export(snapshot, independent_labels)
   if not ok then
     if active then pcall(active.close, active) end
     error('EXPORT_FAILED: ' .. tostring(result), 0)
+  end
+  if direct then
+    print(string.format('MVP0 export: %s | occurrences=%d | capture_ms=%d | export_ms=%d\n%s',
+      result.outcome, result.exported_count, snapshot.capture_wall_ms, result.export_wall_ms, result.manifest_path))
+    if result.outcome ~= 'REPLAY_READY' then
+      print('Dataset is not replay-ready; inspect manifest issues and counts. ' .. (snapshot.source_error or ''))
+    end
   end
   return result
 end

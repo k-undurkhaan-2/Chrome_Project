@@ -1,4 +1,7 @@
-"""Manual-export acceptance with controlled tables and local files only."""
+"""Direct CE entry and serializer checks with the existing offline fixtures.
+
+CE APIs below are controlled doubles, not evidence of a live owned-test capture.
+"""
 import hashlib
 import json
 from pathlib import Path
@@ -62,6 +65,186 @@ def snapshot(lua, w, count=3):
         evaluation_options={target_value_pattern=0x42C80000,target_value_float=100.0}}
       return s
     """)
+
+
+@pytest.fixture
+def direct_env(export_env):
+    lua, w, api, path, reload = export_env
+    lua.globals().directory_mode = lambda p: "directory" if Path(p).is_dir() else None
+
+    def mkdir(p):
+        assert Path(p) == path / "log"
+        Path(p).mkdir()
+        return True
+
+    lua.globals().mkdir_local = mkdir
+
+    def save_result(count):
+        folder = path / "ce-results"
+        folder.mkdir(exist_ok=True)
+        (folder / "ADDRESSES.TMP").write_bytes(b"\x06NORMAL" + bytes(count * 8))
+
+    lua.globals().save_result_file = save_result
+    lua.globals().result_folder = (path / "ce-results").as_posix()
+    lua.execute("""
+      package.preload.lfs=function() return {
+        attributes=function(p) return directory_mode(p) end,
+        mkdir=function(p) return mkdir_local(p) end} end
+      ce={pid=1234, words={}, regions={}, reads={}, waits=0, messages={}}
+      ce.fl={Count=0, Address={}}
+      ce.ms={LastScanType='stFirstScan',LastScanWasRegionScan=false,
+        ScanOption='soExactValue',VariableType='vtSingle',LastScanValue='100',
+        Hexadecimal=false,OnlyOneResult=false,IsUnique=false,FoundList=ce.fl,
+        ScanresultFolder=result_folder}
+      ce.ms.waitTillDone=function() ce.waits=ce.waits+1 end
+      ce.ms.getProgress=function() return {ResultsFound=0} end -- CE frees its scan workers
+      cheatEngineIs64Bit=function() return true end
+      ce.save_result=function() save_result_file(ce.fl.Count) end
+      getCurrentMemscan=function() return ce.ms end
+      getOpenedProcessID=function() return ce.pid end
+      enumMemoryRegions=function() return ce.regions end
+      readInteger=function(addr)
+        assert(ce.allowed[addr], 'READ_OUTSIDE_CONTRACT')
+        ce.reads[#ce.reads+1]=addr
+        return ce.words[addr]
+      end
+      print=function(message) ce.messages[#ce.messages+1]=message end
+      function ce.populate()
+        ce.allowed={}
+        for i,o in ipairs(w.objects) do
+          ce.fl.Address[i-1]=string.format('%X',o.addr)
+          ce.regions[i]={BaseAddress=o.addr-0x28,RegionSize=0x100,
+            State=o.mapped and 0x1000 or 0x10000,Protect=o.protect,
+            AllocationBase=0x100000,Type=0x20000}
+          for _,off in ipairs({-0x20,-0x10,-8,0,0x30,0x40,0x48,0x50}) do
+            ce.allowed[o.addr+off]=true
+          end
+          for addr,word in pairs(o.memory) do ce.words[addr]=word end
+        end
+        ce.fl.Count=#w.objects
+        ce.save_result()
+      end
+    """)
+    return lua, w, api, path, reload
+
+
+def test_direct_entry_exports_all_8003_occurrences_without_preparation(direct_env):
+    lua, w, api, path, reload = direct_env
+    records(w, 8002, good=(2,))
+    lua.execute("""
+      ce.populate()
+      ce.fl.Address[8002]=ce.fl.Address[1]; ce.fl.Count=8003; ce.save_result()
+      ce.words[w.objects[3].addr]=0x42280000 -- drift does not remove an occurrence
+      ce.words[w.objects[4].addr-8]=nil -- a real failed lookup remains missing
+      ce.words[w.objects[5].addr-0x20]=-1 -- CE signed DWORD becomes the same uint32 bits
+    """)
+    (path / "log").rmdir()  # no operator output-directory preparation
+    result = api.export()
+    loaded, options, manifest = load_replay(result.manifest_path, lua)
+    assert result.outcome == "REPLAY_READY" and len(loaded) == 8003
+    assert loaded[8003].addr == loaded[2].addr
+    assert loaded[3].memory[loaded[3].addr] == 0x42280000
+    assert loaded[4].memory[loaded[4].addr - 8] is None
+    assert loaded[5].memory[loaded[5].addr - 0x20] == 0xFFFFFFFF
+    assert options.population_mode == "full" and options.target_value_pattern == 0x42C80000
+    assert options.scan_budget is None and options.max_candidates is None
+    assert manifest["counts"]["duplicate_occurrences"] == manifest["counts"]["unavailable_words"] == 1
+    assert manifest["source_snapshot_status"] == "CE_SEQUENTIAL_READ"
+    assert manifest["ce_capture"]["atomic"] is False and manifest["acquisition_completeness"] == "UNKNOWN"
+    assert manifest["capture_wall_ms"] >= 0 and manifest["export_wall_ms"] >= 0
+    assert len(lua.globals().ce.reads) == 8003 * 8
+    assert lua.globals().ce.waits == 1
+    assert result.manifest_path in lua.globals().ce.messages[1]
+    before = Path(result.manifest_path).read_bytes()
+    second = reload().export()
+    assert second.manifest_path != result.manifest_path
+    assert Path(result.manifest_path).read_bytes() == before
+
+
+@pytest.mark.parametrize("entry", ["AC5", "AC6"])
+def test_direct_capture_replays_unchanged_algorithms(direct_env, entry):
+    lua, w, api, _, _ = direct_env
+    records(w, 129, good=(2,))
+    lua.execute("ce.populate()")
+    result = api.export()
+    loaded, options, _ = load_replay(result.manifest_path, lua)
+    if entry == "AC5":
+        evaluate = lambda r: w.load("mvp0_offline_scoring.lua", None).run(r, options, w.load)
+    else:
+        evaluate = lambda r: w.load("mvp0_foundlist_collector.lua", None).run(
+            options, lua.table_from({"records": r, "load_module": w.load}))
+    actual = evaluate(loaded)
+    assert actual.completed and actual.population_complete and actual.counts.ranked == 129
+    assert plain(actual) == plain(evaluate(w.objects))
+
+
+@pytest.mark.parametrize("value,hexadecimal,bits", [
+    ("1120403456", False, 0x42C80000), ("42C80000", True, 0x42C80000), ("-1", False, 0xFFFFFFFF),
+])
+def test_direct_dword_target_comes_from_scan_settings(direct_env, value, hexadecimal, bits):
+    lua, w, api, _, _ = direct_env
+    records(w, 1)
+    lua.execute("ce.populate(); ce.ms.VariableType='vtDword'")
+    lua.globals().ce.ms.LastScanValue = value
+    lua.globals().ce.ms.Hexadecimal = hexadecimal
+    _, options, _ = load_replay(api.export().manifest_path, lua)
+    assert options.target_value_pattern == bits and options.target_value_float is None
+
+
+@pytest.mark.parametrize("mutation,reason", [
+    ("ce.ms.LastScanType='stNextScan'", "First Scan"),
+    ("ce.ms.ScanOption='soUnknownValue'", "Exact Value"),
+    ("ce.ms.VariableType='vtDouble'", "Float or 4 Bytes"),
+    ("ce.ms.Hexadecimal=true", "hexadecimal Float"),
+    ("ce.ms.OnlyOneResult=true", "limited"),
+    ("ce.fl.Count=9000", "count"),
+    ("ce.ms.ScanresultFolder=ce.ms.ScanresultFolder..'/missing'", "address file unavailable"),
+    ("ce.ms.FoundList=nil", "FoundList unavailable"),
+    ("enumMemoryRegions=nil", "capability unavailable: enumMemoryRegions"),
+    ("readInteger=nil", "capability unavailable: readInteger"),
+    ("ce.ms.LastScanValue='value_expression()'", "literal Float"),
+    ("ce.pid=0", "no already attached"),
+    ("local read=readInteger; readInteger=function(a) ce.pid=4321; return read(a) end", "attachment"),
+    ("local read=readInteger; readInteger=function(a) ce.fl.Address[0]='200128'; return read(a) end", "membership"),
+])
+def test_direct_unavailable_or_changed_source_never_delivers_partial_success(direct_env, mutation, reason):
+    lua, w, api, path, _ = direct_env
+    records(w, 3)
+    lua.execute("ce.populate(); " + mutation)
+    with pytest.raises(Exception, match=reason):
+        api.export()
+    assert not list((path / "log").iterdir())
+
+
+@pytest.mark.parametrize("mutation,issue", [
+    ("table.remove(ce.regions,2)", "replay_observations_or_settings_missing"),
+    ("ce.fl.Address[3]=ce.fl.Address[0]; ce.fl.Count=4; ce.save_result(); "
+     "local read=readInteger; readInteger=function(a) local v=read(a); "
+     "if a==w.objects[1].addr then ce.words[a]=7 end; return v end", "conflicting_observations"),
+    ("local calls=0; enumMemoryRegions=function() calls=calls+1; "
+     "if calls==1 then return ce.regions end; "
+     "local t={}; for i,r in ipairs(ce.regions) do local c={}; "
+     "for k,v in pairs(r) do c[k]=v end; t[i]=c end; t[1].Protect=2; return t end", "source_error_reported"),
+])
+def test_direct_incomplete_observations_remain_visible_and_not_replayable(direct_env, mutation, issue):
+    lua, w, api, _, _ = direct_env
+    records(w, 3)
+    lua.execute("ce.populate(); " + mutation)
+    result = api.export()
+    manifest, exported = load_inventory(result.manifest_path)
+    assert result.outcome == "INCOMPLETE" and len(exported) == lua.globals().ce.fl.Count
+    assert manifest["issues"][issue]
+    if issue == "source_error_reported":
+        assert manifest["ce_capture"]["mapping_changes"]["1"]["after"]["protect"] == 2
+    with pytest.raises(ValueError, match="not replay-ready"):
+        load_replay(result.manifest_path, lua)
+
+
+def test_direct_empty_first_scan_is_replayable(direct_env):
+    lua, _, api, _, _ = direct_env
+    lua.execute("ce.populate()")
+    loaded, _, manifest = load_replay(api.export().manifest_path, lua)
+    assert len(loaded) == 0 and manifest["outcome"] == "REPLAY_READY"
 
 
 def test_complete_8003_population_preserves_every_observation_and_occurrence(export_env):

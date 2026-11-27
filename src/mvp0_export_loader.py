@@ -135,7 +135,7 @@ def load_replay(manifest_path, lua):
             or manifest["replay_observations_complete"] is not True
             or manifest["supplied_population_exported"] is not True
             or manifest["population_basis"] != "INITIAL_SNAPSHOT"
-            or manifest["source_snapshot_status"] != "OPERATOR_FROZEN_COPY"
+            or manifest["source_snapshot_status"] not in {"OPERATOR_FROZEN_COPY", "CE_SEQUENTIAL_READ"}
             or manifest["source_unchanged_at_checks"] is not True
             or manifest["permission_disposition"] != "EXPRESSLY_APPROVED"
             or manifest["authorized_owned"] is not True

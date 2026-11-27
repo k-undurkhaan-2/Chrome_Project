@@ -1,200 +1,108 @@
-# Manual first-pass snapshot export
+# Manual CE First Scan export
 
-`src/mvp0_manual_export.lua` exports an **existing, expressly approved frozen
-Lua table** from an operator-owned production application or representative real
-test environment. It accepts the ordinary AC5/AC6 record shape; it has no live
-input adapter. The operator must already possess the original population and
-approved observations before invoking it. No Native MVP Start or ranking batch
-is required. Loading the module is inert; `export` performs local file I/O only.
+Use this utility only with an **expressly authorized, operator-owned test
+application** already attached in CE 7.6. Invoking it declares permission to read
+and export the observations below. Third-party games and unauthorized targets
+are unsupported.
 
-**The existing bounded Single result cannot provide this complete real dataset.**
-The collector's selected addresses and ordinary ranked results are not the
-original population. An existing address-only snapshot can produce an inventory,
-but cannot supply equivalent scoring observations. No complete real snapshot was
-provided or captured during implementation. Full replay-ready real export is
-supported only when the operator already has the complete approved record table
-described below. The exporter cannot manufacture it from bounded results, recover
-discarded observations, or acquire missing data. Artificial tests establish
-implementation behavior only, not real provenance or effectiveness.
+## Run once
 
-## Prepare and invoke once
+1. Finish the ordinary **First Scan** in CE and leave that scan tab selected.
+   Supported input: **Exact Value**, **Float** with a finite decimal literal, or
+   **4 Bytes** with a decimal integer or hexadecimal uint32 literal. Use the
+   existing complete result, before any Next Scan. Unknown-value, range, formula,
+   inverted, OnlyOne/IsUnique, other value types, and hexadecimal Float scans
+   cannot supply this offline contract and receive an explicit error.
+2. Open **Memory View → Tools → Lua Engine** and execute this single line:
 
-Use the research checkout containing this utility. First verify the local output
-area, then create it if absent, from that checkout in PowerShell:
+   ```lua
+   dofile([[D:/armedforces.io-v2/src/mvp0_manual_export.lua]]).export()
+   ```
 
-```powershell
-git check-ignore -v log/manual-export-check.manifest.json
-if ($LASTEXITCODE -ne 0) { throw 'Output area is not ignored' }
-New-Item -ItemType Directory -Path log -Force | Out-Null
+   If the checkout is elsewhere, change only the absolute file path. No prepared
+   records, configuration, Native MVP run, scoring batch, or additional scan is
+   required. The utility creates its checkout's ignored `log/` directory itself
+   using CE's bundled LuaFileSystem; nothing needs installing.
+3. Read the printed **outcome, occurrence count, capture/export times, and
+   manifest path**. `REPLAY_READY` means the frozen dataset satisfies the existing
+   loader. `INCOMPLETE` means inspect the manifest's `issues`, counts, and
+   `source_error`; it is not admitted for replay. `EXPORT_FAILED` reports the
+   unavailable capability or failed operation and is not a delivered dataset.
+
+Use one invocation at a time per checkout, including across CE instances. Leave
+the process attachment and selected scan unchanged until it returns. This is a
+synchronous utility; large populations can take time and memory. It installs no
+timer, worker, telemetry, or background collection.
+
+## What is captured
+
+Every occurrence in the existing `MemScan.FoundList` is retained in source order,
+including duplicates and candidates whose current values no longer match. The
+count is reconciled with CE's completed `ADDRESSES.TMP` file before and after
+capture (the progress counter can reset after scanning). No filtering,
+ranking, sampling, 8000/100 limit, or fallback population is applied during export.
+The already attached process supplies read-only region metadata and eight fixed
+32-bit observation locations per occurrence, at these existing scorer offsets:
+
+```text
+candidate address + {-0x20, -0x10, -8, 0, 0x30, 0x40, 0x48, 0x50}
 ```
 
-Keep this directory local, outside synchronization/upload jobs. Use **one manual
-invocation at a time per output directory**, including across CE instances.
-The writer uses the repository's serialized manual reservation convention, not
-an interprocess lock. Do not delete reservations or mutate input tables while an
-export is running. No background activity is installed.
+Only these word observations and each candidate's mapped/protection observations
+enter the records. No pointer following or arbitrary memory dump is performed.
+Failed/inaccessible reads are explicit `unavailable` words, never fabricated
+zeroes. Unknown mapping metadata remains unknown. Conflicting duplicates or
+overlapping words remain in an incomplete export; observed candidate mapping
+changes are retained in `ce_capture.mapping_changes`. Attachment, membership,
+settings, or count changes abort the export. The utility never attaches, scans,
+injects, changes target memory, or invokes the collector/scorer/writer/Native MVP.
 
-In CE's Lua Engine, run the following with the actual absolute research checkout
-path. `approved_initial_records` must already be a frozen, dense, ordinary Lua
-array supplied by the approved existing data source. This example does not
-create or read target data. Fill the metadata from the source; retain UNKNOWN
-where it is not established. Use the real category only when it is true and the
-data export is expressly authorized:
+**The membership comes from First Scan; the observations are read at export
+time.** CE does not supply historical structural observations from that scan.
+`source_snapshot_status=CE_SEQUENTIAL_READ` and `ce_capture.atomic=false` describe
+this limitation. Reads and mapping checks are sequential; undetected changes
+between checks remain possible. `source_unchanged_at_checks` describes the
+internal frozen table during serialization, not an atomic live process snapshot.
+Complete enumeration of CE's supplied result does not prove complete external
+acquisition; `acquisition_completeness` remains `UNKNOWN`.
 
-```lua
-local exporter = dofile([[D:/path/to/research-checkout/src/mvp0_manual_export.lua]])
-local snapshot = {
-  records=approved_initial_records,
-  authorized_owned=true,
-  permission_disposition='EXPRESSLY_APPROVED',
-  source_category='AUTHORIZED_REPRESENTATIVE_REAL',
-  -- Alternatively AUTHORIZED_REAL_PRODUCTION; ARTIFICIAL_FIXTURE for tests only.
-  population_basis='INITIAL_SNAPSHOT',
-  source_snapshot_status='OPERATOR_FROZEN_COPY',
-  acquisition_completeness='UNKNOWN',
-  source_id='UNKNOWN', configuration_id='UNKNOWN',
-  source_revision='UNKNOWN', algorithm_revision='UNKNOWN',
-  capture_utc='UNKNOWN',
-  observation_started_utc='UNKNOWN', observation_finished_utc='UNKNOWN',
-  -- expected_source_count=<independently established count>, otherwise omit.
-  -- capture_wall_ms=<previously measured acquisition duration>, otherwise omit.
-  evaluation_options=approved_evaluation_options,
-}
-local result = exporter.export(snapshot)
-print(result.outcome, result.dataset_id, result.exported_count, result.manifest_path)
-```
+The target bit pattern is derived from CE's recorded scan value and type, never
+from a potentially changed candidate. Recorded options use full population mode.
+The unchanged offline eligibility predicate still applies during later scoring;
+for Float scans, CE's rounded matches need not all match that exact bit pattern.
+Unknown revisions and independent truth remain `UNKNOWN`.
 
-This authority declaration describes permission for these already acquired data;
-a PID, production origin, prior run, score, or configuration is not permission.
-Source/configuration identifiers and errors stay local. Do not include private
-configuration contents, credentials, unrelated memory, or third-party game data.
+## Local files and later replay
 
-The exporter copies the supplied table and compares it with the source after
-copying and before manifest publication. An observed change produces INCOMPLETE
-with `source_changed_during_export`. These equality checks do not establish an
-atomic snapshot of an external changing application or detect a change undone
-between checks. The supported source is an operator-frozen plain table, not a
-live table, FoundList object, callback, or process reader. Record the original
-observation interval; do not replace it with the export time. Report known source
-errors in `source_error`; unavailable/inconsistent sources can be declared with
-`source_snapshot_status='UNAVAILABLE'` or `'INCONSISTENT'` and remain INCOMPLETE.
+Outputs stay under `D:/armedforces.io-v2/log/` with a unique
+`manual-export-<UTC>-<counter>` prefix. Each invocation writes `.records.jsonl`
+and `.labels.json`, then publishes `.manifest.json` last. Existing files and
+failed `.reserved` names are never reused. A `.pending` file is not success.
+Keep all artifacts local and outside upload/synchronization jobs; never commit
+datasets, private configuration, or logs. MD5 checks detect accidental corruption,
+not authenticity.
 
-## Input and completeness
+The existing `src/mvp0_export_loader.py` accepts the resulting version-1 format:
+`load_replay(manifest_path, lua)` returns `(records, options, manifest)` for the
+existing caller-owned runtime and trusted AC5/AC6 module loader. Pass these to
+AC5 `run(records, options, load_module)` or AC6
+`run(options, {records=records, load_module=load_module})`. The algorithms and
+their resource limits are unchanged. For a bounded comparison, copy the options
+and select `population_mode='bounded'`; reuse the same frozen records.
 
-Every source occurrence occupies its original array position. Duplicates remain
-present. The exporter does not filter, prescore, select, rank, normalize identities,
-or apply count budgets. Sparse arrays and non-data objects fail rather than being
-silently shortened. Each record may contain only:
+Independent labels may be added afterward to `.labels.json`: retain `dataset_id`
+and `records_md5`, set `status='SUPPLIED_INDEPENDENT'`, `independent=true`, and an
+independent `basis`; map original 1-based occurrence indices in `outcomes` to
+`POSITIVE`, `NEGATIVE`, `AMBIGUOUS`, or `UNKNOWN`. Missing labels are not negative.
+The replay loader never opens the label sidecar.
 
-| Field | Preserved meaning |
-| --- | --- |
-| `addr` | Original numeric identity, a positive integer at most `2^53-1`, for replay. Original nonempty string identities are preserved for inventories; they are not converted. Absent/false identities are explicit incomplete occurrences. |
-| `mapped` | Previously observed boolean. Absent means unavailable, never false by default. |
-| `protect` | Previously observed uint32 protection value. Absent is not replaced with zero. |
-| `memory` | Original plain numeric-address-to-uint32 map, required by AC5 even for unmapped records. Only mapped records supply AC5 lookup words. Original associations are preserved. |
-| `unavailable` | Optional numeric-address-to-`true` map declaring words already known to be unavailable. It is exported as evidence and never converted into zero or passed as a scoring feature. |
+`capture_wall_ms` covers enumeration and observation; `export_wall_ms` covers
+freezing, validation, serialization, hashing, and final internal source checks,
+excluding manifest publication. Time offline computation separately around the
+existing AC5/AC6 call, excluding export and loading.
 
-The unchanged scorer uses words at `addr + {-0x20,-0x10,-8,0,0x30,0x40,0x48,0x50}`.
-Approved word maps may retain overlapping associations within this supplied
-population. Words outside those contract locations are rejected, not silently
-dropped. For a mapped record, each required lookup must be available among the
-original mapped word maps or explicitly declared unavailable for that occurrence.
-Only declare known original missingness: an unobserved/unknown gap must stay
-incomplete. AC5's per-record eligibility and global lookup semantics remain
-unchanged. Conflicting duplicates or words are preserved in an INCOMPLETE export.
-
-`evaluation_options` uses the [unchanged AC5/AC6 options](algorithm_a_offline_scoring.md):
-required uint32 `target_value_pattern`, optional finite `target_value_float`,
-`session_id`, `filter_target_match=true`, `use_prescore_selection=true`, and the
-existing explicit population mode/budgets when supplied. No truth or live settings
-are accepted. Missing settings produce an inventory/incomplete export. Valid
-bounded options are recorded but never limit export enumeration.
-
-| Outcome | Meaning |
-| --- | --- |
-| REPLAY_READY | Entire supplied initial population exported, source table unchanged at checks, replay observations/settings reconciled, including explicit legitimate missing-word semantics. A known complete empty input can be replay-ready and evaluate to EMPTY. |
-| ADDRESS_ONLY | Entire supplied identity inventory exported, without sufficient scoring observations. Does not satisfy the replay dataset requirement. |
-| INCOMPLETE | Source/count/identity inconsistency, non-initial or unknown population basis, missing/contradictory observations/settings, unknown source category, source error, or source change. Inspect manifest `issues` and counts. |
-| FAILED | Invalid input, I/O failure, interruption or resource exhaustion; no successful return or published manifest for that attempt. Reservations and partial files remain diagnostic only. |
-
-`inventory_complete` concerns the supplied identity inventory and count
-reconciliation. `acquisition_completeness` is independently UNKNOWN,
-SUPPLIER_ASSERTED_COMPLETE, or INCOMPLETE; a matching source count never proves
-external completeness. `population_basis` must truthfully be INITIAL_SNAPSHOT
-for replay readiness; BOUNDED_OR_FILTERED and UNKNOWN remain INCOMPLETE.
-REPLAY_READY does not establish actual provenance, independent truth, accuracy,
-or permission for any subsequent operation.
-
-## Local artifacts and independent labels
-
-Files go to the utility's own checkout `log/`, with a unique
-`manual-export-<UTC>-<counter>` prefix. Existing files and failed reservations are
-not reused. Each successful invocation publishes `.manifest.json` last, after
-closing `.records.jsonl` and `.labels.json`. `.manifest.pending` and `.reserved`
-alone are not successful datasets. Repeated invocations and module reloads choose
-unused names. JSONL has one record per occurrence; numeric map keys are decimal
-JSON keys and are restored exactly by the loader. Files are data, never Lua code.
-
-The manifest includes version, provenance/permission, source and export intervals,
-counts, issues, options, revisions or UNKNOWN, file identity, byte count and MD5.
-The CE built-in `md5file` reads only the frozen local file. MD5 detects accidental
-corruption; it does not authenticate data or provenance. The loader checks the
-file identity/hash/size, counts and replay observations independently. These APIs
-are documented in the [CE Lua reference](https://wiki.cheatengine.org/index.php?title=Lua).
-
-Default labels are an empty `outcomes` object with status UNKNOWN. If independent
-labels already exist, supply a separate optional second argument:
-
-```lua
-local result = exporter.export(snapshot, {
-  independent=true, basis=approved_independent_label_basis,
-  outcomes=approved_occurrence_labels,
-})
-```
-
-`outcomes` maps original **1-based occurrence indices** to POSITIVE, NEGATIVE,
-AMBIGUOUS, or UNKNOWN. The operator must supply an independent basis, not the
-scorer's result. The sidecar binds labels to `dataset_id` and `records_md5`.
-Later local annotation must retain those identities and the original occurrence
-indices. Absent/UNKNOWN labels are never negative. Labels do not influence export
-membership or replay readiness; the replay loader never opens the label file.
-
-## Offline replay and targeted checks
-
-Use `src/mvp0_export_loader.py` with the existing caller-owned Lua runtime.
-`load_inventory(path)` verifies all exported occurrences for inspection;
-`load_replay(path, lua)` admits REPLAY_READY only and returns
-`(records, options, manifest)`. No code from a dataset is executed. The latter
-passes only `addr`, `mapped`, `protect`, and `memory` to the unchanged scorer.
-
-For bounded/full comparison, load the file once, keep those records frozen, and
-copy the recorded options separately for each call. Set
-`population_mode='bounded'` explicitly for the bounded call. For the full call,
-set `population_mode='full'` and **remove both** `scan_budget` and `max_candidates`.
-Call the existing raw AC5 `run(records, options, load_module)` or AC6
-`run(options, {records=records, load_module=load_module})` with the existing trusted
-repository loader. Retain the runtime allocator and worker resource limits.
-Errors/cancellations are unsuccessful, without partial success or fallback.
-
-`export_wall_ms` covers entry, copying, validation, local serialization, checksum,
-labels and final source check; it excludes manifest serialization/publication.
-`records.bytes` measures JSONL payload; `output_bytes_excluding_manifest` and the
-returned `output_bytes` identify the other size boundaries. Capture wall time is
-only a supplied observation or UNKNOWN. Time each later AC5/AC6 call separately
-around the call, including collection/scoring/reporting, excluding module setup,
-data loading, export, truth analysis and Python conversion of the returned result.
-Retain mode, coverage counts, truth availability, results, timer boundaries and
-the existing worker resource measurements with that local evaluation. No native
-end-to-end performance or independent accuracy follows from repeated fixture runs.
-
-From the research checkout, after checking/creating ignored `log/` as above:
-
-```powershell
-.venv/Scripts/python.exe -B -m pytest -q tests/test_manual_export.py tests/test_offline_full_population.py tests/test_offline_collector_interface.py --basetemp=log/manual-export-verification
-```
-
-Use a fresh unused basetemp name to retain prior evidence. The focused suite uses
-the existing Lua 5.3/5.4 fixtures and allocator limit, including 8,003 source
-occurrences, bounded/full parity, source changes, failures, duplicate/missing/empty
-inputs, independent labels and forbidden target/shell API doubles. It does not
-start CE, acquire real data, change scoring, or schedule a real capture.
+Implementation checks use the existing Lua 5.3/5.4 tests and controlled CE API
+doubles, including direct no-argument export and AC5/AC6 replay. They do not prove
+a live CE capture: no running owned-test CE session was available during this
+correction. API behavior was checked against the installed CE reference and the
+[official CE source](https://github.com/cheat-engine/cheat-engine/tree/master/Cheat%20Engine).
