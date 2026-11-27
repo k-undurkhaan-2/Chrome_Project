@@ -1,0 +1,189 @@
+{
+  "planned": 3,
+  "computed": 2,
+  "repeats": 1,
+  "input_preservation": true,
+  "sessions": [
+    {
+      "dataset": "D06",
+      "supplied": 8832,
+      "original_outcome": "INCOMPLETE",
+      "completed": true,
+      "route": "conditional_frozen_tables",
+      "ordinary_replay_rejection": "export is not replay-ready",
+      "lua_mib_at_return": 123.30192852020264,
+      "counts": {
+        "fully_scored": 7255,
+        "ranked": 7255,
+        "eligible": 7255,
+        "supplied": 8832,
+        "selected": 7255,
+        "duplicates": 0,
+        "excluded": 1577,
+        "distinct": 8832
+      },
+      "timing_ms": {
+        "baseline": [
+          890.3067000210285
+        ],
+        "extraction": [
+          77.64970004791394
+        ],
+        "alternatives": {
+          "contrast_1": [
+            16.453699965495616
+          ]
+        }
+      },
+      "reference_member": true,
+      "reference_eligible": true,
+      "metrics": {
+        "baseline": {
+          "rank": 2,
+          "top1": false,
+          "top3": true,
+          "unique_highest": false,
+          "strictly_above": 1,
+          "equal_interval": [
+            2,
+            3
+          ],
+          "midrank": 2.5,
+          "leading_tie": 1,
+          "separation": 0.999793217535153,
+          "margin_to_best": -3,
+          "margin_to_median": 41.0
+        },
+        "contrast_1": {
+          "rank": 2,
+          "top1": false,
+          "top3": true,
+          "unique_highest": false,
+          "strictly_above": 1,
+          "equal_interval": [
+            2,
+            2
+          ],
+          "midrank": 2.0,
+          "leading_tie": 1,
+          "separation": 0.9998621450234354,
+          "margin_to_best": -2.9744620111153353,
+          "margin_to_median": 41.053783347778655
+        }
+      }
+    },
+    {
+      "dataset": "D07",
+      "supplied": 15590,
+      "original_outcome": "INCOMPLETE",
+      "completed": false,
+      "error": "conflicting observation word"
+    },
+    {
+      "dataset": "D08",
+      "supplied": 11027,
+      "original_outcome": "REPLAY_READY",
+      "completed": true,
+      "route": "ordinary_replay",
+      "lua_mib_at_return": 144.63072109222412,
+      "counts": {
+        "supplied": 11027,
+        "ranked": 8588,
+        "duplicates": 0,
+        "fully_scored": 8588,
+        "excluded": 2439,
+        "selected": 8588,
+        "distinct": 11027,
+        "eligible": 8588
+      },
+      "timing_ms": {
+        "baseline": [
+          997.690100048203
+        ],
+        "extraction": [
+          87.80069998465478
+        ],
+        "alternatives": {
+          "contrast_1": [
+            19.083700026385486
+          ]
+        }
+      },
+      "reference_member": true,
+      "reference_eligible": true,
+      "metrics": {
+        "baseline": {
+          "rank": 3,
+          "top1": false,
+          "top3": true,
+          "unique_highest": false,
+          "strictly_above": 2,
+          "equal_interval": [
+            3,
+            5
+          ],
+          "midrank": 4.0,
+          "leading_tie": 1,
+          "separation": 0.9996506346803308,
+          "margin_to_best": -3,
+          "margin_to_median": 41
+        },
+        "contrast_1": {
+          "rank": 3,
+          "top1": false,
+          "top3": true,
+          "unique_highest": false,
+          "strictly_above": 2,
+          "equal_interval": [
+            3,
+            3
+          ],
+          "midrank": 3.0,
+          "leading_tie": 1,
+          "separation": 0.9997670897868871,
+          "margin_to_best": -2.6805993512532424,
+          "margin_to_median": 41.34752437520335
+        }
+      }
+    }
+  ],
+  "summary": {
+    "baseline": {
+      "planned": 3,
+      "evaluated": 2,
+      "top1": 0,
+      "top3": 2,
+      "unique": 0,
+      "mean_midrank": 3.25,
+      "mean_separation": 0.9997219261077419,
+      "ranks": [
+        2,
+        3
+      ],
+      "midranks": [
+        2.5,
+        4.0
+      ]
+    },
+    "contrast_1": {
+      "planned": 3,
+      "evaluated": 2,
+      "top1": 0,
+      "top3": 2,
+      "unique": 0,
+      "mean_midrank": 2.5,
+      "mean_separation": 0.9998146174051612,
+      "ranks": [
+        2,
+        3
+      ],
+      "midranks": [
+        2.0,
+        3.0
+      ]
+    }
+  },
+  "candidate_freeze_commit": "294dd33",
+  "group": "validation",
+  "evaluation_number": 1
+}
