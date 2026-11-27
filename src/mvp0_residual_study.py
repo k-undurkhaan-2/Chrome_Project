@@ -20,6 +20,7 @@ from mvp0_residual_rank import (
     COMPONENTS, features, leaders, predict, _statistics, _fit_statistics,
 )
 from mvp0_moment_rank import _moment_statistics, _fit_moments, predict_moments
+from mvp0_choice_rank import _choice_statistics, _fit_choice, predict_choice
 
 ROOT = Path(__file__).resolve().parents[1]
 FIELDS = ('f08', 'f18', 'f20', 'f58', 'f68', 'f70', 'f78')
@@ -30,6 +31,10 @@ SPECS = [('baseline', None, None), ('contrast', None, None)] + [
 MOMENT_SPECS = [('baseline', None, None), ('contrast', None, None)] + [
     (f'{variance}_{amplitude:g}', variance, amplitude)
     for variance in ('shared', 'shrunk') for amplitude in (0.25, 1.0, 4.0)
+]
+CHOICE_SPECS = [('baseline', None, None), ('contrast', None, None)] + [
+    (f'{representation}_{ridge:g}', representation, ridge)
+    for representation in ('linear', 'quadratic') for ridge in (10.0, 1.0, 0.1)
 ]
 
 
@@ -146,12 +151,15 @@ def cross_validate(populations, family='residual'):
     built from an explicit training-name tuple excluding its test session.
     Nested selection also excludes the outer session from every inner model.
     """
-    if family not in ('residual', 'moments'):
+    if family not in ('residual', 'moments', 'choice'):
         raise ValueError('unknown model family')
     specs = SPECS if family == 'residual' else MOMENT_SPECS
     make_statistics = _statistics if family == 'residual' else _moment_statistics
     fit_model = _fit_statistics if family == 'residual' else _fit_moments
     predict_model = predict if family == 'residual' else predict_moments
+    if family == 'choice':
+        specs, make_statistics, fit_model, predict_model = (
+            CHOICE_SPECS, _choice_statistics, _fit_choice, predict_choice)
     names = tuple(sorted(populations))
     if len(names) < 3:
         raise ValueError('at least three computed training sessions required')
@@ -181,6 +189,9 @@ def cross_validate(populations, family='residual'):
         prediction_ms = (perf_counter() - start) * 1000
         result = metrics(scores, p['reference'])
         result.update(training_sessions=list(train), fit_ms=fit_ms, prediction_ms=prediction_ms)
+        if family == 'choice' and spec[0] not in ('baseline', 'contrast'):
+            result.update(converged=model['converged'], iterations=model['iterations'],
+                          gradient_max=model['gradient_max'])
         cache[key] = result
         return result
 
