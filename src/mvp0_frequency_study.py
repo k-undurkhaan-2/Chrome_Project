@@ -19,6 +19,7 @@ from lupa.lua54 import LuaRuntime
 from mvp0_export_loader import load_inventory, load_replay, _check_replay_records
 from mvp0_frequency_rank import novelty, combine
 from mvp0_geometry_rank import geometry
+from mvp0_ordinal_rank import refine_clones
 
 ROOT = Path(__file__).resolve().parents[1]
 FIELDS = ('f08', 'f18', 'f20', 'f58', 'f68', 'f70', 'f78')
@@ -117,12 +118,23 @@ def evaluate(manifests, mapping_path, models=None, repeats=1):
                     identities = [r.candidate.value_addr for r in ranked]
                     words = [tuple(r.candidate[k] for k in FIELDS) for r in ranked]
                     base = [r.final_score for r in ranked]
+                    clone_data = None
+                    if any(str(v[0]).startswith('ordinal') for v in models.values()):
+                        clone_data = ([r.clone_family_id for r in ranked],
+                                      [r.local_features.advanced_layout.pointer_alignment_count for r in ranked],
+                                      [r.clone_penalty for r in ranked])
                     extraction_times.append((perf_counter() - start) * 1000)
                     predicted = {'baseline': base}
                     for key, (order, amplitude) in models.items():
                         start = perf_counter()
-                        extra = geometry(words, order) if isinstance(order, str) else novelty(words, order)
-                        predicted[key] = combine(base, extra, amplitude)
+                        if str(order).startswith('ordinal'):
+                            delta = refine_clones(words, *clone_data)
+                            newbase = [score + change for score, change in zip(base, delta)]
+                            predicted[key] = newbase if order == 'ordinal' else combine(
+                                newbase, geometry(words, order.removeprefix('ordinal_')), amplitude)
+                        else:
+                            extra = geometry(words, order) if isinstance(order, str) else novelty(words, order)
+                            predicted[key] = combine(base, extra, amplitude)
                         model_times[key].append((perf_counter() - start) * 1000)
                     if last is not None:
                         assert last == predicted
