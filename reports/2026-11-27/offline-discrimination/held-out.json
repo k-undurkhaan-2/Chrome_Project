@@ -1,0 +1,117 @@
+{
+  "planned": 2,
+  "computed": 1,
+  "repeats": 1,
+  "input_preservation": true,
+  "sessions": [
+    {
+      "dataset": "D09",
+      "supplied": 10227,
+      "original_outcome": "REPLAY_READY",
+      "completed": true,
+      "route": "ordinary_replay",
+      "lua_mib_at_return": 129.6823959350586,
+      "counts": {
+        "eligible": 7728,
+        "supplied": 10227,
+        "fully_scored": 7728,
+        "ranked": 7728,
+        "duplicates": 0,
+        "selected": 7728,
+        "excluded": 2499,
+        "distinct": 10227
+      },
+      "timing_ms": {
+        "baseline": [
+          979.6121999970637
+        ],
+        "extraction": [
+          80.71629999903962
+        ],
+        "alternatives": {
+          "contrast_1": [
+            18.874700006563216
+          ]
+        }
+      },
+      "reference_member": true,
+      "reference_eligible": true,
+      "metrics": {
+        "baseline": {
+          "rank": 5,
+          "top1": false,
+          "top3": false,
+          "unique_highest": false,
+          "strictly_above": 3,
+          "equal_interval": [
+            4,
+            6
+          ],
+          "midrank": 5.0,
+          "leading_tie": 1,
+          "separation": 0.9994823346706354,
+          "margin_to_best": -5,
+          "margin_to_median": 41
+        },
+        "contrast_1": {
+          "rank": 4,
+          "top1": false,
+          "top3": false,
+          "unique_highest": false,
+          "strictly_above": 3,
+          "equal_interval": [
+            4,
+            4
+          ],
+          "midrank": 4.0,
+          "leading_tie": 1,
+          "separation": 0.9996117510029766,
+          "margin_to_best": -5.2322372269761885,
+          "margin_to_median": 41.05978780370432
+        }
+      }
+    },
+    {
+      "dataset": "D10",
+      "supplied": 9976,
+      "original_outcome": "INCOMPLETE",
+      "completed": false,
+      "error": "conflicting observation word"
+    }
+  ],
+  "summary": {
+    "baseline": {
+      "planned": 2,
+      "evaluated": 1,
+      "top1": 0,
+      "top3": 0,
+      "unique": 0,
+      "mean_midrank": 5.0,
+      "mean_separation": 0.9994823346706354,
+      "ranks": [
+        5
+      ],
+      "midranks": [
+        5.0
+      ]
+    },
+    "contrast_1": {
+      "planned": 2,
+      "evaluated": 1,
+      "top1": 0,
+      "top3": 0,
+      "unique": 0,
+      "mean_midrank": 4.0,
+      "mean_separation": 0.9996117510029766,
+      "ranks": [
+        4
+      ],
+      "midranks": [
+        4.0
+      ]
+    }
+  },
+  "candidate_freeze_commit": "294dd33",
+  "group": "held_out",
+  "evaluation_number": 1
+}
